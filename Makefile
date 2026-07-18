@@ -25,19 +25,19 @@ logs: ## 📜 Segue os logs da infra local
 
 migrate: ## 🧱 Roda as migrations do Drizzle
 	@echo "🧱 Rodando migrations ($(ENV))..."
-	@cd apps/api-quickcart && bun --env-file ../../$(ENV_FILE) run db:migrate
+	@cd apps/api-quickcart && bun --env-file=../../$(ENV_FILE) run db:migrate
 
 seed: ## 🌱 Popula o catálogo via use-cases (nunca INSERT bruto)
 	@echo "🌱 Rodando seeds ($(ENV))..."
-	@cd apps/api-quickcart && bun --env-file ../../$(ENV_FILE) run db:seed
+	@cd apps/api-quickcart && bun --env-file=../../$(ENV_FILE) run db:seed
 
-dev-api: ## 🔌 Sobe a api-quickcart em modo dev
+dev-api: ## 🔌 Sobe a api-quickcart em modo dev (Node — uWebSockets.js é addon V8 clássico, incompatível com o loader de addons do Bun)
 	@echo "🔌 Iniciando api-quickcart..."
-	@cd apps/api-quickcart && bun --env-file ../../$(ENV_FILE) --hot run src/index.ts
+	@cd apps/api-quickcart && node --env-file=../../$(ENV_FILE) --import tsx --watch src/index.ts
 
 dev-worker: ## ⚙️ Sobe o worker-quickcart em modo dev
 	@echo "⚙️ Iniciando worker-quickcart..."
-	@cd apps/worker-quickcart && bun --env-file ../../$(ENV_FILE) --hot run src/index.ts
+	@cd apps/worker-quickcart && bun --env-file=../../$(ENV_FILE) --hot run src/index.ts
 
 dev-web: ## 🖥️ Sobe o frontend-web em modo dev
 	@echo "🖥️ Iniciando frontend-web..."
@@ -48,4 +48,4 @@ test-msg: ## 💬 Simula um webhook Meta local (MSG="..." TEL=...)
 
 validate: ## ✅ Typecheck + testes de todos os apps
 	@echo "✅ Validando api-quickcart..."
-	@cd apps/api-quickcart && bunx tsc --noEmit && bun --env-file ../../envs/env.test test
+	@cd apps/api-quickcart && bunx tsc --noEmit && bun --env-file=../../envs/env.test test

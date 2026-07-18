@@ -18,7 +18,7 @@ Requisito nº 1 do produto: **velocidade de atendimento**.
 
 | Camada | Tecnologia |
 |---|---|
-| Runtime | Bun (dev) / Node 22 (runtime Railway) |
+| Runtime | Bun (install/typecheck/test/build) / **Node 22 executa o processo HTTP** (dev local e Railway) — `uWebSockets.js` é addon V8 clássico (não N-API) e o loader de addons do Bun não o carrega; `make dev-api` roda via `node --import tsx --watch` (ver `.nvmrc`) |
 | API | uWebSockets.js + Router próprio (envelope `{ data }` / `{ error: { code, message } }`) |
 | Banco | PostgreSQL + Drizzle ORM (extensões `pg_trgm`, `unaccent`) |
 | Filas | BullMQ sobre Redis (Redis já necessário p/ idempotência do webhook) |
@@ -65,6 +65,9 @@ Diferença: lá o fluxo conversacional fica no n8n; **aqui o motor de conversa v
 
 ## Comandos
 
+> Pré-requisito local: `nvm use` (Node 22, ver `.nvmrc`) antes de `make dev-api`/`dev-worker` —
+> o processo HTTP roda em Node, não em Bun (ver tabela de Stack acima).
+
 ```bash
 make up          # sobe postgres + redis + wiremock
 make migrate     # drizzle migrations
@@ -94,7 +97,7 @@ make validate    # typecheck + testes de todos os apps
 
 - [x] Especificação completa (`.specs/features/mvp/`)
 - [x] Fase 0 — scaffolding
-- [ ] Fase 1 — infra API
+- [x] Fase 1 — infra API
 - [ ] Fase 2 — catálogo + busca
 - [ ] Fase 3 — webhook + WhatsAppSender
 - [ ] Fase 4 — motor de conversa + matcher
