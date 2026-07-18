@@ -44,12 +44,12 @@
 ## Fase 3 — Webhook Meta + WhatsAppSender + transcript
 > 🤖 Modelo: `sonnet`
 
-- [ ] T3.1 Schemas `customers`, `conversation_sessions`, `messages` + migration
-- [ ] T3.2 Módulo `Webhook` espelhando a referência (spec §5): GET verify timing-safe, POST com HMAC + idempotência Redis, parse tipado (text/audio/button_reply/list_reply/statuses), resposta sempre 200
-- [ ] T3.3 `WhatsAppSender` (spec §5) com modo mock dev; instanciado no container com `WHATSAPP_BASE_URL` apontável p/ wiremock
-- [ ] T3.4 Persistência de transcript (inbound no webhook, outbound no sender) + upsert de `customers`/`conversation_sessions` por telefone
-- [ ] T3.5 `make test-msg MSG="..." TEL=...` — script que monta payload Meta assinado (HMAC de dev) e faz POST no webhook local
-- [ ] T3.6 Testes: verify GET, HMAC inválido → 401 antes de tocar use-case, duplicata → ignorada
+- [x] T3.1 Schemas `customers`, `conversation_sessions`, `messages` + migration
+- [x] T3.2 Módulo `Webhook` espelhando a referência (spec §5): GET verify timing-safe, POST com HMAC + idempotência Redis, parse tipado (text/audio/button_reply/list_reply/statuses), resposta sempre 200
+- [x] T3.3 `WhatsAppSender` (spec §5) com modo mock dev; instanciado no container com `WHATSAPP_BASE_URL` apontável p/ wiremock
+- [x] T3.4 Persistência de transcript (inbound no webhook, outbound no sender) + upsert de `customers`/`conversation_sessions` por telefone
+- [x] T3.5 `make test-msg MSG="..." TEL=...` — script que monta payload Meta assinado (HMAC de dev) e faz POST no webhook local
+- [x] T3.6 Testes: verify GET, HMAC inválido → 401 antes de tocar use-case, duplicata → ignorada
 
 **Aceite:** `make test-msg MSG="oi"` cria customer, sessão e mensagem no banco (verificável via psql) e loga envio mock.
 

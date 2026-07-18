@@ -6,13 +6,16 @@
  * strictly prohibited without prior written permission from Ada Technology.
  *
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
- *
- * Barrel de schemas Drizzle. Tabelas de catálogo entram na Fase 2; webhook/conversa
- * entram na Fase 3; carts/orders entram nas fases seguintes.
  */
 
-export * from './categories'
-export * from './products'
-export * from './customers'
-export * from './conversation-sessions'
-export * from './messages'
+import type { Customer } from '@/infra/database/schema'
+
+export type UpsertCustomerByPhoneParams = {
+  readonly phone: string
+  readonly name?: string | undefined
+}
+
+export interface CustomerRepositoryInterface {
+  findByPhone(phone: string): Promise<Customer | undefined>
+  upsertByPhone(params: UpsertCustomerByPhoneParams): Promise<Customer>
+}

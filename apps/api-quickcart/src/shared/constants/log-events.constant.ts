@@ -23,6 +23,20 @@ export const LOG_EVENTS = {
   RESPONSE_OK: 'response_ok',
   RESPONSE_ERROR: 'response_error',
   RESPONSE_UNHANDLED: 'response_unhandled',
+
+  // Webhook Meta (WhatsApp)
+  WEBHOOK_VERIFY_START: 'webhook_verify_start',
+  WEBHOOK_VERIFY_OK: 'webhook_verify_ok',
+  WEBHOOK_VERIFY_FAILED: 'webhook_verify_failed',
+  WEBHOOK_RECEIVED: 'webhook_received',
+  WEBHOOK_INVALID_SIGNATURE: 'webhook_invalid_signature',
+  WEBHOOK_DUPLICATE_IGNORED: 'webhook_duplicate_ignored',
+  WEBHOOK_PROCESSED: 'webhook_processed',
+  WEBHOOK_PROCESSING_ERROR: 'webhook_processing_error',
+
+  // WhatsApp sender
+  WHATSAPP_SEND_MOCK: 'whatsapp_send_mock',
+  WHATSAPP_SEND_FAILED: 'whatsapp_send_failed',
 } as const
 
 export type LogEvent = (typeof LOG_EVENTS)[keyof typeof LOG_EVENTS]

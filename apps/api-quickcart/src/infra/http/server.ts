@@ -17,6 +17,7 @@ import { Router } from './router'
 import { container } from '@/infra/container'
 import { registerHealthRoutes } from '@/modules/health/infra/http/HealthRoutes'
 import { registerCatalogRoutes } from '@/modules/catalog/infra/http/CatalogRoutes'
+import { registerWebhookRoutes } from '@/modules/webhook/infra/http/WebhookRoutes'
 
 export function createServer(): TemplatedApp {
   const app = App()
@@ -30,6 +31,7 @@ export function createServer(): TemplatedApp {
     categoryController: container.catalog.categoryController,
     productController: container.catalog.productController,
   })
+  registerWebhookRoutes({ router, webhookController: container.webhook.controller })
 
   router.registerNotFoundHandler()
 

@@ -36,10 +36,12 @@ export type ParsedRequest = {
   readonly headers: Record<string, string>
   readonly params: readonly string[]
   readonly body: unknown
+  readonly rawBody: Buffer
 }
 
 export type ResponseHelper = {
   json(statusCode: number, payload: unknown, extraHeaders?: Record<string, string>): void
+  text(statusCode: number, body: string): void
   error(error: unknown): void
 }
 
@@ -72,7 +74,12 @@ function extractParams(req: HttpRequest, pattern: string): readonly string[] {
   return params
 }
 
-function readBody(res: HttpResponse, isAborted: () => boolean): Promise<unknown> {
+type RawBody = {
+  readonly raw: Buffer
+  readonly parsed: unknown
+}
+
+function readBody(res: HttpResponse, isAborted: () => boolean): Promise<RawBody> {
   return new Promise((resolve, reject) => {
     let buffer = Buffer.alloc(0)
 
@@ -87,11 +94,11 @@ function readBody(res: HttpResponse, isAborted: () => boolean): Promise<unknown>
       clearTimeout(timeoutId)
       if (isAborted()) return
       if (buffer.length === 0) {
-        resolve(undefined)
+        resolve({ raw: buffer, parsed: undefined })
         return
       }
       try {
-        resolve(JSON.parse(buffer.toString('utf-8')))
+        resolve({ raw: buffer, parsed: JSON.parse(buffer.toString('utf-8')) })
       } catch {
         reject(new AppError('Invalid JSON body', 400, INVALID_JSON_BODY))
       }
@@ -127,6 +134,15 @@ function buildResponseHelper(params: {
     })
   }
 
+  function text(statusCode: number, body: string): void {
+    if (isAborted()) return
+    res.cork(() => {
+      res.writeStatus(String(statusCode))
+      res.writeHeader('Content-Type', 'text/plain')
+      res.end(body)
+    })
+  }
+
   function error(caughtError: unknown): void {
     if (!(caughtError instanceof AppError)) {
       json(500, { error: { code: INTERNAL_ERROR, message: 'Internal server error' } })
@@ -141,7 +157,7 @@ function buildResponseHelper(params: {
     json(caughtError.statusCode, buildErrorPayload(caughtError))
   }
 
-  return { json, error }
+  return { json, text, error }
 }
 
 function logErrorAndReport(params: {
@@ -220,8 +236,10 @@ export class Router {
       runWithContext(async () => {
         httpLog.debug(LOG_EVENTS.REQUEST, { method: requestMethod, url })
         try {
-          const body = expectsBody ? await readBody(res, () => aborted) : undefined
-          await handler({ method: requestMethod, url, query, headers, params, body }, responseHelper)
+          const { raw: rawBody, parsed: body } = expectsBody
+            ? await readBody(res, () => aborted)
+            : { raw: Buffer.alloc(0), parsed: undefined }
+          await handler({ method: requestMethod, url, query, headers, params, body, rawBody }, responseHelper)
         } catch (caughtError) {
           logErrorAndReport({ method: requestMethod, url, durationMs: Date.now() - startedAt, error: caughtError })
           responseHelper.error(caughtError)

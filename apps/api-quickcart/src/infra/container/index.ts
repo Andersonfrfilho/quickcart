@@ -26,6 +26,13 @@ import { SearchProductsUseCase } from '@/modules/catalog/application/use-cases/S
 import { UpdateProductUseCase } from '@/modules/catalog/application/use-cases/UpdateProduct.use-case'
 import { CategoryController } from '@/modules/catalog/infra/http/Category.controller'
 import { ProductController } from '@/modules/catalog/infra/http/Product.controller'
+import { RedisProvider } from '@/infra/redis/RedisProvider'
+import { DrizzleCustomerRepository } from '@/modules/webhook/infra/database/DrizzleCustomerRepository'
+import { DrizzleConversationSessionRepository } from '@/modules/webhook/infra/database/DrizzleConversationSessionRepository'
+import { DrizzleMessageRepository } from '@/modules/webhook/infra/database/DrizzleMessageRepository'
+import { ReceiveWhatsAppWebhookUseCase } from '@/modules/webhook/application/use-cases/ReceiveWhatsAppWebhook.use-case'
+import { WebhookController } from '@/modules/webhook/infra/http/Webhook.controller'
+import { WhatsAppSender } from '@/modules/webhook/infra/whatsapp/WhatsAppSender'
 
 type HealthModule = {
   readonly controller: HealthController
@@ -69,7 +76,32 @@ function buildCatalogModule(): CatalogModule {
   return { categoryController, productController }
 }
 
+type WebhookModule = {
+  readonly controller: WebhookController
+  readonly whatsAppSender: WhatsAppSender
+}
+
+function buildWebhookModule(): WebhookModule {
+  const cacheProvider = new RedisProvider()
+  const customerRepository = new DrizzleCustomerRepository()
+  const conversationSessionRepository = new DrizzleConversationSessionRepository()
+  const messageRepository = new DrizzleMessageRepository()
+
+  const receiveWhatsAppWebhookUseCase = new ReceiveWhatsAppWebhookUseCase({
+    cacheProvider,
+    customerRepository,
+    conversationSessionRepository,
+    messageRepository,
+  })
+
+  const controller = new WebhookController({ receiveWhatsAppWebhookUseCase })
+  const whatsAppSender = new WhatsAppSender({ messageRepository, conversationSessionRepository })
+
+  return { controller, whatsAppSender }
+}
+
 export const container = {
   health: buildHealthModule(),
   catalog: buildCatalogModule(),
+  webhook: buildWebhookModule(),
 }
