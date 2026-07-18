@@ -93,7 +93,7 @@ make validate    # typecheck + testes de todos os apps
 ## Estado atual
 
 - [x] Especificação completa (`.specs/features/mvp/`)
-- [ ] Fase 0 — scaffolding
+- [x] Fase 0 — scaffolding
 - [ ] Fase 1 — infra API
 - [ ] Fase 2 — catálogo + busca
 - [ ] Fase 3 — webhook + WhatsAppSender

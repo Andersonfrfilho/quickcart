@@ -1,0 +1,13 @@
+{
+  "name": "quickcart",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "typecheck:api": "cd apps/api-quickcart && bun run typecheck",
+    "test:api": "cd apps/api-quickcart && bun run test"
+  }
+}

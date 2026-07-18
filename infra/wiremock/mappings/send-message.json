@@ -1,0 +1,12 @@
+{
+  "request": {
+    "method": "POST",
+    "urlPathPattern": "/v[0-9]+\\.[0-9]+/.*/messages"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "body": "{\"messaging_product\":\"whatsapp\",\"contacts\":[{\"input\":\"mock\",\"wa_id\":\"mock\"}],\"messages\":[{\"id\":\"wamid.MOCK_{{randomValue length=24 type='ALPHANUMERIC'}}\"}]}",
+    "transformers": ["response-template"]
+  }
+}

@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: ${PROJECT_NAME:-quickcart}-${APP_ENV:-dev}-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-quickcart_dev}
+      POSTGRES_USER: ${POSTGRES_USER:-quickcart}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-quickcart}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    ports:
+      - "${POSTGRES_PORT:-5442}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-quickcart}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: ${PROJECT_NAME:-quickcart}-${APP_ENV:-dev}-redis
+    ports:
+      - "${REDIS_PORT:-6390}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  wiremock:
+    image: wiremock/wiremock:3.9.1
+    container_name: ${PROJECT_NAME:-quickcart}-${APP_ENV:-dev}-wiremock
+    command: ["--global-response-templating", "--verbose"]
+    ports:
+      - "${WIREMOCK_PORT:-9563}:8080"
+    volumes:
+      - ./wiremock/mappings:/home/wiremock/mappings:ro
+
+volumes:
+  postgres_data:
+  redis_data:

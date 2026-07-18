@@ -1,0 +1,29 @@
+{
+  "name": "@quickcart/api",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot run src/index.ts",
+    "start": "bun run src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "bun run src/infra/database/migrate.ts",
+    "db:seed": "bun run src/infra/database/seeds/index.ts"
+  },
+  "dependencies": {
+    "bullmq": "^5.79.2",
+    "drizzle-orm": "^0.36.4",
+    "ioredis": "5.10.1",
+    "pg": "^8.13.1",
+    "uWebSockets.js": "uNetworking/uWebSockets.js#v20.51.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/pg": "^8.11.10",
+    "drizzle-kit": "^0.27.2",
+    "typescript": "^5.7.3"
+  }
+}
