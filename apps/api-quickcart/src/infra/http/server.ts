@@ -16,6 +16,7 @@ import { App, type TemplatedApp } from 'uWebSockets.js'
 import { Router } from './router'
 import { container } from '@/infra/container'
 import { registerHealthRoutes } from '@/modules/health/infra/http/HealthRoutes'
+import { registerCatalogRoutes } from '@/modules/catalog/infra/http/CatalogRoutes'
 
 export function createServer(): TemplatedApp {
   const app = App()
@@ -24,6 +25,11 @@ export function createServer(): TemplatedApp {
   router.registerCorsPreflight()
 
   registerHealthRoutes({ router, controller: container.health.controller })
+  registerCatalogRoutes({
+    router,
+    categoryController: container.catalog.categoryController,
+    productController: container.catalog.productController,
+  })
 
   router.registerNotFoundHandler()
 

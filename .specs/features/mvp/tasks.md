@@ -9,35 +9,35 @@
 ## Fase 0 — Scaffolding do monorepo
 > 🤖 Modelo: `sonnet`
 
-- [ ] T0.1 Estrutura `apps/{api-quickcart,worker-quickcart,frontend-web}`, `package.json` raiz (workspaces bun), `tsconfig` base + por app (`strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`)
-- [ ] T0.2 `envs/env.dev` + `envs/env.dev.local.example` + `envs/env.test` com todas as vars da spec §9
-- [ ] T0.3 `infra/docker-compose.yml`: postgres:17 (com `POSTGRES_INITDB_ARGS` padrão), redis:7, wiremock (mock Graph API — stub básico de `POST /*/messages` devolvendo wamid fake). Recursos nomeados `$(PROJECT_NAME)-$(ENV)-*`
-- [ ] T0.4 `Makefile` com emojis: `up`, `down`, `logs`, `migrate`, `seed`, `dev-api`, `dev-worker`, `dev-web`, `test-msg`, `validate`. `PROJECT_NAME=quickcart` lido de `envs/env.$(ENV)`
-- [ ] T0.5 `.gitignore`, `README.md` esqueleto
+- [x] T0.1 Estrutura `apps/{api-quickcart,worker-quickcart,frontend-web}`, `package.json` raiz (workspaces bun), `tsconfig` base + por app (`strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`)
+- [x] T0.2 `envs/env.dev` + `envs/env.dev.local.example` + `envs/env.test` com todas as vars da spec §9
+- [x] T0.3 `infra/docker-compose.yml`: postgres:17 (com `POSTGRES_INITDB_ARGS` padrão), redis:7, wiremock (mock Graph API — stub básico de `POST /*/messages` devolvendo wamid fake). Recursos nomeados `$(PROJECT_NAME)-$(ENV)-*`
+- [x] T0.4 `Makefile` com emojis: `up`, `down`, `logs`, `migrate`, `seed`, `dev-api`, `dev-worker`, `dev-web`, `test-msg`, `validate`. `PROJECT_NAME=quickcart` lido de `envs/env.$(ENV)`
+- [x] T0.5 `.gitignore`, `README.md` esqueleto
 
 **Aceite:** `make up` sobe os 3 containers sem erro; `bun install` na raiz resolve workspaces.
 
 ## Fase 1 — Infra da API
 > 🤖 Modelo: `sonnet`
 
-- [ ] T1.1 `infra/config/environment.ts` (zod, spec §9) — espelhar referência
-- [ ] T1.2 `infra/http/router.ts` + `server.ts`: uWS, CORS por `ALLOWED_ORIGINS`, envelope `{ data }`/`{ error: { code, message } }`, exception filter global (AppError → statusCode/code; desconhecido → 500 `INTERNAL_ERROR` sem stack), middlewares `validateBody`, `requireAdminToken`, `requireInternalToken`
-- [ ] T1.3 `shared/errors/`: `BaseError`/`AppError`, `codes.ts`, classes por domínio (`CatalogErrors`, `OrderErrors`, `ConversationErrors`, `WhatsAppErrors`)
-- [ ] T1.4 Drizzle: `infra/database/connection.ts`, `drizzle.config.ts`, migration 0000 (extensões `pg_trgm`/`unaccent` + função `immutable_unaccent`), `runMigrations` no boot
-- [ ] T1.5 Redis (`infra/redis/`) + BullMQ queues (`infra/queue/` — conexão ioredis dedicada `maxRetriesPerRequest: null`, `defaultJobOptions` com retenção limitada)
-- [ ] T1.6 DI container manual (`infra/container/index.ts`), logger (`@adatechnology/logger` ou pino com máscara `[traceId][timestamp][appName]...`), `GET /v1/health`
-- [ ] T1.7 `index.ts` com graceful shutdown (SIGTERM/SIGINT → drena uWS, fecha redis + pool)
+- [x] T1.1 `infra/config/environment.ts` (zod, spec §9) — espelhar referência
+- [x] T1.2 `infra/http/router.ts` + `server.ts`: uWS, CORS por `ALLOWED_ORIGINS`, envelope `{ data }`/`{ error: { code, message } }`, exception filter global (AppError → statusCode/code; desconhecido → 500 `INTERNAL_ERROR` sem stack), middlewares `validateBody`, `requireAdminToken`, `requireInternalToken`
+- [x] T1.3 `shared/errors/`: `BaseError`/`AppError`, `codes.ts`, classes por domínio (`CatalogErrors`, `OrderErrors`, `ConversationErrors`, `WhatsAppErrors`)
+- [x] T1.4 Drizzle: `infra/database/connection.ts`, `drizzle.config.ts`, migration 0000 (extensões `pg_trgm`/`unaccent` + função `immutable_unaccent`), `runMigrations` no boot
+- [x] T1.5 Redis (`infra/redis/`) + BullMQ queues (`infra/queue/` — conexão ioredis dedicada `maxRetriesPerRequest: null`, `defaultJobOptions` com retenção limitada)
+- [x] T1.6 DI container manual (`infra/container/index.ts`), logger (`@adatechnology/logger` ou pino com máscara `[traceId][timestamp][appName]...`), `GET /v1/health`
+- [x] T1.7 `index.ts` com graceful shutdown (SIGTERM/SIGINT → drena uWS, fecha redis + pool)
 
 **Aceite:** `make dev-api` sobe; `curl /v1/health` → `{ data: { status: 'ok' } }`; rota inexistente → envelope de erro.
 
 ## Fase 2 — Catálogo + busca
 > 🤖 Modelo: `sonnet`
 
-- [ ] T2.1 Schemas Drizzle `categories` + `products` (spec §2) + migration + índices trigram
-- [ ] T2.2 Módulo `Catalog`: use-cases `CreateCategory`, `CreateProduct`, `UpdateProduct`, `AdjustStock`, `ListCategories`, `ListProducts` (paginação/sort/filters conforme spec §6), `SearchProducts` (query trigram spec §3.2, usada por autocomplete E matcher — mesma função)
-- [ ] T2.3 Rotas públicas `GET /v1/categories`, `GET /v1/products`, `GET /v1/products/search` + rotas admin CRUD/stock com `ADMIN_API_TOKEN`
-- [ ] T2.4 Seeds via use-cases: ~10 categorias e ~80 produtos reais de mercado brasileiro com `aliases` ricos (ex: arroz branco tio joão 1kg, aliases `{arroz, arroz branco}`; leite integral italac 1l, aliases `{leite, leite integral}`; inclua casos ambíguos de propósito: 3 arrozes, 4 leites, 3 sabões)
-- [ ] T2.5 Testes: busca com acento/sem acento, typo leve ("arros"), marca, alias
+- [x] T2.1 Schemas Drizzle `categories` + `products` (spec §2) + migration + índices trigram
+- [x] T2.2 Módulo `Catalog`: use-cases `CreateCategory`, `CreateProduct`, `UpdateProduct`, `AdjustStock`, `ListCategories`, `ListProducts` (paginação/sort/filters conforme spec §6), `SearchProducts` (query trigram spec §3.2, usada por autocomplete E matcher — mesma função)
+- [x] T2.3 Rotas públicas `GET /v1/categories`, `GET /v1/products`, `GET /v1/products/search` + rotas admin CRUD/stock com `ADMIN_API_TOKEN`
+- [x] T2.4 Seeds via use-cases: ~10 categorias e ~80 produtos reais de mercado brasileiro com `aliases` ricos (ex: arroz branco tio joão 1kg, aliases `{arroz, arroz branco}`; leite integral italac 1l, aliases `{leite, leite integral}`; inclua casos ambíguos de propósito: 3 arrozes, 4 leites, 3 sabões)
+- [x] T2.5 Testes: busca com acento/sem acento, typo leve ("arros"), marca, alias
 
 **Aceite:** `make seed` popula; `GET /v1/products/search?query=arros` retorna os arrozes ranqueados.
 

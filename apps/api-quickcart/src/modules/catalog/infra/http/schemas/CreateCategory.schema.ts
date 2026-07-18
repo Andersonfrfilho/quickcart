@@ -6,10 +6,12 @@
  * strictly prohibited without prior written permission from Ada Technology.
  *
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
- *
- * Barrel de schemas Drizzle. Tabelas de catálogo entram na Fase 2; demais módulos
- * (customers, conversation_sessions, carts, orders...) entram nas fases seguintes.
  */
 
-export * from './categories'
-export * from './products'
+import { z } from 'zod'
+
+export const createCategorySchema = z.object({
+  name: z.string().min(1).max(120),
+  sortOrder: z.number().int().default(0),
+  emoji: z.string().max(8).optional(),
+})

@@ -6,10 +6,12 @@
  * strictly prohibited without prior written permission from Ada Technology.
  *
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
- *
- * Barrel de schemas Drizzle. Tabelas de catálogo entram na Fase 2; demais módulos
- * (customers, conversation_sessions, carts, orders...) entram nas fases seguintes.
  */
 
-export * from './categories'
-export * from './products'
+import { z } from 'zod'
+import { SEARCH_MAX_LIMIT } from '@/modules/catalog/shared/Catalog.constant'
+
+export const searchProductsQuerySchema = z.object({
+  query: z.string().min(1),
+  limit: z.coerce.number().int().positive().max(SEARCH_MAX_LIMIT).optional(),
+})

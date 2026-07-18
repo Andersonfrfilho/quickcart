@@ -6,10 +6,13 @@
  * strictly prohibited without prior written permission from Ada Technology.
  *
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
- *
- * Barrel de schemas Drizzle. Tabelas de catálogo entram na Fase 2; demais módulos
- * (customers, conversation_sessions, carts, orders...) entram nas fases seguintes.
  */
 
-export * from './categories'
-export * from './products'
+import type { Product } from '@/infra/database/schema'
+
+export type AdjustStockParams = {
+  readonly id: string
+  readonly delta: number
+}
+
+export type AdjustStockResult = Product

@@ -98,6 +98,17 @@ make validate    # typecheck + testes de todos os apps
 - [x] Especificação completa (`.specs/features/mvp/`)
 - [x] Fase 0 — scaffolding
 - [x] Fase 1 — infra API
+- [x] Fase 2 — catálogo: schema `categories`/`products`, CRUD via use-cases, busca fuzzy
+      (`pg_trgm` + `unaccent`, índices GIN de expressão, endpoint `GET /v1/products/search`),
+      seeds (10 categorias, 80 produtos) e testes de integração
+      (`DrizzleProductRepository.test.ts`)
+- [ ] Fase 3 — webhook Meta + WhatsAppSender + transcript/sessões
+- [ ] Fase 4 — motor de conversa + parser de lista + matcher
+- [ ] Fase 5 — carrinho, pedidos, decremento de estoque
+- [ ] Fase 6 — worker: fila STT (Groq) + notificações
+- [ ] Fase 7 — recibo/nota fiscal
+- [ ] Fase 8 — frontend-web (loja + admin + PWA)
+- [ ] Fase 9 — Dockerfiles, railway.toml, README/SETUP
 - [ ] Fase 2 — catálogo + busca
 - [ ] Fase 3 — webhook + WhatsAppSender
 - [ ] Fase 4 — motor de conversa + matcher
