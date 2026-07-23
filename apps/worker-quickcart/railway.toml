@@ -1,0 +1,9 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "./Dockerfile.worker"
+
+[deploy]
+restartPolicyMaxRetries = 10
+
+[service]
+name = "quickcart-worker"

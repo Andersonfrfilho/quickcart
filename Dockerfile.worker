@@ -1,0 +1,26 @@
+FROM oven/bun:1.3-alpine AS deps
+WORKDIR /app
+COPY package.json bun.lockb tsconfig.json ./
+COPY apps/api-quickcart/package.json ./apps/api-quickcart/
+COPY apps/worker-quickcart/package.json ./apps/worker-quickcart/
+COPY apps/frontend-web/package.json ./apps/frontend-web/
+RUN bun install --frozen-lockfile
+
+FROM oven/bun:1.3-alpine AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN bun run --filter @quickcart/worker typecheck
+
+FROM oven/bun:1.3-alpine AS runner
+WORKDIR /app
+
+RUN apk add --no-cache dumb-init
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=builder /app/apps/worker-quickcart ./apps/worker-quickcart
+COPY --from=builder /app/tsconfig.json ./tsconfig.json
+
+ENV NODE_ENV=production
+
+CMD ["dumb-init", "bun", "run", "apps/worker-quickcart/src/index.ts"]
