@@ -13,6 +13,7 @@
 
 import { runMigrations, closeDatabaseConnection } from './connection'
 import { logger } from '@/shared/logger'
+import { serializeError } from '@/shared/serializeError'
 
 const log = logger.child('MigrateScript')
 
@@ -20,6 +21,6 @@ runMigrations()
   .then(() => closeDatabaseConnection())
   .then(() => process.exit(0))
   .catch((error) => {
-    log.error('migration_failed', { error: error instanceof Error ? error.message : String(error) })
+    log.error('migration_failed', { error: serializeError(error) })
     process.exit(1)
   })

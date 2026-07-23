@@ -35,3 +35,7 @@ export async function pingRedis(): Promise<boolean> {
     return false
   }
 }
+
+export async function closeRedisConnection(): Promise<void> {
+  await redis.quit()
+}

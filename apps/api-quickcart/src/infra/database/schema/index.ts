@@ -8,7 +8,7 @@
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  *
  * Barrel de schemas Drizzle. Tabelas de catálogo entram na Fase 2; webhook/conversa
- * entram na Fase 3; carts/orders entram nas fases seguintes.
+ * entram na Fase 3; carts/orders entram na Fase 5.
  */
 
 export * from './categories'
@@ -16,3 +16,8 @@ export * from './products'
 export * from './customers'
 export * from './conversation-sessions'
 export * from './messages'
+export * from './list-imports'
+export * from './carts'
+export * from './cart-items'
+export * from './orders'
+export * from './order-items'

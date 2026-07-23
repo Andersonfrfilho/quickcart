@@ -39,7 +39,11 @@ export async function checkDatabaseConnection(): Promise<void> {
   dbLog.info('connected')
 }
 
+let isPoolClosed = false
+
 export async function closeDatabaseConnection(): Promise<void> {
+  if (isPoolClosed) return
+  isPoolClosed = true
   await pool.end()
   dbLog.info('connection_pool_closed')
 }
@@ -55,7 +59,7 @@ export async function pingDatabase(): Promise<boolean> {
 }
 
 export async function runMigrations(): Promise<void> {
-  const migrationsFolder = path.resolve('./drizzle/migrations')
+  const migrationsFolder = path.resolve(import.meta.dir, '../../../drizzle/migrations')
   dbLog.info('running_migrations')
   await migrate(db, { migrationsFolder })
   dbLog.info('migrations_completed')

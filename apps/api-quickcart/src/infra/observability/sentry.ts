@@ -14,6 +14,7 @@
 
 import { environment } from '@/infra/config/environment'
 import { logger } from '@/shared/logger'
+import { serializeError } from '@/shared/serializeError'
 
 const log = logger.child('Observability')
 
@@ -24,6 +25,6 @@ export function initSentry(): void {
 
 export function captureError(error: unknown): void {
   log.error('unhandled_error', {
-    message: error instanceof Error ? error.message : String(error),
+    message: serializeError(error),
   })
 }

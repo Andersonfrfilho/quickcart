@@ -7,21 +7,22 @@
  *
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  *
- * Monta a app uWebSockets.js e registra as rotas de cada módulo. Deliberadamente
- * mais enxuto que o server.ts de referência (sem SSE, GatedRouter ou sessão JWT —
- * quickcart usa apenas Bearer estático para admin/interno nesta fase).
+ * Monta o Router e registra as rotas de cada módulo. Deliberadamente mais
+ * enxuto que o server.ts de referência (sem SSE, GatedRouter ou sessão JWT —
+ * quickcart usa apenas Bearer estático para admin/interno nesta fase). O
+ * listening socket em si é responsabilidade do index.ts via Bun.serve().
  */
 
-import { App, type TemplatedApp } from 'uWebSockets.js'
 import { Router } from './router'
 import { container } from '@/infra/container'
 import { registerHealthRoutes } from '@/modules/health/infra/http/HealthRoutes'
 import { registerCatalogRoutes } from '@/modules/catalog/infra/http/CatalogRoutes'
+import { registerOrderRoutes } from '@/modules/order/infra/http/OrderRoutes'
 import { registerWebhookRoutes } from '@/modules/webhook/infra/http/WebhookRoutes'
+import { registerInternalRoutes } from '@/modules/internal/infra/http/InternalRoutes'
 
-export function createServer(): TemplatedApp {
-  const app = App()
-  const router = new Router(app)
+export function createRouter(): Router {
+  const router = new Router()
 
   router.registerCorsPreflight()
 
@@ -31,9 +32,11 @@ export function createServer(): TemplatedApp {
     categoryController: container.catalog.categoryController,
     productController: container.catalog.productController,
   })
+  registerOrderRoutes({ router, orderController: container.order.orderController })
   registerWebhookRoutes({ router, webhookController: container.webhook.controller })
+  registerInternalRoutes({ router, internalController: container.internal.controller })
 
   router.registerNotFoundHandler()
 
-  return app
+  return router
 }

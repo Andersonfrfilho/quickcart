@@ -29,11 +29,19 @@ export const PRODUCT_BARCODE_DUPLICATE = 'PRODUCT_BARCODE_DUPLICATE'
 export const PRODUCT_INSUFFICIENT_STOCK = 'PRODUCT_INSUFFICIENT_STOCK'
 export const PRODUCT_SEARCH_QUERY_TOO_SHORT = 'PRODUCT_SEARCH_QUERY_TOO_SHORT'
 
-// ── Orders (carrinho/pedidos) ────────────────────────────────────────
+// ── Cart (carrinho) ───────────────────────────────────────────────────
+export const CART_ITEM_NOT_FOUND = 'CART_ITEM_NOT_FOUND'
+export const CART_ITEM_INVALID_QUANTITY = 'CART_ITEM_INVALID_QUANTITY'
+export const CART_PRODUCT_UNAVAILABLE = 'CART_PRODUCT_UNAVAILABLE'
+
+// ── Orders (pedidos) ──────────────────────────────────────────────────
 export const ORDER_NOT_FOUND = 'ORDER_NOT_FOUND'
 export const ORDER_INSUFFICIENT_STOCK = 'ORDER_INSUFFICIENT_STOCK'
 export const ORDER_IDEMPOTENCY_CONFLICT = 'ORDER_IDEMPOTENCY_CONFLICT'
 export const ORDER_PHONE_MISMATCH = 'ORDER_PHONE_MISMATCH'
+export const ORDER_CART_EMPTY = 'ORDER_CART_EMPTY'
+export const ORDER_NO_PREVIOUS_ORDER = 'ORDER_NO_PREVIOUS_ORDER'
+export const IDEMPOTENCY_KEY_MISSING = 'IDEMPOTENCY_KEY_MISSING'
 
 // ── Conversation (motor de conversa/WhatsApp) ────────────────────────
 export const CONVERSATION_NOT_FOUND = 'CONVERSATION_NOT_FOUND'
