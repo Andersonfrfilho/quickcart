@@ -34,6 +34,7 @@ import {
 } from '@/shared/errors/WhatsAppErrors'
 import type { MessageRepositoryInterface } from '@/modules/webhook/domain/MessageRepository.interface'
 import type { ConversationSessionRepositoryInterface } from '@/modules/webhook/domain/ConversationSessionRepository.interface'
+import { serializeError } from '@/shared/serializeError'
 
 const senderLog = logger.child('WhatsAppSender')
 
@@ -135,7 +136,7 @@ export class WhatsAppSender {
       senderLog.error(LOG_EVENTS.WHATSAPP_SEND_FAILED, {
         to,
         type,
-        message: error instanceof Error ? error.message : String(error),
+        message: serializeError(error),
       })
       throw mapProviderError(error)
     }

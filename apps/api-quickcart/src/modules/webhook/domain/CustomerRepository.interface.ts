@@ -15,7 +15,15 @@ export type UpsertCustomerByPhoneParams = {
   readonly name?: string | undefined
 }
 
+export type UpdateContactInfoParams = {
+  readonly customerId: string
+  readonly email?: string | undefined
+  readonly defaultAddress?: unknown
+}
+
 export interface CustomerRepositoryInterface {
+  findById(id: string): Promise<Customer | undefined>
   findByPhone(phone: string): Promise<Customer | undefined>
   upsertByPhone(params: UpsertCustomerByPhoneParams): Promise<Customer>
+  updateContactInfo(params: UpdateContactInfoParams): Promise<Customer>
 }

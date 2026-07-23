@@ -14,10 +14,16 @@ import { customers, type Customer } from '@/infra/database/schema'
 import { generateId } from '@/shared/id'
 import type {
   CustomerRepositoryInterface,
+  UpdateContactInfoParams,
   UpsertCustomerByPhoneParams,
 } from '@/modules/webhook/domain/CustomerRepository.interface'
 
 export class DrizzleCustomerRepository implements CustomerRepositoryInterface {
+  async findById(id: string): Promise<Customer | undefined> {
+    const [customer] = await db.select().from(customers).where(eq(customers.id, id)).limit(1)
+    return customer
+  }
+
   async findByPhone(phone: string): Promise<Customer | undefined> {
     const [customer] = await db.select().from(customers).where(eq(customers.phone, phone)).limit(1)
     return customer
@@ -31,6 +37,20 @@ export class DrizzleCustomerRepository implements CustomerRepositoryInterface {
         target: customers.phone,
         set: { updatedAt: new Date(), ...(params.name ? { name: params.name } : {}) },
       })
+      .returning()
+
+    return customer as Customer
+  }
+
+  async updateContactInfo(params: UpdateContactInfoParams): Promise<Customer> {
+    const [customer] = await db
+      .update(customers)
+      .set({
+        updatedAt: new Date(),
+        ...(params.email !== undefined ? { email: params.email } : {}),
+        ...(params.defaultAddress !== undefined ? { defaultAddress: params.defaultAddress } : {}),
+      })
+      .where(eq(customers.id, params.customerId))
       .returning()
 
     return customer as Customer

@@ -15,9 +15,16 @@ import { generateId } from '@/shared/id'
 import type {
   ConversationSessionRepositoryInterface,
   TouchConversationSessionByPhoneParams,
+  UpdateConversationSessionStateByPhoneParams,
 } from '@/modules/webhook/domain/ConversationSessionRepository.interface'
 
 export class DrizzleConversationSessionRepository implements ConversationSessionRepositoryInterface {
+  async findById(id: string): Promise<ConversationSession | undefined> {
+    const [session] = await db.select().from(conversationSessions).where(eq(conversationSessions.id, id)).limit(1)
+
+    return session
+  }
+
   async findByPhone(customerPhone: string): Promise<ConversationSession | undefined> {
     const [session] = await db
       .select()
@@ -28,6 +35,23 @@ export class DrizzleConversationSessionRepository implements ConversationSession
     return session
   }
 
+  async findOrCreateByPhone(customerPhone: string): Promise<ConversationSession> {
+    const existing = await this.findByPhone(customerPhone)
+    if (existing) return existing
+
+    const [created] = await db
+      .insert(conversationSessions)
+      .values({ id: generateId(), customerPhone })
+      .onConflictDoNothing({ target: conversationSessions.customerPhone })
+      .returning()
+
+    if (created) return created as ConversationSession
+
+    const fallback = await this.findByPhone(customerPhone)
+    if (!fallback) throw new Error(`Failed to create conversation session for phone ${customerPhone}`)
+    return fallback
+  }
+
   async touchByPhone(params: TouchConversationSessionByPhoneParams): Promise<ConversationSession> {
     const [session] = await db
       .insert(conversationSessions)
@@ -35,6 +59,29 @@ export class DrizzleConversationSessionRepository implements ConversationSession
       .onConflictDoUpdate({
         target: conversationSessions.customerPhone,
         set: { lastInteractionAt: new Date(), updatedAt: new Date() },
+      })
+      .returning()
+
+    return session as ConversationSession
+  }
+
+  async updateStateByPhone(params: UpdateConversationSessionStateByPhoneParams): Promise<ConversationSession> {
+    const [session] = await db
+      .insert(conversationSessions)
+      .values({
+        id: generateId(),
+        customerPhone: params.customerPhone,
+        currentState: params.currentState,
+        context: params.context,
+      })
+      .onConflictDoUpdate({
+        target: conversationSessions.customerPhone,
+        set: {
+          currentState: params.currentState,
+          context: params.context,
+          lastInteractionAt: new Date(),
+          updatedAt: new Date(),
+        },
       })
       .returning()
 

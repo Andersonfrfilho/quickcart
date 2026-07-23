@@ -15,10 +15,12 @@ import { generateId } from '@/shared/id'
 import { logger } from '@/shared/logger'
 import { LOG_EVENTS } from '@/shared/constants/log-events.constant'
 import type { CacheProvider } from '@/shared/providers/CacheProvider.interface'
+import type { ConversationEngine } from '@/modules/conversation/application/ConversationEngine'
 import type { CustomerRepositoryInterface } from '@/modules/webhook/domain/CustomerRepository.interface'
 import type { ConversationSessionRepositoryInterface } from '@/modules/webhook/domain/ConversationSessionRepository.interface'
 import type { MessageRepositoryInterface } from '@/modules/webhook/domain/MessageRepository.interface'
 import { parseInboundMessage } from '@/modules/webhook/application/parseInboundMessage'
+import { serializeError } from '@/shared/serializeError'
 import type { WhatsAppWebhookMessage, WhatsAppWebhookStatus } from '../types/WhatsAppWebhookPayload.types'
 import type { ReceiveWhatsAppWebhookParams, ReceiveWhatsAppWebhookResult } from '../types/ReceiveWhatsAppWebhook.types'
 
@@ -32,6 +34,7 @@ type ReceiveWhatsAppWebhookUseCaseDependencies = {
   readonly customerRepository: CustomerRepositoryInterface
   readonly conversationSessionRepository: ConversationSessionRepositoryInterface
   readonly messageRepository: MessageRepositoryInterface
+  readonly conversationEngine: ConversationEngine
 }
 
 export class ReceiveWhatsAppWebhookUseCase {
@@ -81,6 +84,14 @@ export class ReceiveWhatsAppWebhookUseCase {
     })
 
     webhookLog.info(LOG_EVENTS.WEBHOOK_PROCESSED, { waMessageId: message.id, kind: parsed.kind })
+
+    void this.dependencies.conversationEngine.handle(parsed).catch((error) => {
+      webhookLog.error(LOG_EVENTS.CONVERSATION_ENGINE_FAILED, {
+        waMessageId: message.id,
+        error: serializeError(error),
+      })
+    })
+
     return true
   }
 

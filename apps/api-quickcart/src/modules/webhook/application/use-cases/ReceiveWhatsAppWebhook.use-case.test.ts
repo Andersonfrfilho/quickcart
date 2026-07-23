@@ -15,18 +15,24 @@ import { describe, expect, test } from 'bun:test'
 import type { CacheProvider } from '@/shared/providers/CacheProvider.interface'
 import type {
   CustomerRepositoryInterface,
+  UpdateContactInfoParams,
   UpsertCustomerByPhoneParams,
 } from '@/modules/webhook/domain/CustomerRepository.interface'
 import type {
   ConversationSessionRepositoryInterface,
   TouchConversationSessionByPhoneParams,
+  UpdateConversationSessionStateByPhoneParams,
 } from '@/modules/webhook/domain/ConversationSessionRepository.interface'
 import type {
   CreateMessageRecordParams,
   MessageRepositoryInterface,
 } from '@/modules/webhook/domain/MessageRepository.interface'
 import type { Customer, ConversationSession, Message } from '@/infra/database/schema'
-import type { WhatsAppWebhookPayload } from '@/modules/webhook/application/types/WhatsAppWebhookPayload.types'
+import type {
+  ParsedInboundMessage,
+  WhatsAppWebhookPayload,
+} from '@/modules/webhook/application/types/WhatsAppWebhookPayload.types'
+import type { ConversationEngine } from '@/modules/conversation/application/ConversationEngine'
 import { ReceiveWhatsAppWebhookUseCase } from './ReceiveWhatsAppWebhook.use-case'
 
 class FakeCacheProvider implements CacheProvider {
@@ -40,6 +46,12 @@ class FakeCacheProvider implements CacheProvider {
     this.store.set(key, value)
   }
 
+  async setIfNotExists(key: string, value: string): Promise<boolean> {
+    if (this.store.has(key)) return false
+    this.store.set(key, value)
+    return true
+  }
+
   async del(key: string): Promise<void> {
     this.store.delete(key)
   }
@@ -51,6 +63,10 @@ class FakeCacheProvider implements CacheProvider {
 
 class FakeCustomerRepository implements CustomerRepositoryInterface {
   readonly upsertCalls: UpsertCustomerByPhoneParams[] = []
+
+  async findById(): Promise<Customer | undefined> {
+    return undefined
+  }
 
   async findByPhone(): Promise<Customer | undefined> {
     return undefined
@@ -68,13 +84,33 @@ class FakeCustomerRepository implements CustomerRepositoryInterface {
       updatedAt: new Date(),
     }
   }
+
+  async updateContactInfo(params: UpdateContactInfoParams): Promise<Customer> {
+    return {
+      id: params.customerId,
+      phone: '',
+      name: null,
+      email: params.email ?? null,
+      defaultAddress: params.defaultAddress ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+  }
 }
 
 class FakeConversationSessionRepository implements ConversationSessionRepositoryInterface {
   readonly touchCalls: TouchConversationSessionByPhoneParams[] = []
 
+  async findById(): Promise<ConversationSession | undefined> {
+    return undefined
+  }
+
   async findByPhone(): Promise<ConversationSession | undefined> {
     return undefined
+  }
+
+  async findOrCreateByPhone(customerPhone: string): Promise<ConversationSession> {
+    return this.touchByPhone({ customerPhone })
   }
 
   async touchByPhone(params: TouchConversationSessionByPhoneParams): Promise<ConversationSession> {
@@ -84,6 +120,19 @@ class FakeConversationSessionRepository implements ConversationSessionRepository
       customerPhone: params.customerPhone,
       currentState: 'greeting',
       context: {},
+      mode: 'bot',
+      lastInteractionAt: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+  }
+
+  async updateStateByPhone(params: UpdateConversationSessionStateByPhoneParams): Promise<ConversationSession> {
+    return {
+      id: 'session-1',
+      customerPhone: params.customerPhone,
+      currentState: params.currentState,
+      context: params.context,
       mode: 'bot',
       lastInteractionAt: new Date(),
       createdAt: new Date(),
@@ -115,6 +164,14 @@ class FakeMessageRepository implements MessageRepositoryInterface {
   async updateStatusByWaMessageId(waMessageId: string, status: string): Promise<Message | undefined> {
     this.statusUpdateCalls.push({ waMessageId, status })
     return undefined
+  }
+}
+
+class FakeConversationEngine {
+  readonly handleCalls: ParsedInboundMessage[] = []
+
+  async handle(message: ParsedInboundMessage): Promise<void> {
+    this.handleCalls.push(message)
   }
 }
 
@@ -151,15 +208,17 @@ function buildUseCase() {
   const customerRepository = new FakeCustomerRepository()
   const conversationSessionRepository = new FakeConversationSessionRepository()
   const messageRepository = new FakeMessageRepository()
+  const conversationEngine = new FakeConversationEngine()
 
   const useCase = new ReceiveWhatsAppWebhookUseCase({
     cacheProvider,
     customerRepository,
     conversationSessionRepository,
     messageRepository,
+    conversationEngine: conversationEngine as unknown as ConversationEngine,
   })
 
-  return { useCase, cacheProvider, customerRepository, conversationSessionRepository, messageRepository }
+  return { useCase, cacheProvider, customerRepository, conversationSessionRepository, messageRepository, conversationEngine }
 }
 
 describe('ReceiveWhatsAppWebhookUseCase', () => {

@@ -20,6 +20,7 @@ import { WhatsAppInvalidSignatureError } from '@/shared/errors/WhatsAppErrors'
 import { verifyWebhookSignature, verifyWebhookVerifyToken } from '@/modules/webhook/infra/security/WebhookSignature'
 import type { ReceiveWhatsAppWebhookUseCase } from '@/modules/webhook/application/use-cases/ReceiveWhatsAppWebhook.use-case'
 import type { WhatsAppWebhookPayload } from '@/modules/webhook/application/types/WhatsAppWebhookPayload.types'
+import { serializeError } from '@/shared/serializeError'
 
 const webhookLog = logger.child('Webhook')
 
@@ -71,7 +72,7 @@ export class WebhookController {
       await this.dependencies.receiveWhatsAppWebhookUseCase.execute({ payload })
     } catch (error) {
       webhookLog.error(LOG_EVENTS.WEBHOOK_PROCESSING_ERROR, {
-        message: error instanceof Error ? error.message : String(error),
+        message: serializeError(error),
       })
     }
 
