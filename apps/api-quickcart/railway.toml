@@ -1,0 +1,10 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "./Dockerfile.api"
+
+[deploy]
+healthcheckPath = "/v1/health"
+restartPolicyMaxRetries = 5
+
+[service]
+name = "quickcart-api"

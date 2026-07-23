@@ -74,6 +74,7 @@ Entrada: texto livre (ou transcrição de áudio). Saída: `ParsedListItem[]`.
    - `(\d+)\s*(x|un|unidades?|pacotes?|caixas?|latas?|dz|d[uú]zias?)\s+(.+)`
    - `(.+?)\s+(\d+[.,]?\d*)\s*(kg|g|l|ml|un)$` (quantidade no fim: "arroz 2kg")
    - `(uma?|dois|duas|tr[eê]s|meia\s+d[uú]zia|uma\s+d[uú]zia)\s+(.+)` (extenso; `meia dúzia` → 6 un)
+   - `(\d+)\s+(.+)` (número solto sem palavra de unidade: "6 ovos" → qty=6, unit=`un`, term="ovos")
    - fallback: qty=1, unit=`un`, term = linha inteira.
 4. Se `GROQ_API_KEY` presente: enviar a lista inteira em UMA chamada ao Llama 3.3
    (`ListRefinerProvider.interface.ts`) que devolve JSON `{ term, quantity, unit }[]` — usado
@@ -211,7 +212,12 @@ PORT, NODE_ENV, DATABASE_URL, REDIS_URL,
 WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_BUSINESS_ACCOUNT_ID,
 WHATSAPP_WEBHOOK_VERIFY_TOKEN, WHATSAPP_APP_SECRET, WHATSAPP_API_VERSION (default v21.0),
 WHATSAPP_BASE_URL (override p/ wiremock em dev),
-GROQ_API_KEY?, FISCAL_ENABLED (default false), FISCAL_* (certificado A1 etc. — ver lib),
+GROQ_API_KEY?, FISCAL_ENABLED (default false), FISCAL_ENVIRONMENT (homologacao|producao),
+FISCAL_CNPJ, FISCAL_INSCRICAO_ESTADUAL, FISCAL_RAZAO_SOCIAL, FISCAL_UF, FISCAL_MUNICIPIO,
+FISCAL_CODIGO_MUNICIPIO, FISCAL_CEP, FISCAL_LOGRADOURO, FISCAL_NUMERO_ENDERECO, FISCAL_BAIRRO,
+FISCAL_CRT (default '1'), FISCAL_CERTIFICADO_BASE64, FISCAL_CERTIFICADO_SENHA, FISCAL_SERIE (default '1'),
+FISCAL_CSC_ID, FISCAL_CSC_TOKEN, FISCAL_DEFAULT_NCM/FISCAL_DEFAULT_CFOP/FISCAL_DEFAULT_CST
+(classificação fiscal padrão do carrinho — MVP não tem NCM/CFOP/CST por produto),
 SMTP_HOST?, SMTP_PORT?, SMTP_USER?, SMTP_PASS?, MAIL_FROM?,
 ADMIN_API_TOKEN, INTERNAL_API_TOKEN, ALLOWED_ORIGINS, SENTRY_DSN?
 ```

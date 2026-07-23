@@ -13,7 +13,7 @@ Envelope: sucesso `{ "data": ... }` · lista `{ "data": [...], "pagination": { t
 | GET | `/v1/categories` | — | ordenadas por `sort_order` |
 | GET | `/v1/products` | — | `categoryId`, `page`, `perPage` (máx 100), `sortBy` (`name`,`priceInCents`), `sortDirection` |
 | GET | `/v1/products/search` | — | `query` (mín 2 chars), `limit` (default 8) — autocomplete trigram |
-| POST | `/v1/orders` | — | header `Idempotency-Key` obrigatório. Body: `{ customer: { name, phone, email? }, items: [{ productId, quantity }], deliveryType: 'delivery'\|'pickup', address?, paymentMethod: 'pix'\|'card_on_delivery'\|'cash', receiptPreference: 'whatsapp'\|'email'\|'both', notes? }`. 409 `ORDER_OUT_OF_STOCK` com `details.items` quando faltar estoque |
+| POST | `/v1/orders` | — | header `Idempotency-Key` obrigatório. Body: `{ customer: { name, phone, email? }, items: [{ productId, quantity }], deliveryType: 'delivery'\|'pickup', address?, paymentMethod: 'pix'\|'card_on_delivery'\|'cash', receiptPreference: 'whatsapp'\|'email'\|'both', notes? }`. 409 `ORDER_INSUFFICIENT_STOCK` com `details.items` quando faltar estoque. A `Idempotency-Key` é reservada atomicamente (Redis `SET NX`); uma segunda requisição concorrente com a mesma chave aguarda o pedido em criação e devolve o mesmo resultado, ou recebe 409 `ORDER_IDEMPOTENCY_CONFLICT` se o timeout de espera (5s) expirar |
 | GET | `/v1/orders/:shortCode?phone=` | — | phone deve conferir; 404 caso contrário |
 
 ## Webhook Meta
@@ -27,7 +27,7 @@ Envelope: sucesso `{ "data": ... }` · lista `{ "data": [...], "pagination": { t
 
 | Método | Rota | Auth |
 |---|---|---|
-| POST | `/v1/internal/conversation/resume` | `X-Internal-Token` — body `{ sessionId, transcript }` |
+| POST | `/v1/internal/conversation/resume` | `Authorization: Bearer <INTERNAL_API_TOKEN>` — body `{ sessionId, transcript: string \| null }`. `transcript: null` (STT falhou/sem chave) envia `AUDIO_NOT_SUPPORTED_YET` ao cliente sem retomar a conversa |
 
 ## Admin (`Authorization: Bearer <ADMIN_API_TOKEN>`)
 
@@ -37,11 +37,11 @@ Envelope: sucesso `{ "data": ... }` · lista `{ "data": [...], "pagination": { t
 | GET/POST | `/v1/admin/products` | listagem com `sortBy`, `sortDirection`, `filters[]`, paginação |
 | PUT | `/v1/admin/products/:id` | |
 | PATCH | `/v1/admin/products/:id/stock` | `{ stockQuantity }` ou `{ delta }` |
-| GET | `/v1/admin/orders` | `status[]` multi-valor, data tables |
+| GET | `/v1/admin/orders` | `status` (valores separados por vírgula), `page`, `perPage`, `sortBy` (`createdAt`,`totalInCents`,`status`), `sortDirection` |
 | PATCH | `/v1/admin/orders/:id/status` | transições válidas; dispara notificação WhatsApp; cancel devolve estoque |
 
 ## Códigos de erro (em `shared/errors/codes.ts`)
 
 `VALIDATION_ERROR`, `PRODUCT_NOT_FOUND`, `CATEGORY_NOT_FOUND`, `ORDER_NOT_FOUND`,
-`ORDER_OUT_OF_STOCK`, `ORDER_INVALID_STATUS_TRANSITION`, `IDEMPOTENCY_KEY_MISSING`,
-`WEBHOOK_INVALID_SIGNATURE`, `UNAUTHORIZED`, `INTERNAL_ERROR`.
+`ORDER_INSUFFICIENT_STOCK`, `ORDER_IDEMPOTENCY_CONFLICT`, `ORDER_INVALID_STATUS_TRANSITION`,
+`IDEMPOTENCY_KEY_MISSING`, `WEBHOOK_INVALID_SIGNATURE`, `UNAUTHORIZED`, `INTERNAL_ERROR`.

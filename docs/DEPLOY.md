@@ -6,9 +6,9 @@ Padrão copiado de `financiamento-imobiliario-bot` (railway.toml raiz + por app,
 
 | Serviço Railway | Origem | Build | Notas |
 |---|---|---|---|
-| `quickcart-api` | `apps/api-quickcart` | Dockerfile multi-stage Bun→node:22-slim | healthcheck `/v1/health`; externals `uWebSockets.js` no `bun build` |
+| `quickcart-api` | `apps/api-quickcart` | Dockerfile multi-stage Bun (deps/builder/runner, todos `oven/bun:1.3-alpine`) | healthcheck `/v1/health`; `Bun.serve()` nativo |
 | `quickcart-worker` | `apps/worker-quickcart` | idem | sem healthcheck HTTP |
-| `quickcart-web` | `apps/frontend-web` | build → nginx:alpine (envsubst `${PORT}`) | injeta `VITE_API_URL` como build arg |
+| `quickcart-web` | `apps/frontend-web` | build → nginx:alpine (envsubst `${PORT}`) | build arg `VITE_API_URL=https://<quickcart-api>.up.railway.app` (chamadas ficam relativas a `/` se omitido) |
 | Postgres | plugin Railway | — | habilitar `pg_trgm`/`unaccent` (migration faz `CREATE EXTENSION`) |
 | Redis | plugin Railway | — | compartilhado api + worker (conexões BullMQ dedicadas) |
 
@@ -28,6 +28,31 @@ Todas de `.specs/features/mvp/spec.md` §9. Mínimo para subir:
    · Verify token: valor de `WHATSAPP_WEBHOOK_VERIFY_TOKEN`
 4. Assinar o campo `messages`
 5. Testar: enviar "oi" ao número → conferir logs do serviço api
+
+## Configuração obrigatória no dashboard Railway (Root Directory x Config File)
+
+Os 3 `Dockerfile.*` vivem na **raiz do repo** (não dentro de cada `apps/*`), pois
+fazem `COPY` dos `package.json` dos 3 apps + `COPY . .` (build de monorepo via
+Bun workspaces, lockfile único). Cada app também tem seu próprio `railway.toml`
+dentro do seu diretório (`apps/api-quickcart/railway.toml`, etc.) — isso exige
+2 ajustes manuais por serviço no dashboard, pois a Railway resolve os dois
+campos de forma **independente** ([docs](https://docs.railway.com/deployments/monorepo)):
+
+1. **Root Directory = raiz do repo** (deixar vazio/`/`) para os 3 serviços
+   (`quickcart-api`, `quickcart-worker`, `quickcart-web`) — nunca apontar para
+   `apps/<app>`, senão o build context fica restrito àquela pasta e o `COPY`
+   dos `package.json` dos apps irmãos falha.
+2. **Config File Path (Settings → um campo separado de Root Directory)**:
+   a doc oficial é explícita — *"The Railway Config File does not follow the
+   Root Directory path. You have to specify the absolute path"* — então cada
+   serviço precisa apontar para o caminho absoluto do seu `railway.toml`:
+   - `quickcart-api` → `/apps/api-quickcart/railway.toml`
+   - `quickcart-worker` → `/apps/worker-quickcart/railway.toml`
+   - `quickcart-web` → `/apps/frontend-web/railway.toml`
+
+Com Root Directory = raiz, o `dockerfilePath = "./Dockerfile.api"` (etc.)
+declarado em cada `railway.toml` resolve corretamente para
+`<raiz-do-repo>/Dockerfile.api`, que existe.
 
 ## Ordem de deploy
 

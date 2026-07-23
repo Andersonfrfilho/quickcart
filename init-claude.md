@@ -18,8 +18,8 @@ Requisito nº 1 do produto: **velocidade de atendimento**.
 
 | Camada | Tecnologia |
 |---|---|
-| Runtime | Bun (install/typecheck/test/build) / **Node 22 executa o processo HTTP** (dev local e Railway) — `uWebSockets.js` é addon V8 clássico (não N-API) e o loader de addons do Bun não o carrega; `make dev-api` roda via `node --import tsx --watch` (ver `.nvmrc`) |
-| API | uWebSockets.js + Router próprio (envelope `{ data }` / `{ error: { code, message } }`) |
+| Runtime | Bun nativo em todos os apps (install/typecheck/test/build/execução) — `make dev-api` roda via `bun --watch` |
+| API | `Bun.serve()` + Router próprio (matching de rota por regex, params posicionais; envelope `{ data }` / `{ error: { code, message } }`) |
 | Banco | PostgreSQL + Drizzle ORM (extensões `pg_trgm`, `unaccent`) |
 | Filas | BullMQ sobre Redis (Redis já necessário p/ idempotência do webhook) |
 | WhatsApp | `@adatechnology/whatsapp-provider` (Meta Cloud API) |
@@ -106,9 +106,9 @@ make validate    # typecheck + testes de todos os apps
       `WhatsAppSender` com modo mock dev, persistência de transcript (inbound/outbound) e
       upsert de `customers`/`conversation_sessions`, script `make test-msg`, testes
       (`WebhookSignature.test.ts`, `ReceiveWhatsAppWebhook.use-case.test.ts`)
-- [ ] Fase 4 — motor de conversa + parser de lista + matcher
-- [ ] Fase 5 — carrinho, pedidos, decremento de estoque
-- [ ] Fase 6 — worker: fila STT (Groq) + notificações
-- [ ] Fase 7 — recibo/nota fiscal
-- [ ] Fase 8 — frontend-web (loja + admin + PWA)
-- [ ] Fase 9 — Dockerfiles, railway.toml, README/SETUP
+- [x] Fase 4 — motor de conversa + parser de lista + matcher
+- [x] Fase 5 — carrinho, pedidos, decremento de estoque
+- [x] Fase 6 — worker: fila STT (Groq) + notificações + Bull Board
+- [x] Fase 7 — recibo/nota fiscal (pdfkit + nodemailer + processor receipt)
+- [x] Fase 8 — frontend-web (loja + admin + PWA, build funcional)
+- [x] Fase 9 — Dockerfiles, railway.toml, README/SETUP

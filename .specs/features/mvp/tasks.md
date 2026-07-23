@@ -56,67 +56,67 @@
 ## Fase 4 — Motor de conversa + parser + matcher (núcleo do produto)
 > 🤖 Modelo: `sonnet` (T4.2/T4.3 são o coração — algoritmo já fechado na spec §3; se surgir decisão de design não coberta, PARAR e perguntar)
 
-- [ ] T4.1 `ConversationEngine` (`modules/conversation/`): carrega sessão, cadeia de handlers (Global → específico do estado, spec §4), atualiza `current_state`/`context`, tudo em `MessagesConstants`
-- [ ] T4.2 `ParseShoppingList.use-case` (spec §3.1) — regex de quantidade/unidade + segmentação; `ListRefinerProvider.interface.ts` + `GroqListRefinerProvider` opcional (timeout 3s, fallback silencioso) + `NullListRefinerProvider`
-- [ ] T4.3 `MatchProducts.use-case` (spec §3.2) reusando `SearchProducts` da Fase 2; classificação auto/ambíguo/não-encontrado com constantes
-- [ ] T4.4 Handlers: Greeting, Menu (com atalho: texto ≥ 2 itens parseáveis vai direto p/ fluxo de lista), List, Resolve (lista interativa 1 item por vez + "nenhum desses"), Browse (categorias → produtos paginados → quantidade)
-- [ ] T4.5 `list_imports` (schema + gravação a cada parse)
-- [ ] T4.6 Testes unitários do parser (mín. 15 casos: "2kg de arroz", "arroz 2kg", "3x leite", "meia dúzia de ovos", lista com vírgulas/linhas/bullets) e do classificador do matcher (auto/ambíguo/zero)
+- [x] T4.1 `ConversationEngine` (`modules/conversation/`): carrega sessão, cadeia de handlers (Global → específico do estado, spec §4), atualiza `current_state`/`context`, tudo em `MessagesConstants`
+- [x] T4.2 `ParseShoppingList.use-case` (spec §3.1) — regex de quantidade/unidade + segmentação; `ListRefinerProvider.interface.ts` + `GroqListRefinerProvider` opcional (timeout 3s, fallback silencioso) + `NullListRefinerProvider`
+- [x] T4.3 `MatchProducts.use-case` (spec §3.2) reusando `SearchProducts` da Fase 2; classificação auto/ambíguo/não-encontrado com constantes
+- [x] T4.4 Handlers: Greeting, Menu (com atalho: texto ≥ 2 itens parseáveis vai direto p/ fluxo de lista), List, Resolve (lista interativa 1 item por vez + "nenhum desses"), Browse (categorias → produtos paginados → quantidade)
+- [x] T4.5 `list_imports` (schema + gravação a cada parse)
+- [x] T4.6 Testes unitários do parser (mín. 15 casos: "2kg de arroz", "arroz 2kg", "3x leite", "meia dúzia de ovos", lista com vírgulas/linhas/bullets) e do classificador do matcher (auto/ambíguo/zero)
 
 **Aceite:** `make test-msg MSG="2kg arroz, leite, 6 ovos, sabão"` → arroz ambíguo (lista interativa), resposta simulada de list_reply adiciona; leite ambíguo; ovos auto; sabão ambíguo — transcript coerente no banco.
 
 ## Fase 5 — Carrinho, pedidos e estoque
 > 🤖 Modelo: `sonnet`
 
-- [ ] T5.1 Schemas `carts`, `cart_items`, `orders`, `order_items` + migration; gerador de `short_code` (`QC-` + sequência)
-- [ ] T5.2 Módulo `Cart`: `AddCartItem`, `RemoveCartItem`, `UpdateCartItemQuantity`, `GetOpenCart` (1 cart open por customer/channel)
-- [ ] T5.3 Módulo `Order`: `CreateOrderFromCart` (transação: cria order + items snapshot + decremento atômico spec §2; falha de estoque → erro com itens insuficientes), `CreateWebOrder` (spec §6, Idempotency-Key), `GetOrderByShortCode`, `UpdateOrderStatus` (+ devolução de estoque no cancel), `RepeatLastOrder`
-- [ ] T5.4 Handlers de checkout no WhatsApp: CartReview, EditCart, DeliveryType, Address (reuso default_address), Payment, ReceiptPreference (+ awaiting_email), Confirming (spec §4)
-- [ ] T5.5 Rotas `POST /v1/orders`, `GET /v1/orders/:shortCode`, admin orders (listagem data-tables + PATCH status → enfileira `notification`)
-- [ ] T5.6 Testes: decremento concorrente (2 pedidos disputando estoque), cancelamento devolve estoque, idempotency-key repete resposta sem duplicar
+- [x] T5.1 Schemas `carts`, `cart_items`, `orders`, `order_items` + migration; gerador de `short_code` (`QC-` + sequência)
+- [x] T5.2 Módulo `Cart`: `AddCartItem`, `RemoveCartItem`, `UpdateCartItemQuantity`, `GetOpenCart` (1 cart open por customer/channel)
+- [x] T5.3 Módulo `Order`: `CreateOrderFromCart` (transação: cria order + items snapshot + decremento atômico spec §2; falha de estoque → erro com itens insuficientes), `CreateWebOrder` (spec §6, Idempotency-Key), `GetOrderByShortCode`, `UpdateOrderStatus` (+ devolução de estoque no cancel), `RepeatLastOrder`
+- [x] T5.4 Handlers de checkout no WhatsApp: CartReview, EditCart, DeliveryType, Address (reuso default_address), Payment, ReceiptPreference (+ awaiting_email), Confirming (spec §4)
+- [x] T5.5 Rotas `POST /v1/orders`, `GET /v1/orders/:shortCode`, admin orders (listagem data-tables + PATCH status → enfileira `notification`)
+- [x] T5.6 Testes: decremento concorrente (2 pedidos disputando estoque), cancelamento devolve estoque, idempotency-key repete resposta sem duplicar
 
 **Aceite:** fluxo completo via `make test-msg` sequencial termina com order `confirmed`, estoque decrementado e job `receipt` enfileirado.
 
 ## Fase 6 — Worker: STT + notificações
 > 🤖 Modelo: `sonnet`
 
-- [ ] T6.1 App `worker-quickcart`: bootstrap BullMQ workers + graceful shutdown + Bull Board (porta própria, basic auth)
-- [ ] T6.2 `SttProvider.interface.ts` + `GroqSttProvider` (whisper-large-v3-turbo, ogg direto) + `NullSttProvider` (sem key → devolve null)
-- [ ] T6.3 Processor `stt`: fetch mídia (base64 da lib) → transcribe → `POST /v1/internal/conversation/resume` (rota nova na API com `INTERNAL_API_TOKEN`, injeta transcript como se fosse texto do cliente); null → mensagem pedindo texto
-- [ ] T6.4 Processor `notification`: mensagens de status por template de texto
-- [ ] T6.5 Testes: processor idempotente (job repetido não duplica mensagem)
+- [x] T6.1 App `worker-quickcart`: bootstrap BullMQ workers + graceful shutdown + Bull Board (porta própria, basic auth)
+- [x] T6.2 `SttProvider.interface.ts` + `GroqSttProvider` (whisper-large-v3-turbo, ogg direto) + `NullSttProvider` (sem key → devolve null)
+- [x] T6.3 Processor `stt`: fetch mídia (base64 da lib) → transcribe → `POST /v1/internal/conversation/resume` (rota nova na API com `INTERNAL_API_TOKEN`, injeta transcript como se fosse texto do cliente); null → mensagem pedindo texto
+- [x] T6.4 Processor `notification`: mensagens de status por template de texto
+- [x] T6.5 Testes: processor idempotente (job repetido não duplica mensagem)
 
 **Aceite:** com `GROQ_API_KEY` de dev, áudio simulado vira transcript e segue o fluxo de lista; sem key, bot pede texto.
 
 ## Fase 7 — Recibo e nota fiscal
 > 🤖 Modelo: `sonnet` (T7.2 integração fiscal é 🧠 — se a API da lib divergir da spec, validar com o usuário antes de improvisar)
 
-- [ ] T7.1 `ReceiptProvider.interface.ts` + `SimpleReceiptProvider`: recibo texto formatado + PDF simples (pdfkit) com itens, totais, dados da loja (env `STORE_NAME`, `STORE_CNPJ?`, `STORE_ADDRESS`)
-- [ ] T7.2 `FiscalReceiptProvider` usando `@adatechnology/fiscal-provider` (NFC-e modelo 65 + DANFE PDF) atrás de `FISCAL_ENABLED`; salvar `fiscal_document_id`
-- [ ] T7.3 `EmailProvider` (nodemailer, spec §9); feature-flag derivada de SMTP configurado
-- [ ] T7.4 Processor `receipt`: gera conforme provider ativo e entrega por `receipt_preference` (WhatsApp media e/ou e-mail); idempotente por `orders.fiscal_document_id`/flag de envio
-- [ ] T7.5 Testes: preferência both com SMTP off → só WhatsApp + log warn
+- [x] T7.1 `ReceiptProvider.interface.ts` + `SimpleReceiptProvider`: recibo texto formatado + PDF simples (pdfkit) com itens, totais, dados da loja (env `STORE_NAME`, `STORE_CNPJ?`, `STORE_ADDRESS`)
+- [x] T7.2 `FiscalReceiptProvider` usando `@adatechnology/fiscal-provider` (NFC-e modelo 65 + DANFE PDF) atrás de `FISCAL_ENABLED`; salvar `fiscal_document_id`
+- [x] T7.3 `EmailProvider` (nodemailer, spec §9); feature-flag derivada de SMTP configurado
+- [x] T7.4 Processor `receipt`: gera conforme provider ativo e entrega por `receipt_preference` (WhatsApp media e/ou e-mail); idempotente por `orders.fiscal_document_id`/flag de envio
+- [x] T7.5 Testes: preferência both com SMTP off → só WhatsApp + log warn
 
 **Aceite:** pedido confirmado gera PDF e envia (mock) por WhatsApp; com SMTP dev (mailpit opcional no compose) chega e-mail.
 
 ## Fase 8 — Frontend Web/PWA
 > 🤖 Modelo: `sonnet`
 
-- [ ] T8.1 Scaffolding Vite + React + TanStack Router/Query + Tailwind + tokens de tema (`theme.constant.ts`, `spacing`, `scale()`) + locales com alias `text` + axios client com envelope unwrap (`r.data.data`)
-- [ ] T8.2 Loja: Home (categorias), Category.page, autocomplete no header (debounce 250ms, teclado acessível), Cart.page (zustand persist), quantidade por unidade (kg aceita decimal)
-- [ ] T8.3 Checkout.page (react-hook-form + zod espelhando schema da API) → `POST /v1/orders` com Idempotency-Key uuid → OrderConfirmed.page + OrderStatus.page (poll TanStack Query)
-- [ ] T8.4 Admin: login por token (sessionStorage), AdminProducts.page e AdminOrders.page seguindo regra de data tables (ordenação, filtros multi-select, seleção massa, limpar filtros, estado na URL, zebra)
-- [ ] T8.5 PWA: vite-plugin-pwa (manifest QuickCart, ícones 192/512 gerados, NetworkFirst `/api`, offline fallback); responsivo nos 3 breakpoints
-- [ ] T8.6 Testes de build: `tsc --noEmit` + `vite build` limpos
+- [x] T8.1 Scaffolding Vite + React + TanStack Router/Query + Tailwind + tokens de tema (`theme.constant.ts`, `spacing`, `scale()`) + locales com alias `text` + axios client com envelope unwrap (`r.data.data`)
+- [x] T8.2 Loja: Home (categorias), Category.page, autocomplete no header (debounce 250ms, teclado acessível), Cart.page (zustand persist), quantidade por unidade (kg aceita decimal)
+- [x] T8.3 Checkout.page (react-hook-form + zod espelhando schema da API) → `POST /v1/orders` com Idempotency-Key uuid → OrderConfirmed.page + OrderStatus.page (poll TanStack Query)
+- [x] T8.4 Admin: login por token (sessionStorage), AdminProducts.page e AdminOrders.page seguindo regra de data tables (ordenação, filtros multi-select, seleção massa, limpar filtros, estado na URL, zebra)
+- [x] T8.5 PWA: vite-plugin-pwa (manifest QuickCart, ícones 192/512 gerados, NetworkFirst `/api`, offline fallback); responsivo nos 3 breakpoints
+- [x] T8.6 Testes de build: `tsc --noEmit` + `vite build` limpos
 
 **Aceite:** fluxo busca → carrinho → checkout cria pedido no banco e dispara recibo; Lighthouse PWA instalável.
 
 ## Fase 9 — Deploy Railway + docs finais
 > 🤖 Modelo: `haiku`
 
-- [ ] T9.1 Dockerfiles (api/worker: multi-stage Bun→node:22-slim com externals uWS; web: build → nginx com envsubst PORT) — copiar padrão da referência
-- [ ] T9.2 `railway.toml` raiz + por app (healthcheck `/v1/health` na api)
-- [ ] T9.3 README.md completo, SETUP.md (passo a passo Meta app + webhook), docs/DEPLOY.md
-- [ ] T9.4 Atualização final do `init-claude.md` (estado, rotas, envs)
+- [x] T9.1 Dockerfiles (api/worker: multi-stage Bun, todos os estágios `oven/bun:1.3-alpine`, `Bun.serve()` nativo sem uWS externo; web: build → nginx com envsubst PORT) — copiar padrão da referência
+- [x] T9.2 `railway.toml` raiz + por app (healthcheck `/v1/health` na api)
+- [x] T9.3 README.md completo, SETUP.md (passo a passo Meta app + webhook), docs/DEPLOY.md
+- [x] T9.4 Atualização final do `init-claude.md` (estado, rotas, envs)
 
 **Aceite:** `docker build` dos 3 apps passa localmente.
