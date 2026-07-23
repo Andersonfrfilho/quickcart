@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#22c55e"/>
+      <stop offset="100%" stop-color="#16a34a"/>
+    </linearGradient>
+  </defs>
+  <rect width="192" height="192" rx="36" fill="url(#bg)"/>
+  <g transform="translate(64,50)" fill="none" stroke="white" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M0,24 L20,76 L84,76 L100,24 Z"/>
+    <circle cx="36" cy="100" r="12"/>
+    <circle cx="76" cy="100" r="12"/>
+  </g>
+  <text x="96" y="168" font-size="24" text-anchor="middle" fill="white" font-weight="bold" font-family="system-ui,sans-serif">QC</text>
+</svg>
