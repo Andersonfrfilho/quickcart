@@ -8,7 +8,7 @@
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  */
 
-import { and, asc, desc, eq, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import { db } from '@/infra/database/connection'
 import { products, type Product } from '@/infra/database/schema'
 import type {
@@ -110,7 +110,7 @@ export class DrizzleProductRepository implements ProductRepositoryInterface {
 
   async list(params: ListProductsRepositoryParams): Promise<ListProductsRepositoryResult> {
     const conditions: SQL[] = []
-    if (params.categoryId) conditions.push(eq(products.categoryId, params.categoryId))
+    if (params.categoryId && params.categoryId.length > 0) conditions.push(inArray(products.categoryId, [...params.categoryId]))
     if (params.onlyAvailable) conditions.push(eq(products.isAvailable, true))
     const where = conditions.length > 0 ? and(...conditions) : undefined
 

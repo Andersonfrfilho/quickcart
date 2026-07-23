@@ -10,17 +10,16 @@
  * Testa searchByTerm contra o catálogo populado por `make seed ENV=test` (T2.5).
  * Requer Postgres de teste migrado e semeado — rodar via `make validate` ou
  * `bun --env-file=../../envs/env.test test`.
+ *
+ * Não fecha o pool de conexão no afterAll: `db`/`redis` são singletons
+ * compartilhados por todo o processo `bun test`, e outros arquivos de teste
+ * de integração rodam no mesmo processo — fechar aqui quebraria os demais.
  */
 
-import { afterAll, describe, expect, test } from 'bun:test'
-import { closeDatabaseConnection } from '@/infra/database/connection'
+import { describe, expect, test } from 'bun:test'
 import { DrizzleProductRepository } from './DrizzleProductRepository'
 
 const repository = new DrizzleProductRepository()
-
-afterAll(async () => {
-  await closeDatabaseConnection()
-})
 
 function namesOf(results: readonly { name: string; brand: string | null }[]): string[] {
   return results.map((result) => (result.brand ? `${result.name} (${result.brand})` : result.name))

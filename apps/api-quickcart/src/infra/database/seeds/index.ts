@@ -13,10 +13,12 @@
 
 import { closeDatabaseConnection } from '@/infra/database/connection'
 import { logger } from '@/shared/logger'
+import { serializeError } from '@/shared/serializeError'
 import { DrizzleCategoryRepository } from '@/modules/catalog/infra/database/DrizzleCategoryRepository'
 import { DrizzleProductRepository } from '@/modules/catalog/infra/database/DrizzleProductRepository'
 import { CreateCategoryUseCase } from '@/modules/catalog/application/use-cases/CreateCategory.use-case'
 import { CreateProductUseCase } from '@/modules/catalog/application/use-cases/CreateProduct.use-case'
+import { CategoryNameDuplicateError } from '@/shared/errors/CatalogErrors'
 import { SEED_CATEGORIES } from './CatalogSeedCategories'
 import { SEED_PRODUCTS } from './CatalogSeedProducts'
 
@@ -29,20 +31,42 @@ async function seedCatalog(): Promise<void> {
   const createProductUseCase = new CreateProductUseCase({ categoryRepository, productRepository })
 
   const categoryIdByKey = new Map<string, string>()
+  let categoriesCreated = 0
 
   for (const seedCategory of SEED_CATEGORIES) {
-    const category = await createCategoryUseCase.execute({
-      name: seedCategory.name,
-      sortOrder: seedCategory.sortOrder,
-      emoji: seedCategory.emoji,
-    })
-    categoryIdByKey.set(seedCategory.key, category.id)
+    try {
+      const category = await createCategoryUseCase.execute({
+        name: seedCategory.name,
+        sortOrder: seedCategory.sortOrder,
+        emoji: seedCategory.emoji,
+      })
+      categoryIdByKey.set(seedCategory.key, category.id)
+      categoriesCreated++
+    } catch (error) {
+      if (error instanceof CategoryNameDuplicateError) {
+        const existing = await categoryRepository.findByName(seedCategory.name)
+        if (existing) categoryIdByKey.set(seedCategory.key, existing.id)
+        log.info('category_skipped', { name: seedCategory.name })
+        continue
+      }
+      throw error
+    }
   }
-  log.info('categories_seeded', { count: SEED_CATEGORIES.length })
+  log.info('categories_seeded', { created: categoriesCreated, total: SEED_CATEGORIES.length })
+
+  let productsCreated = 0
+  let productsSkipped = 0
 
   for (const seedProduct of SEED_PRODUCTS) {
     const categoryId = categoryIdByKey.get(seedProduct.categoryKey)
     if (!categoryId) throw new Error(`Unknown category key: ${seedProduct.categoryKey}`)
+
+    const existing = await productRepository.list({ categoryId: [categoryId], onlyAvailable: false, page: 1, perPage: 200, sortBy: 'name', sortDirection: 'asc' })
+    const alreadyExists = existing.items.some((p) => p.name === seedProduct.name && p.brand === (seedProduct.brand ?? null))
+    if (alreadyExists) {
+      productsSkipped++
+      continue
+    }
 
     await createProductUseCase.execute({
       categoryId,
@@ -55,14 +79,15 @@ async function seedCatalog(): Promise<void> {
       isAvailable: true,
       aliases: seedProduct.aliases,
     })
+    productsCreated++
   }
-  log.info('products_seeded', { count: SEED_PRODUCTS.length })
+  log.info('products_seeded', { created: productsCreated, skipped: productsSkipped, total: SEED_PRODUCTS.length })
 }
 
 seedCatalog()
   .then(() => closeDatabaseConnection())
   .then(() => process.exit(0))
   .catch((error) => {
-    log.error('seed_failed', { error: error instanceof Error ? error.message : String(error) })
+    log.error('seed_failed', { error: serializeError(error) })
     process.exit(1)
   })

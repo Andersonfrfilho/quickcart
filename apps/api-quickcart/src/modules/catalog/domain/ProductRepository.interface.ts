@@ -41,7 +41,7 @@ export type UpdateProductRecordParams = {
 }
 
 export type ListProductsRepositoryParams = {
-  readonly categoryId?: string | undefined
+  readonly categoryId?: readonly string[] | undefined
   readonly onlyAvailable: boolean
   readonly page: number
   readonly perPage: number
