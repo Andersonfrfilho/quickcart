@@ -16,6 +16,8 @@ import {
   ORDER_INSUFFICIENT_STOCK,
   ORDER_IDEMPOTENCY_CONFLICT,
   ORDER_PHONE_MISMATCH,
+  ORDER_CART_EMPTY,
+  ORDER_NO_PREVIOUS_ORDER,
 } from '@/shared/errors/codes'
 
 const ORDER_DOMAIN = 'order'
@@ -48,5 +50,17 @@ export class OrderIdempotencyConflictError extends OrderError {
 export class OrderPhoneMismatchError extends OrderError {
   constructor() {
     super('O telefone informado não confere com o cadastrado no pedido.', 403, ORDER_PHONE_MISMATCH)
+  }
+}
+
+export class OrderEmptyCartError extends OrderError {
+  constructor(cartId: string) {
+    super('O carrinho está vazio.', 400, ORDER_CART_EMPTY, { cartId })
+  }
+}
+
+export class OrderNoPreviousOrderError extends OrderError {
+  constructor(customerId: string) {
+    super('Nenhum pedido anterior encontrado para repetir.', 404, ORDER_NO_PREVIOUS_ORDER, { customerId })
   }
 }
