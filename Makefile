@@ -75,8 +75,8 @@ build-web: ## 📦 Build de produção do frontend
 all: setup ## 🚀 Sobe tudo (infra + migrate + seed + validate + dev)
 	@echo "✅ QuickCart pronto! Acesse:"
 	@echo "   API:     http://localhost:3344/v1/health"
-	@echo "   Web:     http://localhost:5173"
-	@echo "   Admin:   http://localhost:5173/#/admin"
+	@echo "   Web:     http://localhost:5183"
+	@echo "   Admin:   http://localhost:5183/#/admin"
 
 setup: up migrate seed validate ## 🔧 Setup completo do zero (infra + banco + validação)
 

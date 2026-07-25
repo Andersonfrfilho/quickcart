@@ -22,6 +22,8 @@ export function useCategoryPage() {
   })
 
   const addItem = useCartStore((s) => s.addItem)
+  const updateQuantity = useCartStore((s) => s.updateQuantity)
+  const cartItems = useCartStore((s) => s.items)
   const categories = categoriesData?.data ?? []
   const category = categories.find((c) => c.id === categoryId)
   const products = productsData?.data ?? []
@@ -43,6 +45,10 @@ export function useCategoryPage() {
     })
   }
 
+  function getCartQuantity(productId: string) {
+    return cartItems.find((item) => item.productId === productId)?.quantity ?? 0
+  }
+
   return {
     categories,
     category,
@@ -54,5 +60,7 @@ export function useCategoryPage() {
     categoryId,
     handleSelectCategory,
     handleAddToCart,
+    updateQuantity,
+    getCartQuantity,
   }
 }

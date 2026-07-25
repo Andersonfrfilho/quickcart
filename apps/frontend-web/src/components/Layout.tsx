@@ -1,6 +1,8 @@
 import React, { useState } from 'react'
 import { useRouter, Link } from '@/app/router'
 import { TYPOGRAPHY } from '@/shared/theme'
+import { useCartStore } from '@/modules/store/shared/cartStore'
+import { Badge } from '@/components/ui'
 
 type NavItem = {
   label: string
@@ -104,6 +106,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
 
 export function StoreLayout({ children }: { children: React.ReactNode }) {
   const { currentPath, navigate } = useRouter()
+  const cartItemCount = useCartStore((state) => state.items.reduce((sum, item) => sum + item.quantity, 0))
 
   return (
     <div className="min-h-screen bg-background">
@@ -122,13 +125,23 @@ export function StoreLayout({ children }: { children: React.ReactNode }) {
                 key={item.path}
                 type="button"
                 onClick={() => navigate(item.path)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
+                className={`relative flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
                   currentPath === item.path
                     ? 'bg-primary text-primary-foreground'
                     : 'text-foreground hover:bg-accent'
                 }`}
               >
-                <span>{item.icon}</span>
+                <span className="relative">
+                  {item.icon}
+                  {item.path === '/cart' && cartItemCount > 0 && (
+                    <Badge
+                      variant="destructive"
+                      className="absolute -top-2 -right-2 h-4 min-w-4 justify-center rounded-full px-1 text-[10px] leading-none"
+                    >
+                      {cartItemCount > 99 ? '99+' : cartItemCount}
+                    </Badge>
+                  )}
+                </span>
                 <span className="hidden sm:inline">{item.label}</span>
               </button>
             ))}

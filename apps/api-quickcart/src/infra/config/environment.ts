@@ -45,7 +45,7 @@ const environmentSchema = z.object({
   // ── Tokens internos ──
   ADMIN_API_TOKEN: z.string().min(1),
   INTERNAL_API_TOKEN: z.string().min(1),
-  ALLOWED_ORIGINS: z.string().default('http://localhost:5173'),
+  ALLOWED_ORIGINS: z.string().default('http://localhost:5183'),
 
   // ── Observabilidade ──
   SENTRY_DSN: z.string().optional(),

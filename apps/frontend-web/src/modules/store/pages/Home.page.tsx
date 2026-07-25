@@ -1,5 +1,6 @@
 import React from 'react'
 import { useHomePage } from '@/modules/store/hooks/useHomePage.hook'
+import { ProductImage } from '@/modules/store/components/ProductImage.component'
 import { Input, Card } from '@/components/ui'
 
 export function HomePage() {
@@ -33,12 +34,17 @@ export function HomePage() {
                     onClick={() => handleSelectSearchResult(product)}
                     className="w-full text-left px-4 py-3 hover:bg-accent transition-colors"
                   >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <span className="font-medium">{product.name}</span>
-                        {product.brand && <span className="text-muted-foreground text-sm ml-2">{product.brand}</span>}
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <ProductImage imageUrl={product.imageUrl} name={product.name} className="w-10 shrink-0" />
+                        <div className="min-w-0">
+                          <span className="font-medium">{product.name}</span>
+                          {product.brand && (
+                            <span className="text-muted-foreground text-sm ml-2">{product.brand}</span>
+                          )}
+                        </div>
                       </div>
-                      <span className="text-primary font-medium">
+                      <span className="text-primary font-medium shrink-0">
                         {(product.priceInCents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                       </span>
                     </div>

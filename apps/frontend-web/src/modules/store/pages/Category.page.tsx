@@ -1,5 +1,7 @@
 import React from 'react'
 import { useCategoryPage } from '@/modules/store/hooks/useCategoryPage.hook'
+import { ProductImage } from '@/modules/store/components/ProductImage.component'
+import { QuantityStepper } from '@/modules/store/components/QuantityStepper.component'
 import { Card, Button } from '@/components/ui'
 
 export function CategoryPage() {
@@ -14,6 +16,8 @@ export function CategoryPage() {
     categoryId,
     handleSelectCategory,
     handleAddToCart,
+    updateQuantity,
+    getCartQuantity,
   } = useCategoryPage()
 
   return (
@@ -34,21 +38,38 @@ export function CategoryPage() {
       {category && <h2 className="text-xl font-semibold">{category.name}</h2>}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-        {products.map((product) => (
-          <Card key={product.id} className="p-4">
-            <h3 className="font-medium text-sm mb-1">{product.name}</h3>
-            {product.brand && <p className="text-xs text-muted-foreground">{product.brand}</p>}
-            {product.unitSize && <p className="text-xs text-muted-foreground">{product.unitSize}</p>}
-            <div className="flex items-center justify-between mt-3">
-              <span className="font-semibold text-primary">
-                {(product.priceInCents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-              </span>
-              <Button size="sm" onClick={() => handleAddToCart(product)}>
-                +
-              </Button>
-            </div>
-          </Card>
-        ))}
+        {products.map((product) => {
+          const cartQuantity = getCartQuantity(product.id)
+          return (
+            <Card key={product.id} className="p-4">
+              <ProductImage
+                imageUrl={product.imageUrl}
+                name={product.name}
+                fallbackEmoji={category?.emoji}
+                className="mb-3"
+              />
+              <h3 className="font-medium text-sm mb-1">{product.name}</h3>
+              {product.brand && <p className="text-xs text-muted-foreground">{product.brand}</p>}
+              {product.unitSize && <p className="text-xs text-muted-foreground">{product.unitSize}</p>}
+              <div className="flex items-center justify-between mt-3">
+                <span className="font-semibold text-primary">
+                  {(product.priceInCents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                </span>
+                {cartQuantity > 0 ? (
+                  <QuantityStepper
+                    quantity={cartQuantity}
+                    onIncrease={() => updateQuantity(product.id, cartQuantity + 1)}
+                    onDecrease={() => updateQuantity(product.id, cartQuantity - 1)}
+                  />
+                ) : (
+                  <Button size="sm" onClick={() => handleAddToCart(product)}>
+                    +
+                  </Button>
+                )}
+              </div>
+            </Card>
+          )
+        })}
       </div>
 
       {pagination && pagination.total > perPage && (
