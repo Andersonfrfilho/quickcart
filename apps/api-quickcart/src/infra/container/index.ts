@@ -349,10 +349,11 @@ type WebhookModule = {
 }
 
 function buildWebhookModule(params: WebhookRepositories & ConversationModule): WebhookModule {
-  const { cacheProvider, whatsAppSender, conversationEngine } = params
+  const { cacheProvider, customerRepository, whatsAppSender, conversationEngine } = params
 
   const metaWhatsApp = createQuickCartWhatsAppModule({
     cacheProvider,
+    customerRepository,
     resolveConversationEngine: () => conversationEngine,
   })
 

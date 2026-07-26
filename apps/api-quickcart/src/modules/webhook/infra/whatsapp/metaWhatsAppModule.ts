@@ -22,12 +22,14 @@ import { serializeError } from '@/shared/serializeError'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import type { CacheProvider } from '@/shared/providers/CacheProvider.interface'
 import type { ConversationEngine } from '@/modules/conversation/application/ConversationEngine'
+import type { CustomerRepositoryInterface } from '@/modules/webhook/domain/CustomerRepository.interface'
 import { parseInboundMessage } from '@/modules/webhook/application/parseInboundMessage'
 
 const webhookLog = logger.child('Webhook')
 
 type CreateQuickCartWhatsAppModuleParams = {
   readonly cacheProvider: CacheProvider
+  readonly customerRepository: CustomerRepositoryInterface
   // Resolvido preguiçosamente: a engine depende de repositórios que dependem deste módulo,
   // então o container não consegue construir os dois na mesma passada.
   readonly resolveConversationEngine: () => ConversationEngine
@@ -63,6 +65,13 @@ export function createQuickCartWhatsAppModule(params: CreateQuickCartWhatsAppMod
     features: { flowEngine: false },
     hooks: {
       onMessageReceived: async (message) => {
+        // O cliente precisa existir antes da engine rodar — ela desiste com
+        // conversation_customer_not_found se não achar. O módulo cuida da sessão, mas
+        // `customers` é tabela do QuickCart e ele não a conhece; este upsert é a metade da
+        // antiga ReceiveWhatsAppWebhook que continua sendo regra de negócio daqui.
+        // Aguardado (a sessão já foi gravada pelo módulo, então isto é rápido e local).
+        await params.customerRepository.upsertByPhone({ phone: message.from })
+
         // Deliberadamente NÃO aguardado: a Meta reenvia o webhook se não receber 200 a tempo,
         // e a engine faz I/O longo (LLM, catálogo, carrinho). Mesma escolha de antes da
         // migração — o que muda é só quem chama.

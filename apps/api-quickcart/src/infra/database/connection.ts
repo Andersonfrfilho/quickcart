@@ -10,6 +10,7 @@
 
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
+import { runMetaWhatsAppMigrations } from '@adatechnology/meta-whatsapp-module'
 import { Pool } from 'pg'
 import path from 'node:path'
 import { logger } from '@/shared/logger'
@@ -59,6 +60,13 @@ export async function pingDatabase(): Promise<boolean> {
 }
 
 export async function runMigrations(): Promise<void> {
+  // O módulo vem primeiro porque a migration 0005 daqui copia dados para dentro do schema
+  // meta_whatsapp — ele precisa existir antes. As duas cadeias têm journals separados
+  // (drizzle.meta_whatsapp_migrations vs __drizzle_migrations), então a ordem é dada aqui,
+  // não por numeração.
+  dbLog.info('running_meta_whatsapp_migrations')
+  await runMetaWhatsAppMigrations({ db, migrate: migrate as never })
+
   const migrationsFolder = path.resolve(import.meta.dir, '../../../drizzle/migrations')
   dbLog.info('running_migrations')
   await migrate(db, { migrationsFolder })
