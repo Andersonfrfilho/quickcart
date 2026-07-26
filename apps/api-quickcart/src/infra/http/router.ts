@@ -46,6 +46,21 @@ export type ResponseHelper = {
   json(statusCode: number, payload: unknown, extraHeaders?: Record<string, string>): void
   text(statusCode: number, body: string): void
   error(error: unknown): void
+  // Resposta de duração indefinida (SSE). Devolve o writer para o handler empurrar eventos e
+  // o `close` que o chamador precisa registrar para soltar a inscrição quando o cliente sai —
+  // sem isso cada aba fechada deixaria um listener pendurado.
+  stream(params: StreamResponseParams): void
+}
+
+export type StreamResponseParams = {
+  readonly contentType: string
+  readonly onOpen: (writer: StreamWriter) => void | Promise<void>
+  readonly onClose: () => void
+}
+
+export type StreamWriter = {
+  write(chunk: string): void
+  close(): void
 }
 
 export type RouteHandler = (
@@ -141,7 +156,45 @@ function buildResponseHelper(params: { readonly origin: string | undefined }): {
     json(caughtError.statusCode, buildErrorPayload(caughtError))
   }
 
-  return { helper: { json, text, error }, responsePromise }
+  function stream(streamParams: StreamResponseParams): void {
+    const headers = buildCorsHeaders(origin)
+    headers.set('Content-Type', streamParams.contentType)
+    // Sem estes dois um proxy reverso costuma bufferizar o corpo e a inbox só recebe os
+    // eventos em blocos, ou nunca — o sintoma clássico de "o SSE funciona local e não em prod".
+    headers.set('Cache-Control', 'no-cache, no-transform')
+    headers.set('Connection', 'keep-alive')
+
+    const encoder = new TextEncoder()
+    let closed = false
+
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const writer: StreamWriter = {
+          write(chunk: string): void {
+            if (closed) return
+            controller.enqueue(encoder.encode(chunk))
+          },
+          close(): void {
+            if (closed) return
+            closed = true
+            controller.close()
+            streamParams.onClose()
+          },
+        }
+        void streamParams.onOpen(writer)
+      },
+      // Disparado quando o cliente desconecta. É aqui que a inscrição é solta.
+      cancel() {
+        if (closed) return
+        closed = true
+        streamParams.onClose()
+      },
+    })
+
+    resolveResponse(new Response(body, { status: 200, headers }))
+  }
+
+  return { helper: { json, text, error, stream }, responsePromise }
 }
 
 function logErrorAndReport(params: {

@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@adatechnology/meta-whatsapp-contracts": "^0.2.0-rc.1",
-    "@adatechnology/meta-whatsapp-module": "^0.2.0-rc.5",
+    "@adatechnology/meta-whatsapp-module": "^0.2.0-rc.7",
     "@adatechnology/meta-whatsapp-provider": "^0.2.0-rc.2",
     "bullmq": "^5.79.2",
     "drizzle-orm": "^0.36.4",

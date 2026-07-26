@@ -24,6 +24,7 @@ import type { CacheProvider } from '@/shared/providers/CacheProvider.interface'
 import type { ConversationEngine } from '@/modules/conversation/application/ConversationEngine'
 import type { CustomerRepositoryInterface } from '@/modules/webhook/domain/CustomerRepository.interface'
 import { parseInboundMessage } from '@/modules/webhook/application/parseInboundMessage'
+import { conversationSseHub } from '@/modules/conversation/infra/realtime/conversationRealtime'
 
 const webhookLog = logger.child('Webhook')
 
@@ -63,6 +64,9 @@ export function createQuickCartWhatsAppModule(params: CreateQuickCartWhatsAppMod
     // não um grafo editável. Sem esta flag o módulo instanciaria um interpretador que ninguém
     // chama e o exporia na API pública.
     features: { flowEngine: false },
+    // Com o notificador injetado, cada mensagem gravada e cada mudança de status vira evento
+    // SSE — é o que faz a inbox se mover sozinha enquanto o atendente olha.
+    providers: { realtime: conversationSseHub },
     hooks: {
       onMessageReceived: async (message) => {
         // O cliente precisa existir antes da engine rodar — ela desiste com

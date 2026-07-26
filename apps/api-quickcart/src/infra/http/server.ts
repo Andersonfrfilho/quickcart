@@ -20,6 +20,7 @@ import { registerCatalogRoutes } from '@/modules/catalog/infra/http/CatalogRoute
 import { registerOrderRoutes } from '@/modules/order/infra/http/OrderRoutes'
 import { registerWebhookRoutes } from '@/modules/webhook/infra/http/WebhookRoutes'
 import { registerInternalRoutes } from '@/modules/internal/infra/http/InternalRoutes'
+import { registerConversationRoutes } from '@/modules/conversation/infra/http/ConversationRoutes'
 
 export function createRouter(): Router {
   const router = new Router()
@@ -35,6 +36,12 @@ export function createRouter(): Router {
   registerOrderRoutes({ router, orderController: container.order.orderController })
   registerWebhookRoutes({ router, webhookController: container.webhook.controller })
   registerInternalRoutes({ router, internalController: container.internal.controller })
+  registerConversationRoutes({
+    router,
+    conversationController: container.conversationHttp.conversationController,
+    settingsController: container.conversationHttp.settingsController,
+    streamController: container.conversationHttp.streamController,
+  })
 
   router.registerNotFoundHandler()
 

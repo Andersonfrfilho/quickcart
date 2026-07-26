@@ -37,6 +37,11 @@ import { DrizzleCustomerRepository } from '@/modules/webhook/infra/database/Driz
 import { DrizzleConversationSessionRepository } from '@/modules/webhook/infra/database/DrizzleConversationSessionRepository'
 import { DrizzleMessageRepository } from '@/modules/webhook/infra/database/DrizzleMessageRepository'
 import { createQuickCartWhatsAppModule } from '@/modules/webhook/infra/whatsapp/metaWhatsAppModule'
+import type { MetaWhatsAppModule } from '@adatechnology/meta-whatsapp-module'
+import { ConversationController } from '@/modules/conversation/infra/http/Conversation.controller'
+import { ConversationSettingsController } from '@/modules/conversation/infra/http/ConversationSettings.controller'
+import { ConversationStreamController } from '@/modules/conversation/infra/http/ConversationStream.controller'
+import { conversationSseHub, conversationTicketStore } from '@/modules/conversation/infra/realtime/conversationRealtime'
 import { WebhookController } from '@/modules/webhook/infra/http/Webhook.controller'
 import { WhatsAppSender } from '@/modules/webhook/infra/whatsapp/WhatsAppSender'
 import { ConversationEngine } from '@/modules/conversation/application/ConversationEngine'
@@ -346,6 +351,9 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
 type WebhookModule = {
   readonly controller: WebhookController
   readonly whatsAppSender: WhatsAppSender
+  // A mesma instância do módulo serve o webhook e as telas de conversa: são duas portas de
+  // entrada para o mesmo estado, e duplicar a instância duplicaria pool e inscrições SSE.
+  readonly metaWhatsApp: MetaWhatsAppModule
 }
 
 function buildWebhookModule(params: WebhookRepositories & ConversationModule): WebhookModule {
@@ -359,7 +367,24 @@ function buildWebhookModule(params: WebhookRepositories & ConversationModule): W
 
   const controller = new WebhookController({ metaWhatsApp })
 
-  return { controller, whatsAppSender }
+  return { controller, whatsAppSender, metaWhatsApp }
+}
+
+type ConversationHttpModule = {
+  readonly conversationController: ConversationController
+  readonly settingsController: ConversationSettingsController
+  readonly streamController: ConversationStreamController
+}
+
+function buildConversationHttpModule(params: { readonly metaWhatsApp: MetaWhatsAppModule }): ConversationHttpModule {
+  return {
+    conversationController: new ConversationController({ metaWhatsApp: params.metaWhatsApp }),
+    settingsController: new ConversationSettingsController({ metaWhatsApp: params.metaWhatsApp }),
+    streamController: new ConversationStreamController({
+      sseHub: conversationSseHub,
+      ticketStore: conversationTicketStore,
+    }),
+  }
 }
 
 type InternalModuleDependencies = {
@@ -411,6 +436,8 @@ const conversationModule = buildConversationModule({
   repeatLastOrderUseCase: orderModule.repeatLastOrderUseCase,
 })
 
+const webhookModule = buildWebhookModule({ ...webhookRepositories, ...conversationModule })
+
 export const container = {
   health: buildHealthModule(),
   catalog: { categoryController: catalogModule.categoryController, productController: catalogModule.productController },
@@ -429,7 +456,8 @@ export const container = {
     listOrdersUseCase: orderModule.listOrdersUseCase,
     orderController: orderModule.orderController,
   },
-  webhook: buildWebhookModule({ ...webhookRepositories, ...conversationModule }),
+  webhook: webhookModule,
+  conversationHttp: buildConversationHttpModule({ metaWhatsApp: webhookModule.metaWhatsApp }),
   internal: buildInternalModule({
     conversationSessionRepository: webhookRepositories.conversationSessionRepository,
     messageRepository: webhookRepositories.messageRepository,
