@@ -9,11 +9,10 @@
  */
 
 import { pgTable, uuid, varchar, text, jsonb, integer, timestamp } from 'drizzle-orm/pg-core'
-import { conversationSessions } from './conversation-sessions'
 
 export const listImports = pgTable('list_imports', {
   id: uuid('id').primaryKey(),
-  sessionId: uuid('session_id').references(() => conversationSessions.id, { onDelete: 'set null' }),
+  sessionId: uuid('session_id'),
   source: varchar('source', { length: 10 }).notNull(),
   rawText: text('raw_text').notNull(),
   transcript: text('transcript'),

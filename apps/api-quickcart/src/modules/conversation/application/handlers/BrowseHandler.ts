@@ -16,7 +16,7 @@
  * natural da fila de resolução.
  */
 
-import type { ConversationSession } from '@/infra/database/schema'
+import type { ConversationSession } from '@/modules/webhook/domain/Conversation.types'
 import type { AddCartItemUseCase } from '@/modules/cart/application/use-cases/AddCartItem.use-case'
 import type { CartRepositoryInterface } from '@/modules/cart/domain/CartRepository.interface'
 import type { ProductRepositoryInterface } from '@/modules/catalog/domain/ProductRepository.interface'

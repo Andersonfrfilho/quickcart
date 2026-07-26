@@ -28,6 +28,10 @@ const environmentSchema = z.object({
   WHATSAPP_APP_SECRET: z.string().default(''),
   WHATSAPP_API_VERSION: z.string().default('v21.0'),
   WHATSAPP_BASE_URL: z.string().default('https://graph.facebook.com'),
+  // O meta-whatsapp-module é multiempresa por construção; o QuickCart atende uma loja só.
+  // Este UUID fixo é o tenant único — existe para satisfazer a chave do módulo, não porque
+  // haja mais de um inquilino. Vira configurável no dia em que houver.
+  WHATSAPP_COMPANY_ID: z.string().uuid().default('00000000-0000-4000-8000-000000000001'),
 
   // ── STT/LLM (opcional) ──
   GROQ_API_KEY: z.string().optional(),

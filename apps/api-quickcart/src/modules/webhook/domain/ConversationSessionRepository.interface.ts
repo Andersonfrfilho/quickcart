@@ -13,7 +13,7 @@
  * pareceria expirada.
  */
 
-import type { ConversationSession } from '@/infra/database/schema'
+import type { ConversationSession } from '@/modules/webhook/domain/Conversation.types'
 
 export type TouchConversationSessionByPhoneParams = {
   readonly customerPhone: string

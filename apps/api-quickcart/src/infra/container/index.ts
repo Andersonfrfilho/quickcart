@@ -36,7 +36,7 @@ import type { MessageRepositoryInterface } from '@/modules/webhook/domain/Messag
 import { DrizzleCustomerRepository } from '@/modules/webhook/infra/database/DrizzleCustomerRepository'
 import { DrizzleConversationSessionRepository } from '@/modules/webhook/infra/database/DrizzleConversationSessionRepository'
 import { DrizzleMessageRepository } from '@/modules/webhook/infra/database/DrizzleMessageRepository'
-import { ReceiveWhatsAppWebhookUseCase } from '@/modules/webhook/application/use-cases/ReceiveWhatsAppWebhook.use-case'
+import { createQuickCartWhatsAppModule } from '@/modules/webhook/infra/whatsapp/metaWhatsAppModule'
 import { WebhookController } from '@/modules/webhook/infra/http/Webhook.controller'
 import { WhatsAppSender } from '@/modules/webhook/infra/whatsapp/WhatsAppSender'
 import { ConversationEngine } from '@/modules/conversation/application/ConversationEngine'
@@ -349,17 +349,14 @@ type WebhookModule = {
 }
 
 function buildWebhookModule(params: WebhookRepositories & ConversationModule): WebhookModule {
-  const { cacheProvider, customerRepository, conversationSessionRepository, messageRepository, whatsAppSender, conversationEngine } = params
+  const { cacheProvider, whatsAppSender, conversationEngine } = params
 
-  const receiveWhatsAppWebhookUseCase = new ReceiveWhatsAppWebhookUseCase({
+  const metaWhatsApp = createQuickCartWhatsAppModule({
     cacheProvider,
-    customerRepository,
-    conversationSessionRepository,
-    messageRepository,
-    conversationEngine,
+    resolveConversationEngine: () => conversationEngine,
   })
 
-  const controller = new WebhookController({ receiveWhatsAppWebhookUseCase })
+  const controller = new WebhookController({ metaWhatsApp })
 
   return { controller, whatsAppSender }
 }

@@ -145,8 +145,8 @@ export class WhatsAppSender {
   private async persistOutbound(params: PersistOutboundParams): Promise<void> {
     const session = await this.dependencies.conversationSessionRepository.touchByPhone({ customerPhone: params.to })
     await this.dependencies.messageRepository.create({
-      id: generateId(),
       sessionId: session.id,
+      customerPhone: session.customerPhone,
       direction: 'outbound',
       waMessageId: params.waMessageId ?? undefined,
       type: params.type,

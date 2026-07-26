@@ -8,11 +8,14 @@
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  */
 
-import type { Message } from '@/infra/database/schema'
+import type { Message } from '@/modules/webhook/domain/Conversation.types'
 
+// `customerPhone` acompanha o sessionId porque a tabela do meta-whatsapp-module desnormaliza o
+// número na mensagem (é assim que ela lista uma conversa sem join). O `id` saiu: quem o gera
+// agora é o default da coluna, e mandar um id de fora só criaria duas fontes para a mesma chave.
 export type CreateMessageRecordParams = {
-  readonly id: string
   readonly sessionId: string
+  readonly customerPhone: string
   readonly direction: 'inbound' | 'outbound'
   readonly waMessageId?: string | undefined
   readonly type: string
@@ -22,6 +25,7 @@ export type CreateMessageRecordParams = {
 }
 
 export interface MessageRepositoryInterface {
-  create(params: CreateMessageRecordParams): Promise<Message>
+  // undefined quando a mensagem já existia — a gravação é idempotente por (empresa, waMessageId).
+  create(params: CreateMessageRecordParams): Promise<Message | undefined>
   updateStatusByWaMessageId(waMessageId: string, status: string): Promise<Message | undefined>
 }

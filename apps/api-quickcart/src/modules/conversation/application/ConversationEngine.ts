@@ -14,7 +14,7 @@
  * tem mensagem própria porque marca o fim do que a Fase 4 entrega.
  */
 
-import type { ConversationSession } from '@/infra/database/schema'
+import type { ConversationSession } from '@/modules/webhook/domain/Conversation.types'
 import type { CustomerRepositoryInterface } from '@/modules/webhook/domain/CustomerRepository.interface'
 import type { ConversationSessionRepositoryInterface } from '@/modules/webhook/domain/ConversationSessionRepository.interface'
 import type { WhatsAppSender } from '@/modules/webhook/infra/whatsapp/WhatsAppSender'

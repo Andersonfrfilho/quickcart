@@ -15,7 +15,7 @@
  * quantidade <= 0 de propósito, já que lá 0 não faz sentido.
  */
 
-import type { ConversationSession } from '@/infra/database/schema'
+import type { ConversationSession } from '@/modules/webhook/domain/Conversation.types'
 import type { RemoveCartItemUseCase } from '@/modules/cart/application/use-cases/RemoveCartItem.use-case'
 import type { UpdateCartItemQuantityUseCase } from '@/modules/cart/application/use-cases/UpdateCartItemQuantity.use-case'
 import type { CartRepositoryInterface } from '@/modules/cart/domain/CartRepository.interface'

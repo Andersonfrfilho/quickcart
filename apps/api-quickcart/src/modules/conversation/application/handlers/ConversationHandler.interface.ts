@@ -8,7 +8,8 @@
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  */
 
-import type { ConversationSession, Customer } from '@/infra/database/schema'
+import type { Customer } from '@/infra/database/schema'
+import type { ConversationSession } from '@/modules/webhook/domain/Conversation.types'
 import type { ParsedInboundMessage } from '@/modules/webhook/application/types/WhatsAppWebhookPayload.types'
 
 export type ConversationHandlerContext = {

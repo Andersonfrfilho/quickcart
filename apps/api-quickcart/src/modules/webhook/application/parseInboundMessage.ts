@@ -8,12 +8,13 @@
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  */
 
-import type {
-  ParsedInboundMessage,
-  WhatsAppWebhookMessage,
-} from '@/modules/webhook/application/types/WhatsAppWebhookPayload.types'
+import type { WhatsAppMessage } from '@adatechnology/meta-whatsapp-contracts'
+import type { ParsedInboundMessage } from '@/modules/webhook/application/types/WhatsAppWebhookPayload.types'
 
-export function parseInboundMessage(message: WhatsAppWebhookMessage): ParsedInboundMessage {
+// Recebe a mensagem crua da Meta já validada pelo módulo e a reduz à união fechada que os
+// handlers do QuickCart entendem. Tudo que a loja não trata (imagem, documento, sticker,
+// pedido de catálogo) cai em 'unsupported' — o mesmo comportamento de antes da migração.
+export function parseInboundMessage(message: WhatsAppMessage): ParsedInboundMessage {
   const { from, id: waMessageId, type } = message
 
   if (type === 'text' && message.text) {

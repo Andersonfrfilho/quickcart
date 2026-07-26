@@ -16,7 +16,8 @@
  * exception filter HTTP do Router como rede de segurança (code-standart.md §7).
  */
 
-import type { ConversationSession, Customer } from '@/infra/database/schema'
+import type { Customer } from '@/infra/database/schema'
+import type { ConversationSession } from '@/modules/webhook/domain/Conversation.types'
 import type { CartRepositoryInterface } from '@/modules/cart/domain/CartRepository.interface'
 import type { ProductRepositoryInterface } from '@/modules/catalog/domain/ProductRepository.interface'
 import type { CreateOrderFromCartUseCase } from '@/modules/order/application/use-cases/CreateOrderFromCart.use-case'

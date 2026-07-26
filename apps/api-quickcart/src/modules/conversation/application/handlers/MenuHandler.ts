@@ -13,7 +13,8 @@
  */
 
 import type { CategoryRepositoryInterface } from '@/modules/catalog/domain/CategoryRepository.interface'
-import type { ConversationSession, Customer } from '@/infra/database/schema'
+import type { Customer } from '@/infra/database/schema'
+import type { ConversationSession } from '@/modules/webhook/domain/Conversation.types'
 import type { ParseShoppingListUseCase } from '@/modules/conversation/application/use-cases/ParseShoppingList.use-case'
 import type { ConversationSessionRepositoryInterface } from '@/modules/webhook/domain/ConversationSessionRepository.interface'
 import type { WhatsAppSender } from '@/modules/webhook/infra/whatsapp/WhatsAppSender'

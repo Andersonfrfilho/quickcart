@@ -60,8 +60,8 @@ export class ResumeConversationUseCase {
     }
 
     await this.dependencies.messageRepository.create({
-      id: generateId(),
       sessionId: session.id,
+      customerPhone: session.customerPhone,
       direction: 'inbound',
       waMessageId: parsed.waMessageId,
       type: 'text',
