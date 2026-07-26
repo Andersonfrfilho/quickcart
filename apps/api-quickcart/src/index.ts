@@ -18,6 +18,7 @@ import { logger } from '@/shared/logger'
 import { LOG_EVENTS } from '@/shared/constants/log-events.constant'
 import { initSentry } from '@/infra/observability/sentry'
 import { checkDatabaseConnection, closeDatabaseConnection, runMigrations } from '@/infra/database/connection'
+import { seedMainFlow } from '@/infra/container'
 import { checkRedisConnection, closeRedisConnection } from '@/infra/redis/connection'
 import { serializeError } from '@/shared/serializeError'
 import { INTERNAL_ERROR } from '@/shared/errors/codes'
@@ -34,6 +35,7 @@ async function start(): Promise<void> {
 
   await checkDatabaseConnection()
   await runMigrations()
+await seedMainFlow()
   await checkRedisConnection()
 
   const router = createRouter()

@@ -42,6 +42,11 @@ import { ConversationController } from '@/modules/conversation/infra/http/Conver
 import { ConversationSettingsController } from '@/modules/conversation/infra/http/ConversationSettings.controller'
 import { ConversationStreamController } from '@/modules/conversation/infra/http/ConversationStream.controller'
 import { conversationSseHub, conversationTicketStore } from '@/modules/conversation/infra/realtime/conversationRealtime'
+import { FlowDriver } from '@/modules/conversation/application/FlowDriver'
+import { registerQuickCartFlowActions } from '@/modules/conversation/application/registerQuickCartFlowActions'
+import { MAIN_FLOW_SEED } from '@/modules/conversation/shared/MainFlow.seed'
+import { logger } from '@/shared/logger'
+import { environment } from '@/infra/config/environment'
 import { WebhookController } from '@/modules/webhook/infra/http/Webhook.controller'
 import { WhatsAppSender } from '@/modules/webhook/infra/whatsapp/WhatsAppSender'
 import { ConversationEngine } from '@/modules/conversation/application/ConversationEngine'
@@ -356,14 +361,47 @@ type WebhookModule = {
   readonly metaWhatsApp: MetaWhatsAppModule
 }
 
-function buildWebhookModule(params: WebhookRepositories & ConversationModule): WebhookModule {
-  const { cacheProvider, customerRepository, whatsAppSender, conversationEngine } = params
+function buildWebhookModule(
+  params: WebhookRepositories &
+    ConversationModule & {
+      readonly repeatLastOrderUseCase: RepeatLastOrderUseCase
+      readonly cartRepository: CartRepositoryInterface
+      readonly productRepository: ProductRepositoryInterface
+    },
+): WebhookModule {
+  const { cacheProvider, customerRepository, whatsAppSender, conversationEngine, repeatLastOrderUseCase } = params
+
+  // Amarração circular resolvida por referência tardia: o driver precisa do interpretador que
+  // esta fábrica cria, e a fábrica precisa saber chamar o driver.
+  let flowDriver: FlowDriver | undefined
 
   const metaWhatsApp = createQuickCartWhatsAppModule({
     cacheProvider,
     customerRepository,
     resolveConversationEngine: () => conversationEngine,
+    resolveFlowDriver: () => flowDriver,
   })
+
+  if (metaWhatsApp.flows) {
+    flowDriver = new FlowDriver({
+      interpreter: metaWhatsApp.flows.interpreter,
+      sessionRepository: metaWhatsApp.conversations.repository,
+      channel: metaWhatsApp.channel,
+      logMessage: metaWhatsApp.conversations.log,
+      startState: CONVERSATION_STATE.GREETING,
+      loadFlow: (key) => metaWhatsApp.flows!.get.execute({ companyId: environment.WHATSAPP_COMPANY_ID, key }),
+    })
+
+    registerQuickCartFlowActions({
+      registerFlowAction: (kind, handler) => metaWhatsApp.flows!.registerFlowAction(kind, handler),
+      sessionRepository: metaWhatsApp.conversations.repository,
+      whatsAppSender,
+      customerRepository,
+      repeatLastOrderUseCase,
+      cartRepository: params.cartRepository,
+      productRepository: params.productRepository,
+    })
+  }
 
   const controller = new WebhookController({ metaWhatsApp })
 
@@ -436,7 +474,34 @@ const conversationModule = buildConversationModule({
   repeatLastOrderUseCase: orderModule.repeatLastOrderUseCase,
 })
 
-const webhookModule = buildWebhookModule({ ...webhookRepositories, ...conversationModule })
+const webhookModule = buildWebhookModule({
+  ...webhookRepositories,
+  ...conversationModule,
+  repeatLastOrderUseCase: orderModule.repeatLastOrderUseCase,
+  cartRepository: cartModule.cartRepository,
+  productRepository: catalogModule.productRepository,
+})
+
+// Chamada pelo boot DEPOIS das migrations: na construção do container as tabelas do módulo
+// ainda não existem, e a semeadura falhava com "relation meta_whatsapp.flow_graphs does not
+// exist". Nunca sobrescreve um grafo já gravado — a semente só cobre a instalação nova.
+export async function seedMainFlow(): Promise<void> {
+  const flows = webhookModule.metaWhatsApp.flows
+  if (!flows) return
+
+  const companyId = environment.WHATSAPP_COMPANY_ID
+  const existing = await flows.get.execute({ companyId, key: MAIN_FLOW_SEED.key })
+  if (existing) return
+
+  await flows.create.execute({
+    companyId,
+    key: MAIN_FLOW_SEED.key,
+    label: MAIN_FLOW_SEED.label,
+    startNodeId: MAIN_FLOW_SEED.startNodeId,
+    nodes: MAIN_FLOW_SEED.nodes,
+  })
+  logger.child('FlowSeed').info('main_flow_seeded', { key: MAIN_FLOW_SEED.key })
+}
 
 export const container = {
   health: buildHealthModule(),

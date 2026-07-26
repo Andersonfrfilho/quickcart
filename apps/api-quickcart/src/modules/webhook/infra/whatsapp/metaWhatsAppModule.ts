@@ -22,6 +22,7 @@ import { serializeError } from '@/shared/serializeError'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import type { CacheProvider } from '@/shared/providers/CacheProvider.interface'
 import type { ConversationEngine } from '@/modules/conversation/application/ConversationEngine'
+import type { FlowDriver } from '@/modules/conversation/application/FlowDriver'
 import type { CustomerRepositoryInterface } from '@/modules/webhook/domain/CustomerRepository.interface'
 import { parseInboundMessage } from '@/modules/webhook/application/parseInboundMessage'
 import { conversationSseHub } from '@/modules/conversation/infra/realtime/conversationRealtime'
@@ -34,6 +35,8 @@ type CreateQuickCartWhatsAppModuleParams = {
   // Resolvido preguiçosamente: a engine depende de repositórios que dependem deste módulo,
   // então o container não consegue construir os dois na mesma passada.
   readonly resolveConversationEngine: () => ConversationEngine
+  // Também preguiçoso: o driver depende do interpretador que esta própria fábrica cria.
+  readonly resolveFlowDriver: () => FlowDriver | undefined
 }
 
 // O anti-replay do módulo precisa de um SET NX atômico compartilhado entre instâncias.
@@ -60,15 +63,15 @@ export function createQuickCartWhatsAppModule(params: CreateQuickCartWhatsAppMod
     },
     nonceStore: toNonceStore(params.cacheProvider),
     startState: CONVERSATION_STATE.GREETING,
-    // A conversa do QuickCart é código TypeScript (ConversationEngine + handlers por estado),
-    // não um grafo editável. Sem esta flag o módulo instanciaria um interpretador que ninguém
-    // chama e o exporia na API pública.
-    features: { flowEngine: false },
+    // O grafo dirige a conversa: é dono da saudação, do menu e dos fluxos que o lojista
+    // desenhar. Os handlers TS continuam existindo, invocados por nós de ação (ver
+    // registerQuickCartFlowActions) para as partes que não cabem num grafo declarativo.
+    features: { flowEngine: true },
     // Com o notificador injetado, cada mensagem gravada e cada mudança de status vira evento
     // SSE — é o que faz a inbox se mover sozinha enquanto o atendente olha.
     providers: { realtime: conversationSseHub },
     hooks: {
-      onMessageReceived: async (message) => {
+      onMessageReceived: async (message, session) => {
         // O cliente precisa existir antes da engine rodar — ela desiste com
         // conversation_customer_not_found se não achar. O módulo cuida da sessão, mas
         // `customers` é tabela do QuickCart e ele não a conhece; este upsert é a metade da
@@ -77,17 +80,28 @@ export function createQuickCartWhatsAppModule(params: CreateQuickCartWhatsAppMod
         await params.customerRepository.upsertByPhone({ phone: message.from })
 
         // Deliberadamente NÃO aguardado: a Meta reenvia o webhook se não receber 200 a tempo,
-        // e a engine faz I/O longo (LLM, catálogo, carrinho). Mesma escolha de antes da
-        // migração — o que muda é só quem chama.
-        void params
-          .resolveConversationEngine()
-          .handle(parseInboundMessage(message))
-          .catch((error: unknown) => {
-            webhookLog.error(LOG_EVENTS.CONVERSATION_ENGINE_FAILED, {
-              waMessageId: message.id,
-              error: serializeError(error),
-            })
+        // e tanto o grafo quanto a engine fazem I/O longo (LLM, catálogo, carrinho).
+        void (async () => {
+          const parsed = parseInboundMessage(message)
+          const driver = params.resolveFlowDriver()
+
+          // O grafo tem a primeira palavra. Ele devolve false quando não havia fluxo para
+          // atender, e aí a engine assume — que é o caso de quem já está no meio de um
+          // carrinho ou checkout, fora do grafo.
+          if (driver && session.flowKey !== null) {
+            if (await driver.handleInbound({ session, message: parsed })) return
+          }
+          if (driver && session.currentState === CONVERSATION_STATE.GREETING) {
+            if (await driver.handleInbound({ session, message: parsed })) return
+          }
+
+          await params.resolveConversationEngine().handle(parsed)
+        })().catch((error: unknown) => {
+          webhookLog.error(LOG_EVENTS.CONVERSATION_ENGINE_FAILED, {
+            waMessageId: message.id,
+            error: serializeError(error),
           })
+        })
 
         // 'handled': o QuickCart assume a mensagem. Devolver 'continue' pediria ao módulo que
         // seguisse para o motor de fluxo, que aqui está desligado.
