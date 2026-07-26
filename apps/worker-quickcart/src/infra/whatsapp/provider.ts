@@ -13,7 +13,7 @@
  * phoneNumberId, apiVersion, baseUrl — sem catalogId/wabaId/businessId, não usados aqui).
  */
 
-import { createWhatsAppProvider } from '@adatechnology/whatsapp-provider'
+import { createWhatsAppProvider } from '@adatechnology/meta-whatsapp-provider'
 import { environment } from '@/infra/config/environment'
 
 function isWhatsAppConfigured(): boolean {

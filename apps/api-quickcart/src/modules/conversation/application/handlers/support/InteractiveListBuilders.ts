@@ -13,7 +13,7 @@
  * title (24) e description (72) da WhatsApp Business API.
  */
 
-import type { InteractiveListRow, InteractiveListSection } from '@adatechnology/whatsapp-provider'
+import type { InteractiveListRow, InteractiveListSection } from '@adatechnology/meta-whatsapp-provider'
 import type { Category, Product } from '@/infra/database/schema'
 import type { MatchCandidate } from '@/modules/conversation/application/types/MatchProducts.types'
 import type { PendingResolution } from '@/modules/conversation/shared/ConversationContext.types'

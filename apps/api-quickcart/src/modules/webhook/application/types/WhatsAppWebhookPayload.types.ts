@@ -8,7 +8,7 @@
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  *
  * Formato do payload do webhook da Meta Cloud API (WhatsApp Business). Não é
- * exportado pelo @adatechnology/whatsapp-provider (que só cobre o envio), então
+ * exportado pelo @adatechnology/meta-whatsapp-provider (que só cobre o envio), então
  * modelamos aqui apenas os campos que o QuickCart de fato consome.
  */
 

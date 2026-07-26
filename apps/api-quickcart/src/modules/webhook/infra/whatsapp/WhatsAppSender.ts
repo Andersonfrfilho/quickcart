@@ -21,7 +21,7 @@ import {
   type InteractiveListSection,
   type SendMessageResult,
   type WhatsAppProvider,
-} from '@adatechnology/whatsapp-provider'
+} from '@adatechnology/meta-whatsapp-provider'
 import { environment } from '@/infra/config/environment'
 import { generateId } from '@/shared/id'
 import { logger } from '@/shared/logger'
