@@ -39,6 +39,8 @@ import { DrizzleMessageRepository } from '@/modules/webhook/infra/database/Drizz
 import { createQuickCartWhatsAppModule } from '@/modules/webhook/infra/whatsapp/metaWhatsAppModule'
 import type { MetaWhatsAppModule } from '@adatechnology/meta-whatsapp-module'
 import { ConversationController } from '@/modules/conversation/infra/http/Conversation.controller'
+import { quickCartObjectStorage } from '@/modules/webhook/infra/whatsapp/metaWhatsAppModule'
+import type { ObjectStorageInterface } from '@adatechnology/meta-whatsapp-contracts'
 import { ConversationSettingsController } from '@/modules/conversation/infra/http/ConversationSettings.controller'
 import { ConversationStreamController } from '@/modules/conversation/infra/http/ConversationStream.controller'
 import { conversationSseHub, conversationTicketStore } from '@/modules/conversation/infra/realtime/conversationRealtime'
@@ -414,9 +416,16 @@ type ConversationHttpModule = {
   readonly streamController: ConversationStreamController
 }
 
-function buildConversationHttpModule(params: { readonly metaWhatsApp: MetaWhatsAppModule }): ConversationHttpModule {
+function buildConversationHttpModule(params: {
+  readonly metaWhatsApp: MetaWhatsAppModule
+  readonly objectStorage?: ObjectStorageInterface
+}): ConversationHttpModule {
   return {
-    conversationController: new ConversationController({ metaWhatsApp: params.metaWhatsApp }),
+    conversationController: new ConversationController({
+      metaWhatsApp: params.metaWhatsApp,
+      ...(params.objectStorage ? { objectStorage: params.objectStorage } : {}),
+      ...(quickCartObjectStorage ? { objectStorageProvider: quickCartObjectStorage.provider } : {}),
+    }),
     settingsController: new ConversationSettingsController({ metaWhatsApp: params.metaWhatsApp }),
     streamController: new ConversationStreamController({
       sseHub: conversationSseHub,
@@ -522,7 +531,10 @@ export const container = {
     orderController: orderModule.orderController,
   },
   webhook: webhookModule,
-  conversationHttp: buildConversationHttpModule({ metaWhatsApp: webhookModule.metaWhatsApp }),
+  conversationHttp: buildConversationHttpModule({
+    metaWhatsApp: webhookModule.metaWhatsApp,
+    ...(quickCartObjectStorage ? { objectStorage: quickCartObjectStorage.forModule } : {}),
+  }),
   internal: buildInternalModule({
     conversationSessionRepository: webhookRepositories.conversationSessionRepository,
     messageRepository: webhookRepositories.messageRepository,

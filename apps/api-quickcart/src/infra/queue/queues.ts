@@ -43,3 +43,16 @@ export const notificationQueue = new Queue(QUEUE_NAMES.NOTIFICATION, {
     removeOnFail: { age: 7 * 24 * 3600, count: 2000 },
   },
 })
+
+// Cópia de mídia da Meta para o storage. A URL de download da Meta expira, então tentar de novo
+// tarde demais não recupera nada — daí backoff curto e poucas tentativas, em vez do escalonamento
+// longo do recibo. O use case é idempotente por sourceMediaId, então reentrega não duplica objeto.
+export const documentsQueue = new Queue(QUEUE_NAMES.DOCUMENTS, {
+  connection: queueConnection,
+  defaultJobOptions: {
+    attempts: 4,
+    backoff: { type: 'exponential', delay: 5_000 },
+    removeOnComplete: { age: 7 * 24 * 3600, count: 1000 },
+    removeOnFail: { age: 30 * 24 * 3600, count: 1000 },
+  },
+})

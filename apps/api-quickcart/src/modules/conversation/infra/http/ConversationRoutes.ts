@@ -29,6 +29,12 @@ export function registerConversationRoutes(params: RegisterConversationRoutesPar
   router.get('/v1/admin/conversations', conversationController.handleList)
   router.get('/v1/admin/conversations/:number/messages', conversationController.handleListMessages)
   router.get('/v1/admin/conversations/:number/context', conversationController.handleGetContext)
+  router.get('/v1/admin/conversations/:number/documents', conversationController.handleListDocuments)
+  // POST porque a seleção vai no corpo: uma lista de ids não cabe em query string com folga.
+  router.post('/v1/admin/conversations/:number/documents/archive', conversationController.handleDownloadDocumentsArchive)
+  // Destrutivo e sem lixeira: apaga a conversa, as mensagens e a mídia no storage.
+  router.delete('/v1/admin/conversations/:number', conversationController.handleDeleteConversation)
+  router.get('/v1/admin/conversations/:number/export', conversationController.handleExport)
   router.post('/v1/admin/conversations/:number/messages', conversationController.handleSendText)
   router.post('/v1/admin/conversations/:number/media', conversationController.handleSendMedia)
   router.post('/v1/admin/conversations/:number/template', conversationController.handleSendTemplate)
@@ -36,6 +42,10 @@ export function registerConversationRoutes(params: RegisterConversationRoutesPar
   router.post('/v1/admin/conversations/:number/takeover', conversationController.handleTakeover)
   router.post('/v1/admin/conversations/:number/release', conversationController.handleRelease)
   router.get('/v1/admin/whatsapp/media/:mediaId', conversationController.handleMediaProxy)
+  // Ambas fora de /conversations: a biblioteca é da empresa e a URL assinada é endereçada pelo
+  // objeto, não pela conversa.
+  router.get('/v1/admin/documents', conversationController.handleListAllDocuments)
+  router.get('/v1/admin/documents/:uploadId/url', conversationController.handleGetDocumentUrl)
 
   router.get('/v1/admin/whatsapp/settings', settingsController.handleGetSettings)
   router.put('/v1/admin/whatsapp/settings', settingsController.handleSaveSettings)

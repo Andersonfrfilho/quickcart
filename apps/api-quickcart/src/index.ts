@@ -24,6 +24,8 @@ import { serializeError } from '@/shared/serializeError'
 import { INTERNAL_ERROR } from '@/shared/errors/codes'
 
 const SHUTDOWN_TIMEOUT_MS = 10_000
+// Folga sobre o heartbeat de 25s do stream de conversa (ConversationStream.controller.ts).
+const SSE_IDLE_TIMEOUT_SECONDS = 60
 const bootLog = logger.child('Bootstrap')
 
 let server: ReturnType<typeof Bun.serve> | undefined
@@ -42,6 +44,10 @@ await seedMainFlow()
 
   server = Bun.serve({
     port: environment.PORT,
+    // O padrão do Bun é 10s, e o keep-alive do SSE só escreve a cada 25s: a inbox perdia o stream
+    // antes do primeiro heartbeat e ficava mostrando dado velho sem erro nenhum. A janela precisa
+    // ser maior que o heartbeat, não infinita — conexão pendurada ainda deve morrer sozinha.
+    idleTimeout: SSE_IDLE_TIMEOUT_SECONDS,
     fetch: (request) => router.handle(request),
     error(error) {
       bootLog.error(LOG_EVENTS.RESPONSE_UNHANDLED, { message: serializeError(error) })

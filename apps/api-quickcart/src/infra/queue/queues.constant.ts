@@ -12,6 +12,8 @@ export const QUEUE_NAMES = {
   STT: 'stt',
   RECEIPT: 'receipt',
   NOTIFICATION: 'notification',
+  // Mídia recebida do cliente aguardando cópia da Meta para o storage do host.
+  DOCUMENTS: 'documents',
 } as const
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES]

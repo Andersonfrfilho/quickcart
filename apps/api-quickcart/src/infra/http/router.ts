@@ -45,6 +45,11 @@ export type ParsedRequest = {
 export type ResponseHelper = {
   json(statusCode: number, payload: unknown, extraHeaders?: Record<string, string>): void
   text(statusCode: number, body: string): void
+  /**
+   * Resposta binária de tamanho conhecido (arquivo, zip). Distinta de `stream`, que só escreve
+   * string e existe para SSE — mandar bytes por lá corromperia o conteúdo na conversão para UTF-8.
+   */
+  binary(statusCode: number, body: Uint8Array, headers: Record<string, string>): void
   error(error: unknown): void
   // Resposta de duração indefinida (SSE). Devolve o writer para o handler empurrar eventos e
   // o `close` que o chamador precisa registrar para soltar a inscrição quando o cliente sai —
@@ -142,6 +147,13 @@ function buildResponseHelper(params: { readonly origin: string | undefined }): {
     resolveResponse(new Response(body, { status: statusCode, headers }))
   }
 
+  function binary(statusCode: number, body: Uint8Array, extraHeaders: Record<string, string>): void {
+    const headers = buildCorsHeaders(origin)
+    for (const [key, value] of Object.entries(extraHeaders)) headers.set(key, value)
+    headers.set('Content-Length', String(body.byteLength))
+    resolveResponse(new Response(body, { status: statusCode, headers }))
+  }
+
   function error(caughtError: unknown): void {
     if (!(caughtError instanceof AppError)) {
       json(500, { error: { code: INTERNAL_ERROR, message: 'Internal server error' } })
@@ -194,7 +206,7 @@ function buildResponseHelper(params: { readonly origin: string | undefined }): {
     resolveResponse(new Response(body, { status: 200, headers }))
   }
 
-  return { helper: { json, text, error, stream }, responsePromise }
+  return { helper: { json, text, binary, error, stream }, responsePromise }
 }
 
 function logErrorAndReport(params: {

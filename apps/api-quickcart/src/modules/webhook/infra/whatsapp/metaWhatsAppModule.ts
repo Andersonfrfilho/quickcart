@@ -14,6 +14,8 @@
 
 import { createMetaWhatsAppModule, type MetaWhatsAppModule } from '@adatechnology/meta-whatsapp-module'
 import type { NonceStoreInterface } from '@adatechnology/meta-whatsapp-module'
+import { createTextModerator, parseTermList } from '@adatechnology/text-moderation'
+import { createQuickCartObjectStorage } from '@/modules/webhook/infra/storage/objectStorageAdapter'
 import { db } from '@/infra/database/connection'
 import { environment } from '@/infra/config/environment'
 import { logger } from '@/shared/logger'
@@ -26,8 +28,21 @@ import type { FlowDriver } from '@/modules/conversation/application/FlowDriver'
 import type { CustomerRepositoryInterface } from '@/modules/webhook/domain/CustomerRepository.interface'
 import { parseInboundMessage } from '@/modules/webhook/application/parseInboundMessage'
 import { conversationSseHub } from '@/modules/conversation/infra/realtime/conversationRealtime'
+import { documentsQueue } from '@/infra/queue/queues'
 
 const webhookLog = logger.child('Webhook')
+
+// Construído uma vez: o moderador compila a regex do dicionário no construtor, e refazer isso a
+// cada mensagem seria trabalho repetido em cima do caminho mais quente do webhook.
+// `undefined` quando desligado: a ausência fica visível no tipo do provider, em vez de um storage
+// que aceita chamada e falha na primeira gravação.
+export const quickCartObjectStorage = environment.STORAGE_ENABLED ? createQuickCartObjectStorage() : undefined
+
+const textModerator = createTextModerator({
+  isEnabled: environment.MODERATION_ENABLED,
+  extraTerms: parseTermList(environment.MODERATION_EXTRA_TERMS),
+  allowedTerms: parseTermList(environment.MODERATION_ALLOWED_TERMS),
+})
 
 type CreateQuickCartWhatsAppModuleParams = {
   readonly cacheProvider: CacheProvider
@@ -69,8 +84,35 @@ export function createQuickCartWhatsAppModule(params: CreateQuickCartWhatsAppMod
     features: { flowEngine: true },
     // Com o notificador injetado, cada mensagem gravada e cada mudança de status vira evento
     // SSE — é o que faz a inbox se mover sozinha enquanto o atendente olha.
-    providers: { realtime: conversationSseHub },
+    //
+    // O moderador entra pela mesma porta e por isso não é assunto do módulo: quem tem o
+    // liga/desliga e a lista de termos é o produto, via ambiente validado. Desligado, o módulo
+    // grava as colunas nulas ("não avaliado") em vez de fingir que verificou.
+    providers: {
+      realtime: conversationSseHub,
+      moderator: textModerator,
+      // Sem storage o módulo não expõe `ingestInboundMedia` — o tipo fica `undefined` em vez de
+      // devolver um use case que falharia em runtime.
+      ...(quickCartObjectStorage ? { objectStorage: quickCartObjectStorage.forModule } : {}),
+    },
     hooks: {
+      // Enfileira em vez de baixar aqui: a Meta reenvia o webhook se não receber 200 a tempo, e
+      // copiar o binário é I/O de rede que não cabe no caminho da resposta. `jobId` derivado da
+      // mídia deixa a fila descartar reentrega antes de rodar — o use case também é idempotente,
+      // mas descartar mais cedo é mais barato.
+      onMediaReceived: async (media) => {
+        if (!quickCartObjectStorage) return
+
+        // `_` como separador, não `:`: o BullMQ recusa jobId com dois-pontos ("Custom Id cannot
+        // contain :"), e companyId é UUID — que tem `-` mas nunca `_`, então a chave segue sem
+        // ambiguidade.
+        await documentsQueue.add(
+          'ingest-inbound-media',
+          media,
+          { jobId: `${media.companyId}_${media.sourceMediaId}` },
+        )
+      },
+
       onMessageReceived: async (message, session) => {
         // O cliente precisa existir antes da engine rodar — ela desiste com
         // conversation_customer_not_found se não achar. O módulo cuida da sessão, mas
