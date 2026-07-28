@@ -18,9 +18,11 @@ import { ConversationPreview, createPreviewWebhookClient } from '@adatechnology/
 import { conversationsApi } from '@/modules/conversations/shared/conversationsApi'
 import { conversationsSse } from '@/modules/conversations/shared/conversationsSse'
 import { readPreviewEnvironment } from '@/modules/preview/shared/previewEnvironment'
+import { getAdminToken } from '@/modules/admin/shared/useAdminAuth.hook'
 
 export function CustomerPreviewPage() {
   const environment = useMemo(() => readPreviewEnvironment(), [])
+  const hasAdminSession = useMemo(() => Boolean(getAdminToken()), [])
   const client = useMemo(
     () =>
       createPreviewWebhookClient({
@@ -38,6 +40,19 @@ export function CustomerPreviewPage() {
         <p className="text-sm text-gray-500">
           Enviando como {environment.customerPhone} — webhook real, assinatura real.
         </p>
+
+        {/* O envio não depende de sessão (vai assinado direto ao webhook), mas LER a conversa
+            depende: é a API de admin que devolve o transcript. Sem esse aviso o operador manda
+            mensagem, o bot responde, e a tela não muda — parecia envio quebrado. O link navega na
+            MESMA aba porque o token fica em `sessionStorage`, que não é compartilhado entre abas. */}
+        {!hasAdminSession ? (
+          <p className="mt-2 text-sm text-amber-700 dark:text-amber-400">
+            Sem sessão nesta aba: as mensagens são entregues, mas o transcript não carrega.{' '}
+            <a href="#/admin" className="underline">
+              Entrar no painel nesta aba
+            </a>
+          </p>
+        ) : null}
       </header>
 
       <ConversationPreview

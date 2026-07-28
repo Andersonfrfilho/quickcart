@@ -119,7 +119,11 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                     key={item.path}
                     href={`#${item.path}`}
                     target="_blank"
-                    rel="noreferrer"
+                    // SEM `rel="noreferrer"`/`noopener` de propósito: o token de admin vive em
+                    // `sessionStorage`, que é por aba, e só uma aba auxiliar (com opener) herda uma
+                    // cópia dele. Com o rel, o simulador abria sempre deslogado e todo `/v1/admin/*`
+                    // respondia 401 — o sintoma era "mandei mensagem e nada acontece". Mesma origem
+                    // e rota nossa, então o acesso a `window.opener` aqui não agrega risco.
                     onClick={() => setSidebarOpen(false)}
                     className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm text-foreground transition-colors hover:bg-accent"
                   >

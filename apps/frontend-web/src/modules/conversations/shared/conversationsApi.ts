@@ -16,6 +16,7 @@
 
 import type { ConversationsApi, ConversationSummary, MessagePayload, SSEProvider } from '@adatechnology/conversations-ui'
 import { getAdminToken } from '@/modules/admin/shared/useAdminAuth.hook'
+import { ApiRequestError } from '@/modules/conversations/shared/ApiRequestError'
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
 const ADMIN_BASE_PATH = '/v1/admin'
@@ -38,8 +39,14 @@ async function request<TResponse>(path: string, init?: RequestInit): Promise<TRe
   if (!response.ok) {
     // A API responde { error: { code, message } }; preservar a mensagem é o que faz o toast do
     // SDK dizer algo útil em vez de "erro inesperado".
-    const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null
-    throw new Error(body?.error?.message ?? `Falha na requisição (${response.status})`)
+    const body = (await response.json().catch(() => null)) as
+      | { error?: { message?: string; code?: string } }
+      | null
+    throw new ApiRequestError(
+      body?.error?.message ?? `Falha na requisição (${response.status})`,
+      response.status,
+      body?.error?.code,
+    )
   }
 
   if (response.status === 204) return undefined as TResponse
