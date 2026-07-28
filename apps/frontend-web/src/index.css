@@ -1,6 +1,11 @@
 @import "tailwindcss";
 @config "../tailwind.config.js";
 
+/* O conversations-ui entrega classes utilitárias no próprio markup, e o Tailwind não varre
+   node_modules por padrão — sem isto as cores dele (iniciais do avatar, contador de não lidas)
+   saem sem estilo. */
+@source "../node_modules/@adatechnology/conversations-ui/dist";
+
 @layer base {
   :root {
     --background: 210 20% 98%;

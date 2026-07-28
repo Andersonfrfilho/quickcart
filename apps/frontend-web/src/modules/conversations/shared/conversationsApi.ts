@@ -14,14 +14,15 @@
  * O identificador de conversa é o número de WhatsApp, igual ao backend.
  */
 
-import type { ConversationsApi, SSEProvider } from '@adatechnology/conversations-ui'
-import { ADMIN_TOKEN_STORAGE_KEY } from '@/modules/admin/shared/adminAuth.constant'
+import type { ConversationsApi, ConversationSummary, MessagePayload, SSEProvider } from '@adatechnology/conversations-ui'
+import { getAdminToken } from '@/modules/admin/shared/useAdminAuth.hook'
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
 const ADMIN_BASE_PATH = '/v1/admin'
 
 function adminToken(): string {
-  return localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) ?? ''
+  // sessionStorage, pelo mesmo acessor do login — ler localStorage aqui mandava token vazio.
+  return getAdminToken() ?? ''
 }
 
 async function request<TResponse>(path: string, init?: RequestInit): Promise<TResponse> {
@@ -55,24 +56,87 @@ function buildQuery(params: Record<string, string | number | boolean | undefined
   return query ? `?${query}` : ''
 }
 
+// A API fala `sentAt`/`received` e tipos como `interactive_list`; o SDK espera `timestamp` e uma
+// união fechada de tipos. Sem traduzir aqui, o horário vira "NaN:NaN" na bolha e o tipo cai fora
+// do contrato — o adapter é justamente o lugar de absorver essa diferença.
+export type ApiMessage = {
+  readonly id: string
+  readonly type: string
+  readonly content?: string
+  readonly direction: MessagePayload['direction']
+  readonly sender: MessagePayload['sender']
+  readonly status?: string
+  readonly sentAt: string
+  readonly readAt?: string | null
+  readonly mediaId?: string
+  readonly mimeType?: string
+  readonly filename?: string
+}
+
+const RENDERABLE_MESSAGE_TYPES = new Set<MessagePayload['type']>([
+  'text',
+  'image',
+  'video',
+  'audio',
+  'document',
+  'sticker',
+  'template',
+])
+
+const DELIVERY_STATUSES = new Set<NonNullable<MessagePayload['status']>>(['sent', 'delivered', 'read', 'failed'])
+
+export function toMessagePayload(message: ApiMessage): MessagePayload {
+  const type = message.type as MessagePayload['type']
+  const status = message.status as NonNullable<MessagePayload['status']>
+
+  return {
+    id: message.id,
+    // Interativos (`interactive_list`, `button`) não têm renderização própria no SDK; o que o
+    // cliente viu foi o texto, então é como texto que eles devem aparecer no transcript.
+    type: RENDERABLE_MESSAGE_TYPES.has(type) ? type : 'text',
+    // `exactOptionalPropertyTypes` distingue ausente de undefined: as opcionais entram por spread
+    // condicional, nunca com valor undefined explícito.
+    ...(message.content !== undefined ? { content: message.content } : {}),
+    direction: message.direction,
+    sender: message.sender,
+    timestamp: message.sentAt,
+    // `received` é estado de entrada e não tem tique de entrega — virar `undefined` é o que
+    // impede a bolha de inbound desenhar confirmação que não existe.
+    ...(DELIVERY_STATUSES.has(status) ? { status } : {}),
+    ...(message.readAt ? { readAt: message.readAt } : {}),
+    ...(message.mediaId ? { mediaId: message.mediaId } : {}),
+    ...(message.mimeType ? { mimeType: message.mimeType } : {}),
+    ...(message.filename ? { filename: message.filename } : {}),
+  }
+}
+
 export const conversationsApi: ConversationsApi = {
-  fetchConversations: (params) =>
-    request(
+  fetchConversations: async (params) => {
+    const conversations = await request<readonly ConversationSummary[]>(
       `/conversations${buildQuery({
         page: params?.page,
         limit: params?.limit,
         waitingHuman: params?.waitingHuman,
         search: params?.search,
       })}`,
-    ),
+    )
 
-  fetchMessages: (conversationId, params) =>
-    request(
+    // A listagem devolve `id` como UUID da sessão, mas todas as outras rotas — mensagens, stream,
+    // takeover — endereçam a conversa pelo número. Sem reescrever aqui, clicar numa conversa pede
+    // as mensagens de um id que a API não conhece e volta 500.
+    return conversations.map((conversation) => ({ ...conversation, id: conversation.whatsappNumber }))
+  },
+
+  fetchMessages: async (conversationId, params) => {
+    const messages = await request<readonly ApiMessage[]>(
       `/conversations/${encodeURIComponent(conversationId)}/messages${buildQuery({
         limit: params?.limit,
         before: params?.before,
       })}`,
-    ),
+    )
+
+    return messages.map(toMessagePayload)
+  },
 
   sendMessage: (conversationId, text) =>
     request(`/conversations/${encodeURIComponent(conversationId)}/messages`, {
@@ -101,10 +165,59 @@ export const conversationsApi: ConversationsApi = {
   // chega em base64 no momento em que o atendente abre o anexo.
   getMediaProxyUrl: (mediaId) => request(`/whatsapp/media/${encodeURIComponent(mediaId)}`),
 
-  // Biblioteca de documentos exige persistência de arquivo, que o QuickCart não tem. Devolver
-  // vazio é honesto: a aba aparece sem itens, em vez de quebrar ou fingir que buscou.
-  getDocuments: () => Promise.resolve([]),
-  getDocumentUrl: () => Promise.reject(new Error('Biblioteca de documentos indisponível nesta instalação')),
+  // Repassa filtro, ordenação e página: o backend honra os quatro, e mandar só `search` faria a UI
+  // exibir controles que não mudam nada.
+  getDocuments: (conversationId, params) =>
+    request(
+      `/conversations/${encodeURIComponent(conversationId)}/documents${buildQuery({
+        search: params?.search,
+        source: params?.source,
+        sortDirection: params?.sortDirection,
+        page: params?.page,
+        limit: params?.limit,
+      })}`,
+    ),
+
+  // Biblioteca da empresa: mesma forma de filtro do painel da conversa, mas sem conversa no
+  // caminho — cada item volta dizendo de qual conversa veio.
+  getAllDocuments: (params) =>
+    request(
+      `/documents${buildQuery({
+        search: params?.search,
+        source: params?.source,
+        sortDirection: params?.sortDirection,
+        page: params?.page,
+        limit: params?.limit,
+      })}`,
+    ),
+
+  // Resposta binária, então não passa pelo `request` (que desembrulha JSON `{ data }`).
+  downloadDocumentsArchive: async (conversationId, uploadIds) => {
+    const response = await fetch(
+      `${API_BASE_URL}${ADMIN_BASE_PATH}/conversations/${encodeURIComponent(conversationId)}/documents/archive`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken()}` },
+        body: JSON.stringify({ uploadIds }),
+      },
+    )
+
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null
+      throw new Error(body?.error?.message ?? `Falha ao montar o arquivo (${response.status})`)
+    }
+
+    return response.blob()
+  },
+
+  // A rota devolve URL assinada e curta; o binário nunca passa pela API — o atendente vai direto
+  // ao storage. Por isso o `uploadId` (que é a key do objeto) precisa ser escapado.
+  getDocumentUrl: async (uploadId, disposition) => {
+    const { url } = await request<{ url: string }>(
+      `/documents/${encodeURIComponent(uploadId)}/url${buildQuery({ disposition })}`,
+    )
+    return url
+  },
 }
 
 // EventSource não manda header, então o backend troca token de admin por um ticket de uso único

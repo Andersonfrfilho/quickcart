@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useRouter, Link } from '@/app/router'
 import { TYPOGRAPHY } from '@/shared/theme'
 import { useCartStore } from '@/modules/store/shared/cartStore'
+import { IS_PREVIEW_ENABLED } from '@/modules/preview/shared/previewEnvironment'
 import { Badge } from '@/components/ui'
 
 type NavItem = {
@@ -10,9 +11,47 @@ type NavItem = {
   icon: string
 }
 
-const ADMIN_NAV: NavItem[] = [
-  { label: 'Produtos', path: '/admin/products', icon: '📦' },
-  { label: 'Pedidos', path: '/admin/orders', icon: '🛒' },
+type NavSection = {
+  label: string
+  items: NavItem[]
+  /** Destinos da mesma seção que abrem em aba nova — ver `PREVIEW_ITEMS`. */
+  externalItems?: NavItem[]
+}
+
+// Abrem em aba nova de propósito: são páginas `standalone`, sem o layout do admin, então navegar
+// para elas na mesma aba deixaria o operador sem caminho de volta. E ferramenta de preview serve
+// justamente para ficar ao lado do painel enquanto se testa o bot.
+const PREVIEW_ITEMS: NavItem[] = [
+  { label: 'Preview do cliente', path: '/preview/customer', icon: '👤' },
+  { label: 'Preview do atendente', path: '/preview/agent', icon: '🎧' },
+  { label: 'Teste de mídia', path: '/preview/media', icon: '📎' },
+]
+
+// Agrupado pelo trabalho de quem usa (operar a loja × atender cliente), não por qual pacote
+// implementa a tela — quem atende não sabe nem precisa saber que Conversas vem do conversations-ui.
+// Cabeçalho estático em vez de menu colapsável: com cinco destinos, um accordion cobraria um clique
+// e esconderia caminho sem economizar espaço.
+const ADMIN_SECTIONS: NavSection[] = [
+  {
+    label: 'Loja',
+    items: [
+      { label: 'Produtos', path: '/admin/products', icon: '📦' },
+      { label: 'Pedidos', path: '/admin/orders', icon: '🛒' },
+    ],
+  },
+  {
+    label: 'Atendimento',
+    items: [
+      { label: 'Conversas', path: '/admin/conversations', icon: '💬' },
+      { label: 'Documentos', path: '/admin/documents', icon: '📎' },
+      { label: 'Mensagens', path: '/admin/messages', icon: '✉️' },
+      { label: 'Fluxo do bot', path: '/admin/flows', icon: '🔀' },
+    ],
+    // Os previews são ferramenta de quem atende (testar o bot como cliente, ver a inbox do outro
+    // lado), então ficam na mesma seção — não numa gaveta "Dev" à parte. A guarda continua: em
+    // produção as rotas não existem e o item levaria a 404.
+    ...(IS_PREVIEW_ENABLED ? { externalItems: PREVIEW_ITEMS } : {}),
+  },
 ]
 
 const STORE_NAV: NavItem[] = [
@@ -53,21 +92,43 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          <nav className="flex-1 p-4 space-y-1">
-            {ADMIN_NAV.map((item) => (
-              <button
-                key={item.path}
-                type="button"
-                onClick={() => { navigate(item.path); setSidebarOpen(false) }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors ${
-                  isActive(item.path)
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-foreground hover:bg-accent'
-                }`}
-              >
-                <span>{item.icon}</span>
-                <span>{item.label}</span>
-              </button>
+          <nav className="flex-1 overflow-y-auto p-4 space-y-5">
+            {ADMIN_SECTIONS.map((section) => (
+              <div key={section.label} className="space-y-1">
+                <p className="px-3 pb-1 font-semibold uppercase tracking-wide text-muted-foreground" style={{ fontSize: TYPOGRAPHY.size.xs }}>
+                  {section.label}
+                </p>
+                {section.items.map((item) => (
+                  <button
+                    key={item.path}
+                    type="button"
+                    onClick={() => { navigate(item.path); setSidebarOpen(false) }}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors ${
+                      isActive(item.path)
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-foreground hover:bg-accent'
+                    }`}
+                  >
+                    <span>{item.icon}</span>
+                    <span>{item.label}</span>
+                  </button>
+                ))}
+
+                {section.externalItems?.map((item) => (
+                  <a
+                    key={item.path}
+                    href={`#${item.path}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={() => setSidebarOpen(false)}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm text-foreground transition-colors hover:bg-accent"
+                  >
+                    <span>{item.icon}</span>
+                    <span>{item.label}</span>
+                    <span aria-hidden className="ml-auto text-muted-foreground">↗</span>
+                  </a>
+                ))}
+              </div>
             ))}
           </nav>
 
@@ -96,7 +157,11 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
           <span className="ml-3 font-medium">QuickCart Admin</span>
         </header>
 
-        <main className="flex-1 overflow-auto p-6">
+        {/* Sem padding no celular: 24px em cada lado tiram 13% da largura de uma tela de 375px, e
+            nas telas de altura cheia (conversas, fluxo) o padding vertical ainda somava 48px à
+            altura já calculada em 100vh, criando um segundo scroll por fora do painel. Quem precisa
+            de respiro no celular é a página, que sabe se é conteúdo de leitura ou superfície cheia. */}
+        <main className="flex-1 overflow-auto p-0 lg:p-6">
           {children}
         </main>
       </div>
