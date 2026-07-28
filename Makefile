@@ -6,12 +6,17 @@ PROJECT_NAME := $(if $(PROJECT_NAME),$(PROJECT_NAME),quickcart)
 
 COMPOSE := docker compose -p $(PROJECT_NAME)-$(ENV) -f infra/docker-compose.yml --env-file $(ENV_FILE)
 
-.PHONY: help all setup up down clean logs migrate seed dev-api dev-worker dev-web test-msg test test-api test-worker build-web validate
+# Checkout local do SDK, para o loop de dev cross-repo. Sobrescreva se o seu clone estiver noutro
+# lugar: make link-sdk SDK_PATH=~/dev/adatechnology-packages
+SDK_PATH ?= $(HOME)/Documents/personal/adatechnology-packages
+SDK_PACKAGES := packages/backend/meta-whatsapp-contracts packages/backend/meta-whatsapp-module packages/backend/text-moderation packages/backend/object-storage-provider packages/frontend/conversations-ui
+
+.PHONY: help all setup up down clean logs migrate seed dev-api dev-worker dev-web test-msg test test-api test-worker build-web validate link-sdk unlink-sdk watch-sdk
 
 help: ## 📖 Lista os comandos disponíveis
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
-up: ## 🚀 Sobe postgres + redis + wiremock
+up: ## 🚀 Sobe postgres + redis + wiremock + minio
 	@echo "🚀 Subindo infraestrutura ($(PROJECT_NAME)-$(ENV))..."
 	@$(COMPOSE) up -d
 	@echo "⏳ Aguardando banco aceitar conexões..."
@@ -19,7 +24,7 @@ up: ## 🚀 Sobe postgres + redis + wiremock
 		$(COMPOSE) exec -T postgres pg_isready -U quickcart 2>/dev/null && break; \
 		sleep 2; \
 	done
-	@echo "✅ Infra no ar (postgres, redis, wiremock)."
+	@echo "✅ Infra no ar (postgres, redis, wiremock, minio)."
 
 down: ## 🛑 Derruba a infraestrutura local
 	@echo "🛑 Derrubando infraestrutura ($(PROJECT_NAME)-$(ENV))..."
@@ -55,6 +60,28 @@ dev-web: ## 🖥️ Sobe o frontend-web em modo dev
 
 test-msg: ## 💬 Simula um webhook Meta local (MSG="..." TEL=...)
 	@bash scripts/send-test-webhook.sh "$(MSG)" "$(TEL)"
+
+link-sdk: ## 🔗 Aponta os pacotes do SDK para o checkout local (dev cross-repo)
+	@echo "🔗 Registrando pacotes do SDK em $(SDK_PATH)..."
+	@for package in $(SDK_PACKAGES); do \
+		cd $(SDK_PATH)/$$package && bun link >/dev/null || exit 1; \
+	done
+	@echo "🔗 Ligando no quickcart..."
+	@cd apps/api-quickcart && bun link @adatechnology/meta-whatsapp-contracts @adatechnology/meta-whatsapp-module @adatechnology/text-moderation @adatechnology/object-storage-provider >/dev/null
+	@cd apps/worker-quickcart && bun link @adatechnology/meta-whatsapp-contracts @adatechnology/meta-whatsapp-module @adatechnology/object-storage-provider >/dev/null
+	@cd apps/frontend-web && bun link @adatechnology/meta-whatsapp-contracts @adatechnology/conversations-ui >/dev/null
+	@echo "✅ SDK linkado. Rode 'make watch-sdk' noutro terminal para rebuildar a cada edição."
+
+unlink-sdk: ## 🔓 Volta a consumir os pacotes publicados do registry
+	@echo "🔓 Desligando o SDK local..."
+	@cd apps/api-quickcart && bun unlink @adatechnology/meta-whatsapp-contracts @adatechnology/meta-whatsapp-module @adatechnology/text-moderation @adatechnology/object-storage-provider >/dev/null 2>&1 || true
+	@cd apps/worker-quickcart && bun unlink @adatechnology/meta-whatsapp-contracts @adatechnology/meta-whatsapp-module @adatechnology/object-storage-provider >/dev/null 2>&1 || true
+	@cd apps/frontend-web && bun unlink @adatechnology/meta-whatsapp-contracts @adatechnology/conversations-ui >/dev/null 2>&1 || true
+	@bun install
+	@echo "✅ Consumindo o registry de novo."
+
+watch-sdk: ## 👀 Rebuilda o conversations-ui a cada edição (par do link-sdk)
+	@cd $(SDK_PATH)/packages/frontend/conversations-ui && bun run build:watch
 
 test: ## 🧪 Roda os testes de todos os apps (unitários, sem infra)
 	@echo "🧪 Testes api-quickcart..."

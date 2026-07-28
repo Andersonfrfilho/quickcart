@@ -33,6 +33,35 @@ const environmentSchema = z.object({
   // haja mais de um inquilino. Vira configurável no dia em que houver.
   WHATSAPP_COMPANY_ID: z.string().uuid().default('00000000-0000-4000-8000-000000000001'),
 
+  // ── Moderação de conteúdo ──
+  // Desligada por padrão: marcar mensagem de cliente é decisão de operação, não default técnico.
+  MODERATION_ENABLED: booleanFromString('false'),
+  // Termos além do núcleo pt-BR do pacote, separados por vírgula. É o escape para o que o
+  // dicionário não cobre no vocabulário do próprio negócio.
+  MODERATION_EXTRA_TERMS: z.string().default(''),
+  // Resgata falso positivo sem editar o pacote — ex.: termo que é nome de produto do catálogo.
+  MODERATION_ALLOWED_TERMS: z.string().default(''),
+
+  // ── Object storage (arquivos da conversa) ──
+  // Desligado, a ingestão não é enfileirada e a biblioteca fica vazia — sem meio erro em runtime.
+  STORAGE_ENABLED: booleanFromString('false'),
+  STORAGE_ENDPOINT: z.string().url().default('http://localhost:9564'),
+  STORAGE_REGION: z.string().default('us-east-1'),
+  STORAGE_BUCKET: z.string().default('quickcart-documents'),
+  STORAGE_ACCESS_KEY_ID: z.string().default(''),
+  STORAGE_SECRET_ACCESS_KEY: z.string().default(''),
+  // MinIO exige path-style; bucket gerenciado normalmente aceita virtual-host.
+  STORAGE_FORCE_PATH_STYLE: booleanFromString('true'),
+  STORAGE_MAX_OBJECT_SIZE_BYTES: z.coerce.number().int().positive().default(26_214_400),
+  STORAGE_DOWNLOAD_URL_TTL_SECONDS: z.coerce.number().int().positive().default(300),
+  // Teto do zip em lote, em bytes de ARQUIVO — não de memória.
+  //
+  // Medido: 40 MB de anexos levaram o RSS de 43 MB para 325 MB, ~7× o payload, porque o binário
+  // coexiste três vezes (buffer lido, cópia no jszip, saída comprimida). Os 20 MB padrão portanto
+  // custam ~140 MB de pico; combinado com MAX_CONCURRENT_ARCHIVES=1, é o que mantém o processo de
+  // pé num container pequeno. Subir isto sem subir a memória do container é como o serviço morre.
+  DOCUMENTS_ARCHIVE_MAX_BYTES: z.coerce.number().int().positive().default(20_971_520),
+
   // ── STT/LLM (opcional) ──
   GROQ_API_KEY: z.string().optional(),
 
