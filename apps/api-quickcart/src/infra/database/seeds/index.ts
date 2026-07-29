@@ -22,6 +22,7 @@ import { CategoryNameDuplicateError } from '@/shared/errors/CatalogErrors'
 import { SEED_CATEGORIES } from './CatalogSeedCategories'
 import { SEED_PRODUCTS } from './CatalogSeedProducts'
 import { seedConversations } from './ConversationSeedRunner'
+import { container } from '@/infra/container'
 
 const log = logger.child('SeedScript')
 
@@ -86,7 +87,7 @@ async function seedCatalog(): Promise<void> {
 }
 
 seedCatalog()
-  .then(() => seedConversations())
+  .then(() => seedConversations(container.webhook.metaWhatsApp))
   .then(() => closeDatabaseConnection())
   .then(() => process.exit(0))
   .catch((error) => {

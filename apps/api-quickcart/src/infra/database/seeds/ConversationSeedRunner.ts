@@ -16,11 +16,17 @@
  */
 
 import { sql } from 'drizzle-orm'
-import { LogMessageUseCase, MessageRepository, SessionRepository } from '@adatechnology/meta-whatsapp-module'
+import {
+  LogMessageUseCase,
+  MessageRepository,
+  SessionRepository,
+  type MetaWhatsAppModule,
+} from '@adatechnology/meta-whatsapp-module'
 import { db } from '@/infra/database/connection'
 import { environment } from '@/infra/config/environment'
 import { logger } from '@/shared/logger'
 import { buildConversationScenarios, HOURS_AGO_BY_BAND, type ConversationScenario } from './ConversationSeed'
+import { seedMediaConversation } from './MediaConversationSeedRunner'
 
 const log = logger.child('ConversationSeed')
 // `assigned_user_id` é uuid no schema do módulo; um identificador legível seria recusado pelo banco.
@@ -83,7 +89,7 @@ async function ageConversation(whatsappNumber: string, hoursAgo: number): Promis
   `)
 }
 
-export async function seedConversations(): Promise<void> {
+export async function seedConversations(metaWhatsApp: MetaWhatsAppModule): Promise<void> {
   const sessionRepository = new SessionRepository(db)
   const messageRepository = new MessageRepository(db)
   const logMessage = new LogMessageUseCase(sessionRepository, messageRepository)
@@ -94,6 +100,10 @@ export async function seedConversations(): Promise<void> {
     await seedScenario({ scenario, logMessage, sessionRepository })
     await ageConversation(scenario.whatsappNumber, HOURS_AGO_BY_BAND[scenario.band])
   }
+
+  // Contato com um arquivo de cada tipo aceito — substitui a antiga tela de "teste de mídia":
+  // inspeciona-se pela inbox, como qualquer cliente.
+  await seedMediaConversation(metaWhatsApp)
 
   log.info('conversations_seeded', {
     total: scenarios.length,
