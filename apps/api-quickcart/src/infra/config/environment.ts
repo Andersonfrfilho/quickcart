@@ -26,6 +26,9 @@ const environmentSchema = z.object({
   WHATSAPP_BUSINESS_ACCOUNT_ID: z.string().default(''),
   WHATSAPP_WEBHOOK_VERIFY_TOKEN: z.string().min(1),
   WHATSAPP_APP_SECRET: z.string().default(''),
+  // Leitura do transcript pelo simulador, sem sessão de admin. Fica FALSO por padrão: só o ambiente
+  // local liga, e staging/produção não definem a variável.
+  PREVIEW_TRANSCRIPT_ENABLED: z.coerce.boolean().default(false),
   WHATSAPP_API_VERSION: z.string().default('v21.0'),
   WHATSAPP_BASE_URL: z.string().default('https://graph.facebook.com'),
   // O meta-whatsapp-module é multiempresa por construção; o QuickCart atende uma loja só.

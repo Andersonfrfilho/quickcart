@@ -42,6 +42,7 @@ import { ConversationController } from '@/modules/conversation/infra/http/Conver
 import { quickCartObjectStorage } from '@/modules/webhook/infra/whatsapp/metaWhatsAppModule'
 import type { ObjectStorageInterface } from '@adatechnology/meta-whatsapp-contracts'
 import { ConversationSettingsController } from '@/modules/conversation/infra/http/ConversationSettings.controller'
+import { createPreviewTranscriptController } from '@/modules/conversation/infra/http/PreviewTranscript.controller'
 import { ConversationStreamController } from '@/modules/conversation/infra/http/ConversationStream.controller'
 import { conversationSseHub, conversationTicketStore } from '@/modules/conversation/infra/realtime/conversationRealtime'
 import { FlowDriver } from '@/modules/conversation/application/FlowDriver'
@@ -414,6 +415,7 @@ type ConversationHttpModule = {
   readonly conversationController: ConversationController
   readonly settingsController: ConversationSettingsController
   readonly streamController: ConversationStreamController
+  readonly previewTranscriptController: ReturnType<typeof createPreviewTranscriptController>
 }
 
 function buildConversationHttpModule(params: {
@@ -431,6 +433,7 @@ function buildConversationHttpModule(params: {
       sseHub: conversationSseHub,
       ticketStore: conversationTicketStore,
     }),
+    previewTranscriptController: createPreviewTranscriptController(params.metaWhatsApp),
   }
 }
 

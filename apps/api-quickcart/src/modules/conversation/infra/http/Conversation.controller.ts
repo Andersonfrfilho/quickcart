@@ -62,8 +62,41 @@ type ConversationControllerDependencies = {
   readonly objectStorageProvider?: ObjectStorageProvider
 }
 
+// As cinco espécies de mídia da Meta, na ordem em que o payload as traz.
+const MEDIA_PAYLOAD_KEYS = ['image', 'video', 'audio', 'document', 'sticker'] as const
+
+/**
+ * Sobe para o topo da mensagem o que a UI precisa para desenhar mídia.
+ *
+ * O payload cru guarda isso em dois lugares — o objeto da Meta (`{ image: { id, mime_type } }`) e o
+ * que a ingestão acrescenta (`uploadId`, `mimeType`) — e a bolha do SDK lê campos de topo. Sem esta
+ * tradução, TODA mensagem de mídia chegava sem referência: foto virava "Mídia indisponível" e
+ * arquivo virava "Documento / FILE", sem nome e sem tipo. Não aparecia antes porque a inbox real não
+ * tinha mídia nenhuma para mostrar.
+ */
+function mediaFieldsOf(payload: unknown): Record<string, string | number> {
+  if (!payload || typeof payload !== 'object') return {}
+  const source = payload as Record<string, unknown>
+  const kind = MEDIA_PAYLOAD_KEYS.find((key) => typeof source[key] === 'object' && source[key] !== null)
+  const media = (kind ? source[kind] : undefined) as Record<string, unknown> | undefined
+
+  const fields: Record<string, string | number> = {}
+  const uploadId = source['uploadId']
+  const mediaId = source['sourceMediaId'] ?? media?.['id']
+  const mimeType = source['mimeType'] ?? media?.['mime_type']
+  const filename = source['filename'] ?? media?.['filename']
+
+  if (typeof uploadId === 'string') fields['uploadId'] = uploadId
+  if (typeof mediaId === 'string') fields['mediaId'] = mediaId
+  if (typeof mimeType === 'string') fields['mimeType'] = mimeType
+  if (typeof filename === 'string') fields['filename'] = filename
+  const sizeBytes = source['sizeBytes']
+  if (typeof sizeBytes === 'number') fields['sizeBytes'] = sizeBytes
+  return fields
+}
+
 // O conversations-ui espera `content`/`sentAt`; a linha do módulo usa `content`/`createdAt`.
-function toMessagePayload(row: MessageRow) {
+export function toMessagePayload(row: MessageRow) {
   return {
     id: row.id,
     conversationId: row.whatsappNumber,
@@ -75,6 +108,7 @@ function toMessagePayload(row: MessageRow) {
     waMessageId: row.waMessageId,
     status: row.status,
     sentAt: row.createdAt.toISOString(),
+    ...mediaFieldsOf(row.payload),
     readAt: row.readAt?.toISOString() ?? null,
     // `null` preserva o "não avaliado" da coluna: a inbox não deve mostrar mensagem antiga, de
     // antes da moderação existir, como se tivesse passado por verificação.

@@ -41,6 +41,7 @@ export function createRouter(): Router {
     conversationController: container.conversationHttp.conversationController,
     settingsController: container.conversationHttp.settingsController,
     streamController: container.conversationHttp.streamController,
+    previewTranscriptController: container.conversationHttp.previewTranscriptController,
   })
 
   router.registerNotFoundHandler()

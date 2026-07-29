@@ -15,16 +15,20 @@ import type { Router } from '@/infra/http/router'
 import type { ConversationController } from './Conversation.controller'
 import type { ConversationSettingsController } from './ConversationSettings.controller'
 import type { ConversationStreamController } from './ConversationStream.controller'
+import type { createPreviewTranscriptController } from './PreviewTranscript.controller'
+
+type PreviewTranscriptController = ReturnType<typeof createPreviewTranscriptController>
 
 type RegisterConversationRoutesParams = {
   readonly router: Router
   readonly conversationController: ConversationController
   readonly settingsController: ConversationSettingsController
   readonly streamController: ConversationStreamController
+  readonly previewTranscriptController: PreviewTranscriptController
 }
 
 export function registerConversationRoutes(params: RegisterConversationRoutesParams): void {
-  const { router, conversationController, settingsController, streamController } = params
+  const { router, conversationController, settingsController, streamController, previewTranscriptController } = params
 
   router.get('/v1/admin/conversations', conversationController.handleList)
   router.get('/v1/admin/conversations/:number/messages', conversationController.handleListMessages)
@@ -46,6 +50,10 @@ export function registerConversationRoutes(params: RegisterConversationRoutesPar
   // objeto, não pela conversa.
   router.get('/v1/admin/documents', conversationController.handleListAllDocuments)
   router.get('/v1/admin/documents/:uploadId/url', conversationController.handleGetDocumentUrl)
+
+  // Fora de /v1/admin de propósito: não passa pelo token de admin, e sim por assinatura HMAC do app
+  // secret — ver PreviewTranscript.controller. Responde 404 quando a flag está desligada.
+  router.get('/v1/preview/conversations/:number/messages', previewTranscriptController.handleListMessages)
 
   router.get('/v1/admin/whatsapp/settings', settingsController.handleGetSettings)
   router.put('/v1/admin/whatsapp/settings', settingsController.handleSaveSettings)
