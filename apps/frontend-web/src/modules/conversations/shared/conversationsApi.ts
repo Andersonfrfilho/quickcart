@@ -75,6 +75,8 @@ export type ApiMessage = {
   readonly status?: string
   readonly sentAt: string
   readonly readAt?: string | null
+  readonly uploadId?: string
+  readonly sizeBytes?: number
   readonly mediaId?: string
   readonly mimeType?: string
   readonly filename?: string
@@ -111,9 +113,13 @@ export function toMessagePayload(message: ApiMessage): MessagePayload {
     // impede a bolha de inbound desenhar confirmação que não existe.
     ...(DELIVERY_STATUSES.has(status) ? { status } : {}),
     ...(message.readAt ? { readAt: message.readAt } : {}),
+    // `uploadId` primeiro na cadeia do MediaRenderer: mídia já copiada para o nosso storage sai por
+    // URL assinada, sem passar pela Meta.
+    ...(message.uploadId ? { uploadId: message.uploadId } : {}),
     ...(message.mediaId ? { mediaId: message.mediaId } : {}),
     ...(message.mimeType ? { mimeType: message.mimeType } : {}),
     ...(message.filename ? { filename: message.filename } : {}),
+    ...(message.sizeBytes ? { sizeBytes: message.sizeBytes } : {}),
   }
 }
 

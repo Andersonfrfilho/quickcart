@@ -23,7 +23,7 @@ export function AdminDocumentsPage() {
 
   return (
     <ConversationsProvider api={conversationsApi} sse={conversationsSse}>
-      <div className="p-4 lg:p-0">
+      <div className="p-4 lg:p-6">
         <DocumentsLibrary
           // Leva para a inbox com a conversa aberta: encontrar o arquivo raramente é o fim do
           // trabalho — o atendente quer o contexto em que ele apareceu.

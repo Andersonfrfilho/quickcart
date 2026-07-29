@@ -36,6 +36,9 @@ import {
 } from '@adatechnology/conversations-ui'
 
 import { useRouter } from '@/app/router'
+import { ConversationSimulatorPanel } from '@/modules/conversations/components/ConversationSimulatorPanel'
+import { CONVERSATION_QUICK_REPLIES, quickReplyVariablesFor } from '@/modules/conversations/shared/quickReplies'
+import { IS_PREVIEW_ENABLED } from '@/modules/preview/shared/previewEnvironment'
 import { conversationsApi } from '@/modules/conversations/shared/conversationsApi'
 import { conversationsSse } from '@/modules/conversations/shared/conversationsSse'
 import { useAdminInbox, CONVERSATIONS_PER_PAGE } from '@/modules/conversations/hooks/useAdminInbox.hook'
@@ -46,12 +49,23 @@ type ConversationPaneProps = {
   conversation: ConversationSummary
   now: number
   busy: boolean
+  simulatorOpen: boolean
+  onToggleSimulator: () => void
   onTakeover: () => void
   onReturnToBot: () => void
   onBack: () => void
 }
 
-function ConversationPane({ conversation, now, busy, onTakeover, onReturnToBot, onBack }: ConversationPaneProps) {
+function ConversationPane({
+  conversation,
+  now,
+  busy,
+  simulatorOpen,
+  onToggleSimulator,
+  onTakeover,
+  onReturnToBot,
+  onBack,
+}: ConversationPaneProps) {
   const { messages, refetch } = useConversationMessages(conversation.id)
   const { context } = useConversationContext(conversation.id)
   const [documentsOpen, setDocumentsOpen] = useState(false)
@@ -81,6 +95,21 @@ function ConversationPane({ conversation, now, busy, onTakeover, onReturnToBot, 
         onBack={onBack}
         onOpenDocuments={() => setDocumentsOpen(!documentsOpen)}
         documentsOpen={documentsOpen}
+        // Só em dev e com a flag ligada: o simulador assina o webhook com o app secret, que não
+        // existe fora do ambiente local.
+        extraUtilities={
+          IS_PREVIEW_ENABLED
+            ? [
+                {
+                  key: 'simulator',
+                  icon: '🧪',
+                  label: 'Simular cliente (dev)',
+                  run: onToggleSimulator,
+                  active: simulatorOpen,
+                },
+              ]
+            : []
+        }
       />
       <ConversationContextPanel entries={toContextEntries(context)} />
       <ConversationDocumentsPanel conversationId={conversation.id} open={documentsOpen} />
@@ -109,7 +138,12 @@ function ConversationPane({ conversation, now, busy, onTakeover, onReturnToBot, 
       {blocked ? (
         <WindowExpiredNotice disabled={busy} />
       ) : (
-        <MessageComposer onSend={(text) => void handleSend(text)} placeholder="Responder como atendente…" />
+        <MessageComposer
+          onSend={(text) => void handleSend(text)}
+          placeholder="Responder como atendente…"
+          quickReplies={CONVERSATION_QUICK_REPLIES}
+          quickReplyVariables={quickReplyVariablesFor(conversation.clientName)}
+        />
       )}
     </div>
   )
@@ -122,6 +156,7 @@ function Inbox() {
 
   const requestedConversationId = searchParams.get('number') ?? undefined
   const [openedFromLink, setOpenedFromLink] = useState<string | undefined>(undefined)
+  const [simulatorOpen, setSimulatorOpen] = useState(false)
 
   // Só seleciona depois que a conversa aparece na lista: o hook limpa qualquer `selectedId` que não
   // esteja em `conversations`, e no primeiro render a lista ainda está vazia.
@@ -137,7 +172,7 @@ function Inbox() {
   const lastOnPage = Math.min(inbox.page * CONVERSATIONS_PER_PAGE, inbox.filteredCount)
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       {/* Cabeçalho denso em tela estreita: ícone + número. O rótulo escrito ("conversas",
           "não lidas") ocupava três linhas em 375px e empurrava a lista para fora da tela. */}
       <header className="flex items-center justify-between gap-2 border-b px-4 py-3">
@@ -185,11 +220,43 @@ function Inbox() {
         </div>
       </header>
 
+      {/* Silêncio aqui foi o que fez "não existe nenhuma conversa" parecer perda de dados: sem
+          sessão a API responde 401, a lista vem vazia e a tela não dizia nada. */}
+      {inbox.loadFailure ? (
+        <p role="alert" className="border-b bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+          {inbox.loadFailure}{' '}
+          <a href="#/admin" className="underline">
+            Entrar no painel
+          </a>
+        </p>
+      ) : null}
+
       {/* Master/detail: em tela estreita a grade empilhava lista e painel dentro da mesma altura
           fixa, e cada um virava uma fatia inútil. Abaixo de `lg`, mostra um ou outro. */}
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[360px_1fr]">
+      {/* As três colunas convivem a partir de `xl`, com a lista mais estreita (320) para caber junto
+          da barra lateral do admin. Entre `lg` e `xl` não cabem — com lista e simulador sobravam
+          ~100px para a conversa e o texto quebrava uma palavra por linha —, então ali a lista sai:
+          enquanto se testa UMA conversa é ela que menos importa, e a thread é onde a resposta do bot
+          aparece. `minmax(0,1fr)` e não `1fr` porque, no grid, `1fr` é `minmax(auto,1fr)` e não
+          encolhe abaixo do conteúdo: um nome de arquivo longo estica a coluna e a página ganha
+          scroll lateral. */}
+      {/* Cada coluna é um cartão sobre fundo cinza, com respiro entre elas — em vez de painéis
+          colados divididos por um traço. Separação por espaço lê mais rápido que por borda. */}
+      <div
+        className={`grid min-h-0 flex-1 grid-cols-1 gap-3 bg-muted/40 p-3 ${
+          simulatorOpen && selectedConversation
+            ? 'lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[320px_minmax(0,1fr)_360px]'
+            : 'lg:grid-cols-[360px_minmax(0,1fr)]'
+        }`}
+      >
         <aside
-          className={`flex min-h-0 flex-col border-r ${selectedConversation ? 'hidden lg:flex' : 'flex'}`}
+          className={`flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card ${
+            simulatorOpen && selectedConversation
+              ? 'hidden xl:flex'
+              : selectedConversation
+                ? 'hidden lg:flex'
+                : 'flex'
+          }`}
         >
           <div className="space-y-2 border-b p-3">
             <input
@@ -307,12 +374,20 @@ function Inbox() {
         </aside>
 
         {/* `section`, não `main`: o AdminLayout já provê o `main` da página. */}
-        <section className={`min-h-0 ${selectedConversation ? 'flex flex-col' : 'hidden lg:block'}`}>
+        {/* `min-w-0` junto do `min-h-0`: em flex e grid o padrão é não encolher abaixo do conteúdo,
+            e é por aí que uma bolha larga vaza para fora da coluna. */}
+        <section
+          className={`min-h-0 min-w-0 overflow-hidden rounded-xl border bg-card ${
+            selectedConversation ? 'flex flex-col' : 'hidden lg:block'
+          }`}
+        >
           {selectedConversation ? (
             <ConversationPane
               conversation={selectedConversation}
               now={now}
               busy={inbox.busy}
+              simulatorOpen={simulatorOpen}
+              onToggleSimulator={() => setSimulatorOpen((open) => !open)}
               onTakeover={() => void inbox.takeover(selectedConversation.id)}
               onReturnToBot={() => void inbox.releaseToBot(selectedConversation.id)}
               onBack={inbox.clearSelection}
@@ -321,6 +396,17 @@ function Inbox() {
             <p className="p-6 text-sm text-gray-500">Selecione uma conversa.</p>
           )}
         </section>
+
+        {simulatorOpen && selectedConversation ? (
+          // `min-h-0` junto do `min-w-0`: sem ele a linha do grid cresce com o conteúdo do painel, o
+          // `overflow-y-auto` de dentro nunca ativa e quem rola passa a ser a página inteira.
+          <div className="flex min-h-0 min-w-0 overflow-hidden rounded-xl border bg-card">
+            <ConversationSimulatorPanel
+              conversationId={selectedConversation.id}
+              onClose={() => setSimulatorOpen(false)}
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   )

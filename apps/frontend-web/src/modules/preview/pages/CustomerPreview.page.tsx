@@ -15,14 +15,31 @@
 import { useMemo } from 'react'
 import '@adatechnology/conversations-ui/styles.css'
 import { ConversationPreview, createPreviewWebhookClient } from '@adatechnology/conversations-ui/preview'
-import { conversationsApi } from '@/modules/conversations/shared/conversationsApi'
-import { conversationsSse } from '@/modules/conversations/shared/conversationsSse'
 import { readPreviewEnvironment } from '@/modules/preview/shared/previewEnvironment'
-import { getAdminToken } from '@/modules/admin/shared/useAdminAuth.hook'
+import { fetchPreviewTranscript } from '@/modules/preview/shared/previewTranscript'
+
+/**
+ * SSE que não conecta. O `ConversationPreview` sempre assina o stream, e sem sessão cada assinatura
+ * pedia um ticket de admin que voltava 401 — inclusive no ciclo de remontagem do StrictMode, que
+ * dobra a conta.
+ */
+const INERT_SSE = {
+  connectConversationStream: (): EventSource =>
+    ({
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      close: () => undefined,
+    }) as unknown as EventSource,
+  connectGlobalStream: (): EventSource =>
+    ({
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      close: () => undefined,
+    }) as unknown as EventSource,
+}
 
 export function CustomerPreviewPage() {
   const environment = useMemo(() => readPreviewEnvironment(), [])
-  const hasAdminSession = useMemo(() => Boolean(getAdminToken()), [])
   const client = useMemo(
     () =>
       createPreviewWebhookClient({
@@ -41,25 +58,21 @@ export function CustomerPreviewPage() {
           Enviando como {environment.customerPhone} — webhook real, assinatura real.
         </p>
 
-        {/* O envio não depende de sessão (vai assinado direto ao webhook), mas LER a conversa
-            depende: é a API de admin que devolve o transcript. Sem esse aviso o operador manda
-            mensagem, o bot responde, e a tela não muda — parecia envio quebrado. O link navega na
-            MESMA aba porque o token fica em `sessionStorage`, que não é compartilhado entre abas. */}
-        {!hasAdminSession ? (
-          <p className="mt-2 text-sm text-amber-700 dark:text-amber-400">
-            Sem sessão nesta aba: as mensagens são entregues, mas o transcript não carrega.{' '}
-            <a href="#/admin" className="underline">
-              Entrar no painel nesta aba
-            </a>
-          </p>
-        ) : null}
       </header>
 
+      {/* Sem sessão, nem tenta: ler o transcript e abrir o SSE são rotas de admin, e insistir nelas
+          só produzia enxurrada de 401 no console — a cada render, a cada envio, a cada tentativa de
+          reconexão. O envio não depende de sessão e continua igual. */}
       <ConversationPreview
         client={client}
-        sse={conversationsSse}
+        // Continua sem SSE: o stream é rota de admin. O refresh após cada envio já traz a resposta
+        // do bot, que é o que se quer observar aqui.
+        sse={INERT_SSE}
         conversationId={environment.customerPhone}
-        loadMessages={(conversationId) => conversationsApi.fetchMessages(conversationId)}
+        loadMessages={fetchPreviewTranscript}
+        // Sem SSE aqui (o stream é rota de admin), então o transcript se atualiza por polling —
+        // é o que faz a resposta do bot aparecer sozinha, sem depender do próximo envio.
+        pollIntervalMs={2500}
       />
     </div>
   )

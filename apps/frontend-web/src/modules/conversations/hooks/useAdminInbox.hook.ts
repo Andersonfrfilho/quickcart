@@ -52,6 +52,13 @@ export type UseAdminInboxResult = {
   readonly channelFilters: ChannelFilterOption[]
   readonly search: string
   readonly busy: boolean
+  /**
+   * Por que a lista está vazia, quando não é por não haver conversa.
+   *
+   * O hook do SDK já devolvia `error` e este aqui descartava: sessão expirada virava "0 conversas",
+   * indistinguível de inbox vazia de verdade. Quem olha conclui que os dados sumiram.
+   */
+  readonly loadFailure: string | undefined
   selectConversation(conversationId: string): void
   clearSelection(): void
   toggleSelected(conversationId: string): void
@@ -66,6 +73,17 @@ export type UseAdminInboxResult = {
   releaseToBot(conversationId: string): Promise<void>
 }
 
+function describeInboxFailure(error: unknown): string | undefined {
+  if (!error) return undefined
+  const status = (error as { status?: number }).status
+  if (status === 401 || status === 403) {
+    return 'Sessão expirada nesta aba — entre no painel de novo para ver as conversas.'
+  }
+  return error instanceof Error && error.message
+    ? `Não foi possível carregar as conversas: ${error.message}`
+    : 'Não foi possível carregar as conversas.'
+}
+
 export function useAdminInbox(): UseAdminInboxResult {
   const [waitingOnly, setWaitingOnly] = useState(false)
   const [windowFilter, setWindowFilter] = useState<ConversationWindow>(CONVERSATION_WINDOW.ALL)
@@ -76,7 +94,7 @@ export function useAdminInbox(): UseAdminInboxResult {
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set())
   const [busy, setBusy] = useState(false)
 
-  const { conversations, loading, refetch } = useConversationList({
+  const { conversations, loading, error, refetch } = useConversationList({
     ...(waitingOnly ? { waitingHuman: true } : {}),
     ...(search ? { search } : {}),
   })
@@ -204,6 +222,7 @@ export function useAdminInbox(): UseAdminInboxResult {
     channelFilters: channelFiltersFor(conversations),
     search,
     busy,
+    loadFailure: describeInboxFailure(error),
     selectConversation: setSelectedId,
     clearSelection: () => setSelectedId(undefined),
     toggleSelected,

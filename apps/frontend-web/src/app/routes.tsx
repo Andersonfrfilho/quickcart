@@ -15,7 +15,6 @@ import { AdminMessagesPage } from '@/modules/messages/pages/AdminMessages.page'
 import { AdminFlowsPage } from '@/modules/flows/pages/AdminFlows.page'
 import { CustomerPreviewPage } from '@/modules/preview/pages/CustomerPreview.page'
 import { AgentPreviewPage } from '@/modules/preview/pages/AgentPreview.page'
-import { MediaPreviewPage } from '@/modules/preview/pages/MediaPreview.page'
 import { IS_PREVIEW_ENABLED } from '@/modules/preview/shared/previewEnvironment'
 
 function withAdminLayout(Component: () => React.ReactElement | null) {
@@ -49,7 +48,6 @@ const previewRoutes = IS_PREVIEW_ENABLED
   ? [
       { path: '/preview/customer', component: standalone(CustomerPreviewPage) },
       { path: '/preview/agent', component: standalone(AgentPreviewPage) },
-      { path: '/preview/media', component: standalone(MediaPreviewPage) },
     ]
   : []
 
