@@ -35,6 +35,14 @@ export default defineConfig({
   resolve: {
     alias: { '@': '/src' },
   },
+  // O SDK entra por `bun link`, apontando para o `dist` de outro repositório. Pré-bundlado, o Vite
+  // congela uma cópia em `node_modules/.vite` e NÃO a invalida quando aquele dist é reconstruído —
+  // o navegador segue recebendo a versão antiga, sem erro nenhum, e a única pista é a mudança não
+  // aparecer. Custou horas de "não funciona" que já estava corrigido. Excluir do pré-bundle troca um
+  // pouco de tempo de carga por ver sempre o build atual.
+  optimizeDeps: {
+    exclude: ['@adatechnology/conversations-ui'],
+  },
   server: {
     port: 5183,
     proxy: {

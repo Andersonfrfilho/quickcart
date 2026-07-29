@@ -2,7 +2,6 @@ import React, { useState } from 'react'
 import { useRouter, Link } from '@/app/router'
 import { TYPOGRAPHY } from '@/shared/theme'
 import { useCartStore } from '@/modules/store/shared/cartStore'
-import { IS_PREVIEW_ENABLED } from '@/modules/preview/shared/previewEnvironment'
 import { Badge } from '@/components/ui'
 
 type NavItem = {
@@ -14,18 +13,7 @@ type NavItem = {
 type NavSection = {
   label: string
   items: NavItem[]
-  /** Destinos da mesma seção que abrem em aba nova — ver `PREVIEW_ITEMS`. */
-  externalItems?: NavItem[]
 }
-
-// Abrem em aba nova de propósito: são páginas `standalone`, sem o layout do admin, então navegar
-// para elas na mesma aba deixaria o operador sem caminho de volta. E ferramenta de preview serve
-// justamente para ficar ao lado do painel enquanto se testa o bot.
-const PREVIEW_ITEMS: NavItem[] = [
-  { label: 'Preview do cliente', path: '/preview/customer', icon: '👤' },
-  { label: 'Preview do atendente', path: '/preview/agent', icon: '🎧' },
-  { label: 'Teste de mídia', path: '/preview/media', icon: '📎' },
-]
 
 // Agrupado pelo trabalho de quem usa (operar a loja × atender cliente), não por qual pacote
 // implementa a tela — quem atende não sabe nem precisa saber que Conversas vem do conversations-ui.
@@ -47,10 +35,6 @@ const ADMIN_SECTIONS: NavSection[] = [
       { label: 'Mensagens', path: '/admin/messages', icon: '✉️' },
       { label: 'Fluxo do bot', path: '/admin/flows', icon: '🔀' },
     ],
-    // Os previews são ferramenta de quem atende (testar o bot como cliente, ver a inbox do outro
-    // lado), então ficam na mesma seção — não numa gaveta "Dev" à parte. A guarda continua: em
-    // produção as rotas não existem e o item levaria a 404.
-    ...(IS_PREVIEW_ENABLED ? { externalItems: PREVIEW_ITEMS } : {}),
   },
 ]
 
@@ -114,24 +98,6 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                   </button>
                 ))}
 
-                {section.externalItems?.map((item) => (
-                  <a
-                    key={item.path}
-                    href={`#${item.path}`}
-                    target="_blank"
-                    // SEM `rel="noreferrer"`/`noopener` de propósito: o token de admin vive em
-                    // `sessionStorage`, que é por aba, e só uma aba auxiliar (com opener) herda uma
-                    // cópia dele. Com o rel, o simulador abria sempre deslogado e todo `/v1/admin/*`
-                    // respondia 401 — o sintoma era "mandei mensagem e nada acontece". Mesma origem
-                    // e rota nossa, então o acesso a `window.opener` aqui não agrega risco.
-                    onClick={() => setSidebarOpen(false)}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm text-foreground transition-colors hover:bg-accent"
-                  >
-                    <span>{item.icon}</span>
-                    <span>{item.label}</span>
-                    <span aria-hidden className="ml-auto text-muted-foreground">↗</span>
-                  </a>
-                ))}
               </div>
             ))}
           </nav>
@@ -165,7 +131,10 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
             nas telas de altura cheia (conversas, fluxo) o padding vertical ainda somava 48px à
             altura já calculada em 100vh, criando um segundo scroll por fora do painel. Quem precisa
             de respiro no celular é a página, que sabe se é conteúdo de leitura ou superfície cheia. */}
-        <main className="flex-1 overflow-auto p-0 lg:p-6">
+        {/* Sem padding em nenhum tamanho: quem sabe se precisa de respiro é a página. Telas de
+            superfície cheia (conversas) trazem o próprio, e o do layout virava moldura dupla — uma
+            borda em volta de tudo, visível como um quadro em torno do painel. */}
+        <main className="flex-1 overflow-auto p-0">
           {children}
         </main>
       </div>
