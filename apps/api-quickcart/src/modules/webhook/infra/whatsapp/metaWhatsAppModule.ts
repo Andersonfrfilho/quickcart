@@ -16,6 +16,7 @@ import { createMetaWhatsAppModule, type MetaWhatsAppModule } from '@adatechnolog
 import type { NonceStoreInterface } from '@adatechnology/meta-whatsapp-module'
 import { createTextModerator, parseTermList } from '@adatechnology/text-moderation'
 import { createQuickCartObjectStorage } from '@/modules/webhook/infra/storage/objectStorageAdapter'
+import { createQuickCartTranscriber } from '@/modules/webhook/infra/transcription/transcriberAdapter'
 import { db } from '@/infra/database/connection'
 import { environment } from '@/infra/config/environment'
 import { logger } from '@/shared/logger'
@@ -29,6 +30,7 @@ import type { CustomerRepositoryInterface } from '@/modules/webhook/domain/Custo
 import { parseInboundMessage } from '@/modules/webhook/application/parseInboundMessage'
 import { conversationSseHub } from '@/modules/conversation/infra/realtime/conversationRealtime'
 import { documentsQueue } from '@/infra/queue/queues'
+import { DEFAULT_TRANSCRIPTION_RETRY_SECONDS, DOCUMENTS_JOBS } from '@/infra/queue/queues.constant'
 
 const webhookLog = logger.child('Webhook')
 
@@ -43,6 +45,10 @@ const textModerator = createTextModerator({
   extraTerms: parseTermList(environment.MODERATION_EXTRA_TERMS),
   allowedTerms: parseTermList(environment.MODERATION_ALLOWED_TERMS),
 })
+
+// `undefined` quando desligado ou sem chave: o módulo não expõe `transcribeAudio`, e o painel deixa
+// de desenhar o botão em vez de oferecer uma ação que estoura no clique.
+const audioTranscriber = createQuickCartTranscriber()
 
 type CreateQuickCartWhatsAppModuleParams = {
   readonly cacheProvider: CacheProvider
@@ -94,6 +100,18 @@ export function createQuickCartWhatsAppModule(params: CreateQuickCartWhatsAppMod
       // Sem storage o módulo não expõe `ingestInboundMedia` — o tipo fica `undefined` em vez de
       // devolver um use case que falharia em runtime.
       ...(quickCartObjectStorage ? { objectStorage: quickCartObjectStorage.forModule } : {}),
+      // O modo vem do ambiente porque é decisão de operação, não default técnico: `auto` transcreve
+      // toda nota de voz recebida (gasta cota por áudio que talvez ninguém leia), `onDemand` só
+      // quando o atendente clica.
+      ...(audioTranscriber
+        ? {
+            transcription: {
+              transcriber: audioTranscriber,
+              mode: environment.TRANSCRIPTION_MODE,
+              languageHint: environment.TRANSCRIPTION_LANGUAGE,
+            },
+          }
+        : {}),
     },
     hooks: {
       // Enfileira em vez de baixar aqui: a Meta reenvia o webhook se não receber 200 a tempo, e
@@ -107,10 +125,48 @@ export function createQuickCartWhatsAppModule(params: CreateQuickCartWhatsAppMod
         // contain :"), e companyId é UUID — que tem `-` mas nunca `_`, então a chave segue sem
         // ambiguidade.
         await documentsQueue.add(
-          'ingest-inbound-media',
+          DOCUMENTS_JOBS.INGEST_INBOUND_MEDIA,
           media,
           { jobId: `${media.companyId}_${media.sourceMediaId}` },
         )
+      },
+
+      /**
+       * Transcrição estourou cota (ou falhou de forma transitória) — reenfileira com atraso.
+       *
+       * É esta a rede de segurança do rate limit: bater o teto do engine não significa "não
+       * consigo transcrever", significa "não consigo AGORA". O áudio já está no storage, o status
+       * ficou `pending`, e o job volta respeitando o `Retry-After` que o engine informou.
+       *
+       * Enfileira um job de TRANSCRIÇÃO, não uma segunda ingestão: o binário está salvo, e
+       * rebaixá-lo da Meta gastaria banda para repetir um efeito que já aconteceu.
+       */
+      onTranscriptionDeferred: async (details) => {
+        const delayMs = (details.retryAfterSeconds ?? DEFAULT_TRANSCRIPTION_RETRY_SECONDS) * 1000
+
+        webhookLog.warn(LOG_EVENTS.TRANSCRIPTION_DEFERRED, {
+          messageId: details.messageId,
+          reason: details.reason,
+          delayMs,
+          error: serializeError(details.error),
+        })
+
+        try {
+          // `jobId` derivado da mensagem: várias tentativas do mesmo áudio colapsam num job só, em
+          // vez de acumularem retentativas concorrentes brigando pela mesma cota já estourada.
+          await documentsQueue.add(
+            DOCUMENTS_JOBS.TRANSCRIBE_AUDIO,
+            { companyId: details.companyId, messageId: details.messageId },
+            { jobId: `transcribe_${details.companyId}_${details.messageId}`, delay: delayMs },
+          )
+        } catch (error: unknown) {
+          // Não propaga: quem chamou este hook foi a ingestão, e o binário já está salvo. Falhar
+          // aqui faria o job de mídia inteiro entrar em retry e rebaixar o arquivo da Meta.
+          webhookLog.error(LOG_EVENTS.TRANSCRIPTION_DEFER_ENQUEUE_FAILED, {
+            messageId: details.messageId,
+            error: serializeError(error),
+          })
+        }
       },
 
       onMessageReceived: async (message, session) => {

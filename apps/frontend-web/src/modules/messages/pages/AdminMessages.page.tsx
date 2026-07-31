@@ -13,11 +13,25 @@
 
 import { useState } from 'react'
 import '@adatechnology/conversations-ui/styles.css'
-import { WelcomeFarewellForm, WhatsAppTemplatesSettings } from '@adatechnology/conversations-ui'
+import {
+  TranscriptionSettingsForm,
+  WelcomeFarewellForm,
+  WhatsAppTemplatesSettings,
+} from '@adatechnology/conversations-ui'
 import { useWhatsAppSettings } from '@/modules/messages/hooks/useWhatsAppSettings.hook'
 
-const TAB = { BOT: 'bot', TEMPLATES: 'templates' } as const
+const TAB = { BOT: 'bot', TEMPLATES: 'templates', TRANSCRIPTION: 'transcription' } as const
 type Tab = (typeof TAB)[keyof typeof TAB]
+
+/**
+ * Padrão da instalação quando o painel nunca decidiu.
+ *
+ * O servidor guarda `null` de propósito (herda o ambiente), mas o interruptor é booleano — precisa
+ * mostrar alguma posição. `false` é a leitura honesta do estado "ninguém ligou aqui ainda": um
+ * checkbox marcado sugeriria uma escolha que não foi feita.
+ */
+const UNDECIDED_ENABLED = false
+const UNDECIDED_MODE = 'onDemand' as const
 
 export function AdminMessagesPage() {
   const { settings, loading, saving, saveSuccess, failure, update, save } = useWhatsAppSettings()
@@ -49,6 +63,13 @@ export function AdminMessagesPage() {
         >
           Templates WhatsApp
         </button>
+        <button
+          type="button"
+          onClick={() => setTab(TAB.TRANSCRIPTION)}
+          className={`px-3 py-2 text-sm ${tab === TAB.TRANSCRIPTION ? 'border-b-2 border-primary font-medium' : 'text-gray-500'}`}
+        >
+          Transcrição de áudio
+        </button>
       </nav>
 
       {failure ? (
@@ -57,7 +78,18 @@ export function AdminMessagesPage() {
         </p>
       ) : null}
 
-      {tab === TAB.BOT ? (
+      {tab === TAB.TRANSCRIPTION ? (
+        <TranscriptionSettingsForm
+          enabled={settings.transcriptionEnabled ?? UNDECIDED_ENABLED}
+          onEnabledChange={(transcriptionEnabled) => update({ transcriptionEnabled })}
+          mode={settings.transcriptionMode ?? UNDECIDED_MODE}
+          onModeChange={(transcriptionMode) => update({ transcriptionMode })}
+          onSave={save}
+          isAvailable={settings.transcriptionAvailable ?? false}
+          saving={saving}
+          saveSuccess={saveSuccess}
+        />
+      ) : tab === TAB.BOT ? (
         <WelcomeFarewellForm
           welcomeMessage={settings.welcomeMessage}
           onWelcomeMessageChange={(welcomeMessage) => update({ welcomeMessage })}

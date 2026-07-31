@@ -45,6 +45,26 @@ const environmentSchema = z.object({
   // Resgata falso positivo sem editar o pacote — ex.: termo que é nome de produto do catálogo.
   MODERATION_ALLOWED_TERMS: z.string().default(''),
 
+  // ── Transcrição de áudio (nota de voz → texto) ──
+  // Desligada por padrão: transcrever consome cota de engine externo, e ligar isso sem alguém
+  // decidir seria gastar em silêncio.
+  TRANSCRIPTION_ENABLED: booleanFromString('false'),
+  // `onDemand`: só transcreve quando o atendente clica — gasta cota apenas com áudio que alguém vai
+  // ler. `auto`: transcreve toda nota de voz na ingestão, onde o buffer já está em memória.
+  TRANSCRIPTION_MODE: z.enum(['auto', 'onDemand']).default('onDemand'),
+  // Free tier do Groq cobre ~2h de áudio/hora e 8h/dia. Passar disso custa US$0,04 por hora.
+  TRANSCRIPTION_GROQ_API_KEY: z.string().default(''),
+  TRANSCRIPTION_MODEL: z.string().default('whisper-large-v3-turbo'),
+  // Informar o idioma corta a etapa de detecção do Whisper e evita pt-BR curto virar espanhol.
+  TRANSCRIPTION_LANGUAGE: z.string().default('pt'),
+  /**
+   * Engine local como reserva, para o dia em que depender de serviço externo deixar de servir.
+   * Desligado, a imagem do worker não precisa de ffmpeg nem do binário do whisper.cpp — ver o
+   * README de @adatechnology/audio-transcription-provider.
+   */
+  TRANSCRIPTION_LOCAL_FALLBACK_ENABLED: booleanFromString('false'),
+  TRANSCRIPTION_LOCAL_MODEL_PATH: z.string().default('/models/ggml-small.bin'),
+
   // ── Object storage (arquivos da conversa) ──
   // Desligado, a ingestão não é enfileirada e a biblioteca fica vazia — sem meio erro em runtime.
   STORAGE_ENABLED: booleanFromString('false'),

@@ -23,7 +23,33 @@ import type { ObjectStorageInterface } from '@adatechnology/meta-whatsapp-contra
 import { createObjectStorageProvider } from '@adatechnology/object-storage-provider'
 import { environment } from '@/infra/config/environment'
 
-export function createWorkerObjectStorage(): ObjectStorageInterface {
+/**
+ * Junta o stream num Buffer.
+ *
+ * Áudio de nota de voz cabe em memória com folga (a Meta corta em 16MB, e o teto de objeto do
+ * ambiente é validado à parte). Streaming direto ao engine não ajudaria: o multipart do provedor de
+ * transcrição precisa do `Content-Length`, que exige conhecer o tamanho antes de enviar.
+ */
+async function collectStream(stream: ReadableStream<Uint8Array>): Promise<Buffer> {
+  const chunks: Uint8Array[] = []
+  const reader = stream.getReader()
+
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (value) chunks.push(value)
+  }
+
+  return Buffer.concat(chunks)
+}
+
+/**
+ * `getObject` incluído: é o que habilita a transcrição sob demanda. O adapter da api-quickcart
+ * espelha isto.
+ */
+export function createWorkerObjectStorage(): ObjectStorageInterface & {
+  getObject: NonNullable<ObjectStorageInterface['getObject']>
+} {
   const provider = createObjectStorageProvider({
     endpoint: new URL(environment.STORAGE_ENDPOINT),
     region: environment.STORAGE_REGION,
@@ -54,6 +80,19 @@ export function createWorkerObjectStorage(): ObjectStorageInterface {
     // Idempotente por contrato: apagar o que já não existe não é erro, e o job de retenção repete.
     async delete(uploadId) {
       await provider.delete({ bucket: environment.STORAGE_BUCKET, key: uploadId })
+    },
+
+    /**
+     * Lê o binário de volta. Existe para a transcrição sob demanda: transcrever um áudio já salvo é
+     * reler os bytes, e `getDownloadUrl` não serve — o engine recebe o conteúdo no multipart, não
+     * uma URL assinada nossa.
+     *
+     * Sem este método o módulo não expõe `transcribeAudio` (a ausência fica visível no tipo), e o
+     * botão "transcrever" do painel nunca é desenhado.
+     */
+    async getObject(uploadId) {
+      const stream = await provider.get({ bucket: environment.STORAGE_BUCKET, key: uploadId })
+      return collectStream(stream)
     },
 
     async getDownloadUrl(uploadId, options) {

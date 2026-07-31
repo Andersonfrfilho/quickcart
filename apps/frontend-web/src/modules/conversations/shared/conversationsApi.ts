@@ -14,7 +14,13 @@
  * O identificador de conversa é o número de WhatsApp, igual ao backend.
  */
 
-import type { ConversationsApi, ConversationSummary, MessagePayload, SSEProvider } from '@adatechnology/conversations-ui'
+import type {
+  ConversationsApi,
+  ConversationSummary,
+  MessagePayload,
+  MessageTranscription,
+  SSEProvider,
+} from '@adatechnology/conversations-ui'
 import { getAdminToken } from '@/modules/admin/shared/useAdminAuth.hook'
 import { ApiRequestError } from '@/modules/conversations/shared/ApiRequestError'
 
@@ -80,6 +86,7 @@ export type ApiMessage = {
   readonly mediaId?: string
   readonly mimeType?: string
   readonly filename?: string
+  readonly transcription?: MessageTranscription | null
   readonly moderation?: NonNullable<MessagePayload['moderation']> | null
 }
 
@@ -121,6 +128,9 @@ export function toMessagePayload(message: ApiMessage): MessagePayload {
     ...(message.mimeType ? { mimeType: message.mimeType } : {}),
     ...(message.filename ? { filename: message.filename } : {}),
     ...(message.sizeBytes ? { sizeBytes: message.sizeBytes } : {}),
+    // `null` é significativo e passa adiante: é o "não avaliado" que faz o balão oferecer
+    // "transcrever" em vez de dizer que o áudio não tem fala. Só a chave ausente é descartada.
+    ...(message.transcription !== undefined ? { transcription: message.transcription } : {}),
     // `null` (não avaliado) é distinto de avaliado-e-limpo e passa adiante; só a chave ausente cai.
     ...(message.moderation !== undefined ? { moderation: message.moderation } : {}),
   }
@@ -234,6 +244,18 @@ export const conversationsApi: ConversationsApi = {
     )
     return url
   },
+
+  /**
+   * Transcreve o áudio de uma mensagem. Endereçada por `messageId` e fora de `/conversations`:
+   * transcrição é por áudio, e uma conversa tem vários.
+   *
+   * A rota responde 404 quando a transcrição não está habilitada no backend — o `request` levanta, o
+   * balão mostra "tentar novamente" e nada mais acontece. Não desenhar o botão nesse caso ficaria a
+   * cargo de o backend não expor a capacidade, mas o método aqui existe sempre porque o cliente não
+   * sabe da configuração do servidor.
+   */
+  transcribeAudio: (messageId) =>
+    request(`/messages/${encodeURIComponent(messageId)}/transcription`, { method: 'POST' }),
 }
 
 // EventSource não manda header, então o backend troca token de admin por um ticket de uso único

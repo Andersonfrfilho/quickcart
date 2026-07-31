@@ -116,6 +116,17 @@ export function toMessagePayload(row: MessageRow) {
       row.moderationFlagged === null
         ? null
         : { isOffensive: row.moderationFlagged, terms: row.moderationTerms ?? [] },
+    // Mesma regra do `null` da moderação: áudio nunca transcrito não pode se parecer com áudio
+    // transcrito e sem fala. `'done'` com texto vazio é silêncio já processado, e a UI distingue.
+    transcription:
+      row.transcriptionStatus === null
+        ? null
+        : {
+            status: row.transcriptionStatus,
+            text: row.transcriptionText,
+            language: row.transcriptionLanguage,
+            engine: row.transcriptionEngine,
+          },
   }
 }
 
@@ -464,6 +475,45 @@ export class ConversationController {
     requireAdminToken(request)
     await this.dependencies.metaWhatsApp.conversations.repository.markRead(COMPANY_ID, requireNumber(request))
     response.json(204, { data: null })
+  }
+
+  /**
+   * Transcreve o áudio de uma mensagem sob demanda — o botão "transcrever" do balão.
+   *
+   * Endereçado por `messageId`, e não pelo número da conversa como as demais rotas: transcrição é
+   * por áudio, e uma conversa tem vários. `404` quando a capacidade não existe (transcrição
+   * desligada, sem chave, ou storage que não sabe reler o binário) é o que faz o
+   * `ConversationsApi.transcribeAudio` do painel se comportar como opcional — melhor que um 500
+   * atrás de um botão que nunca deveria ter sido desenhado.
+   *
+   * Os erros do módulo já carregam status próprio (`409` áudio ainda sendo copiado, `422` não é
+   * áudio) e sobem para o handler de erro do router sem tradução aqui.
+   */
+  handleTranscribeAudio: RouteHandler = async (request, response) => {
+    requireAdminToken(request)
+
+    const transcribeAudio = this.dependencies.metaWhatsApp.conversations.transcribeAudio
+    if (!transcribeAudio) throw new NotFoundError('Transcrição de áudio não está habilitada', CONVERSATION_NOT_FOUND)
+
+    const messageId = request.params[0]
+    if (!messageId) throw new ValidationError('Id da mensagem ausente na rota', VALIDATION_ERROR)
+
+    const result = await transcribeAudio.execute({
+      companyId: COMPANY_ID,
+      messageId,
+      // `force` só a pedido explícito: sem isso, reclicar num áudio já transcrito devolveria o
+      // texto salvo (idempotente) — que é o certo, porque retranscrever paga cota de novo.
+      ...(request.query.get('force') === 'true' ? { force: true } : {}),
+    })
+
+    response.json(200, {
+      data: {
+        status: result.status,
+        text: result.text,
+        language: result.language,
+        engine: result.engine,
+      },
+    })
   }
 
   handleGetContext: RouteHandler = async (request, response) => {

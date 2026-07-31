@@ -46,6 +46,9 @@ export function registerConversationRoutes(params: RegisterConversationRoutesPar
   router.post('/v1/admin/conversations/:number/takeover', conversationController.handleTakeover)
   router.post('/v1/admin/conversations/:number/release', conversationController.handleRelease)
   router.get('/v1/admin/whatsapp/media/:mediaId', conversationController.handleMediaProxy)
+  // Fora de /conversations e endereçada por messageId: transcrição é por áudio, e uma conversa tem
+  // vários. Responde 404 quando a transcrição não está habilitada.
+  router.post('/v1/admin/messages/:messageId/transcription', conversationController.handleTranscribeAudio)
   // Ambas fora de /conversations: a biblioteca é da empresa e a URL assinada é endereçada pelo
   // objeto, não pela conversa.
   router.get('/v1/admin/documents', conversationController.handleListAllDocuments)

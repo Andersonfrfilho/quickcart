@@ -42,6 +42,7 @@ import { IS_PREVIEW_ENABLED } from '@/modules/preview/shared/previewEnvironment'
 import { conversationsApi } from '@/modules/conversations/shared/conversationsApi'
 import { conversationsSse } from '@/modules/conversations/shared/conversationsSse'
 import { useAdminInbox, CONVERSATIONS_PER_PAGE } from '@/modules/conversations/hooks/useAdminInbox.hook'
+import { useTranscriptionActive } from '@/modules/conversations/hooks/useTranscriptionActive.hook'
 import { toContextEntries } from '@/modules/conversations/shared/conversationContext'
 import { downloadConversation } from '@/modules/conversations/shared/conversationsExport'
 
@@ -413,8 +414,24 @@ function Inbox() {
 }
 
 export function AdminConversationsPage() {
+  const isTranscriptionActive = useTranscriptionActive()
+
+  /**
+   * Omite `transcribeAudio` quando a transcrição não está valendo para esta empresa.
+   *
+   * O contrato do SDK trata o método como opcional POR CAPACIDADE, e é a ausência que faz o balão não
+   * desenhar o botão. Entregar sempre a implementação — que existe no cliente independentemente da
+   * configuração do servidor — colocaria um "Transcrever" em instalações sem engine, e o clique
+   * voltaria 404.
+   */
+  const api = useMemo(() => {
+    if (isTranscriptionActive) return conversationsApi
+    const { transcribeAudio: _omitido, ...withoutTranscription } = conversationsApi
+    return withoutTranscription
+  }, [isTranscriptionActive])
+
   return (
-    <ConversationsProvider api={conversationsApi} sse={conversationsSse}>
+    <ConversationsProvider api={api} sse={conversationsSse}>
       <Inbox />
     </ConversationsProvider>
   )

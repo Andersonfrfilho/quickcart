@@ -17,6 +17,10 @@ const EMPTY_SETTINGS: WhatsAppSettings = {
   templateVariables: [],
   welcomeMessage: '',
   farewellMessage: '',
+  // `null` enquanto não carregou: nunca `false`, que salvaria "desligado" se o operador submetesse
+  // outra aba antes do GET responder.
+  transcriptionEnabled: null,
+  transcriptionMode: null,
 }
 
 // Some sozinho depois de confirmar o salvamento; sem isso o "salvo" fica na tela para sempre e

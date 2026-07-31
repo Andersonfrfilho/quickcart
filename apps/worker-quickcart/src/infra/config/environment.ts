@@ -53,7 +53,21 @@ const environmentSchema = z.object({
   DOCUMENTS_RETENTION_BATCH_SIZE: z.coerce.number().int().positive().default(200),
 
   // ── STT (Groq, opcional) ──
+  // Serve ao STT efêmero que devolve a fala ao motor de conversa (fila `stt`).
   GROQ_API_KEY: z.string().optional(),
+
+  // ── Transcrição de nota de voz (persistida, exibida na inbox) ──
+  // Espelha o schema da api-quickcart: processos separados, mesmas variáveis. Diferente do STT
+  // acima, esta transcrição é GRAVADA na mensagem e o atendente a lê e copia no painel.
+  TRANSCRIPTION_ENABLED: booleanFromString('false'),
+  TRANSCRIPTION_MODE: z.enum(['auto', 'onDemand']).default('onDemand'),
+  TRANSCRIPTION_GROQ_API_KEY: z.string().default(''),
+  TRANSCRIPTION_MODEL: z.string().default('whisper-large-v3-turbo'),
+  TRANSCRIPTION_LANGUAGE: z.string().default('pt'),
+  // Ligado, a imagem do worker precisa de ffmpeg + binário do whisper.cpp + modelo — ver o README
+  // de @adatechnology/audio-transcription-provider.
+  TRANSCRIPTION_LOCAL_FALLBACK_ENABLED: booleanFromString('false'),
+  TRANSCRIPTION_LOCAL_MODEL_PATH: z.string().default('/models/ggml-small.bin'),
 
   // ── Nota fiscal (opcional) — @adatechnology/fiscal-provider (NFC-e) ──
   FISCAL_ENABLED: booleanFromString('false'),

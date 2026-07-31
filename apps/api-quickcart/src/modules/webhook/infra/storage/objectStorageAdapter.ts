@@ -22,9 +22,34 @@ import type { ObjectStorageInterface } from '@adatechnology/meta-whatsapp-contra
 import { createObjectStorageProvider, type ObjectStorageProvider } from '@adatechnology/object-storage-provider'
 import { environment } from '@/infra/config/environment'
 
+/** Storage que sabe LER de volta — o que habilita a transcrição sob demanda no módulo. */
+type ReadableObjectStorage = ObjectStorageInterface & {
+  getObject: NonNullable<ObjectStorageInterface['getObject']>
+}
+
 export type QuickCartObjectStorage = {
-  readonly forModule: ObjectStorageInterface
+  readonly forModule: ReadableObjectStorage
   readonly provider: ObjectStorageProvider
+}
+
+/**
+ * Junta o stream num Buffer.
+ *
+ * Áudio de nota de voz cabe em memória com folga (a Meta corta em 16MB, e `maxObjectSizeBytes` é
+ * validado à parte). Streaming direto ao engine não ajudaria: o multipart precisa do
+ * `Content-Length`, que exige saber o tamanho antes de enviar.
+ */
+async function collectStream(stream: ReadableStream<Uint8Array>): Promise<Buffer> {
+  const chunks: Uint8Array[] = []
+  const reader = stream.getReader()
+
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (value) chunks.push(value)
+  }
+
+  return Buffer.concat(chunks)
 }
 
 export function createQuickCartObjectStorage(): QuickCartObjectStorage {
@@ -38,7 +63,7 @@ export function createQuickCartObjectStorage(): QuickCartObjectStorage {
     maxObjectSizeBytes: environment.STORAGE_MAX_OBJECT_SIZE_BYTES,
   })
 
-  const forModule: ObjectStorageInterface = {
+  const forModule: ReadableObjectStorage = {
     async upload({ buffer, mimeType, key }) {
       await provider.put({
         bucket: environment.STORAGE_BUCKET,
@@ -59,6 +84,15 @@ export function createQuickCartObjectStorage(): QuickCartObjectStorage {
     // Idempotente por contrato: apagar o que já não existe não é erro, e o job de retenção repete.
     async delete(uploadId) {
       await provider.delete({ bucket: environment.STORAGE_BUCKET, key: uploadId })
+    },
+
+    /**
+     * Sem este método o módulo não expõe `transcribeAudio` — transcrever um áudio já salvo é reler
+     * os bytes, e a URL assinada não serve porque o engine recebe o conteúdo no multipart.
+     */
+    async getObject(uploadId) {
+      const stream = await provider.get({ bucket: environment.STORAGE_BUCKET, key: uploadId })
+      return collectStream(stream)
     },
 
     async getDownloadUrl(uploadId, options) {

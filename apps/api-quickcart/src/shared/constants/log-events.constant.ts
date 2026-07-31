@@ -50,6 +50,14 @@ export const LOG_EVENTS = {
 
   // STT (fila)
   STT_ENQUEUE_FAILED: 'stt_enqueue_failed',
+
+  // Transcrição de nota de voz (@adatechnology/audio-transcription-provider)
+  TRANSCRIPTION_DISABLED_NO_KEY: 'transcription_disabled_no_key',
+  // Engine principal falhou e a cadeia caiu para o reserva — degradação não pode ser silenciosa.
+  TRANSCRIPTION_ENGINE_DEGRADED: 'transcription_engine_degraded',
+  // Cota estourada ou falha transitória: o áudio ficou 'pending' e voltou para a fila.
+  TRANSCRIPTION_DEFERRED: 'transcription_deferred',
+  TRANSCRIPTION_DEFER_ENQUEUE_FAILED: 'transcription_defer_enqueue_failed',
 } as const
 
 export type LogEvent = (typeof LOG_EVENTS)[keyof typeof LOG_EVENTS]
