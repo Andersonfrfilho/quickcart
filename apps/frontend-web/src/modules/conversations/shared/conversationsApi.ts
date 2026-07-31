@@ -80,6 +80,7 @@ export type ApiMessage = {
   readonly mediaId?: string
   readonly mimeType?: string
   readonly filename?: string
+  readonly moderation?: NonNullable<MessagePayload['moderation']> | null
 }
 
 const RENDERABLE_MESSAGE_TYPES = new Set<MessagePayload['type']>([
@@ -120,6 +121,8 @@ export function toMessagePayload(message: ApiMessage): MessagePayload {
     ...(message.mimeType ? { mimeType: message.mimeType } : {}),
     ...(message.filename ? { filename: message.filename } : {}),
     ...(message.sizeBytes ? { sizeBytes: message.sizeBytes } : {}),
+    // `null` (não avaliado) é distinto de avaliado-e-limpo e passa adiante; só a chave ausente cai.
+    ...(message.moderation !== undefined ? { moderation: message.moderation } : {}),
   }
 }
 
