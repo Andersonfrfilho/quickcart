@@ -133,12 +133,29 @@ function buildResponseHelper(params: { readonly origin: string | undefined }): {
     resolveResponse = resolve
   })
 
+  /**
+   * Status sem corpo por definição do HTTP. Mandar corpo aqui não é só desleixo: o navegador
+   * recebe `204` com `Content-Length` preenchido, conclui que a resposta está truncada e derruba a
+   * requisição com `ERR_CONTENT_LENGTH_MISMATCH` — do lado do JS vira erro de rede, e o `fetch`
+   * rejeita mesmo com o servidor tendo feito o trabalho.
+   *
+   * Foi assim que `markRead` nunca funcionou: a conversa era marcada como lida no banco, a resposta
+   * era descartada pelo navegador, e o contador de não lidas continuava na tela.
+   */
+  const BODYLESS_STATUS_CODES = new Set([204, 205, 304])
+
   function json(statusCode: number, payload: unknown, extraHeaders?: Record<string, string>): void {
     const headers = buildCorsHeaders(origin)
-    headers.set('Content-Type', 'application/json')
     if (extraHeaders) {
       for (const [key, value] of Object.entries(extraHeaders)) headers.set(key, value)
     }
+
+    if (BODYLESS_STATUS_CODES.has(statusCode)) {
+      resolveResponse(new Response(null, { status: statusCode, headers }))
+      return
+    }
+
+    headers.set('Content-Type', 'application/json')
     resolveResponse(new Response(JSON.stringify(payload), { status: statusCode, headers }))
   }
 
