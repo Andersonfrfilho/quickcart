@@ -43,6 +43,13 @@
       "when": 1784464057867,
       "tag": "0005_move_conversations_to_meta_whatsapp",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784464058867,
+      "tag": "0006_list_imports_session_fk",
+      "breakpoints": true
     }
   ]
 }
