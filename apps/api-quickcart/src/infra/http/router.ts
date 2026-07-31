@@ -18,6 +18,7 @@ import { runWithContext } from '@/shared/request-context'
 import { logger } from '@/shared/logger'
 import { LOG_EVENTS } from '@/shared/constants/log-events.constant'
 import { AppError, TooManyRequestsError } from '@/shared/errors/AppError.error'
+import { MetaWhatsAppError } from '@adatechnology/meta-whatsapp-contracts'
 import { DomainError } from '@/shared/errors/DomainError'
 import { INTERNAL_ERROR, NOT_FOUND, REQUEST_TIMEOUT, INVALID_JSON_BODY } from '@/shared/errors/codes'
 import { captureError } from '@/infra/observability/sentry'
@@ -155,6 +156,16 @@ function buildResponseHelper(params: { readonly origin: string | undefined }): {
   }
 
   function error(caughtError: unknown): void {
+    /**
+     * Os erros do meta-whatsapp-module já carregam `statusCode` e `code` estáveis, de propósito: o
+     * pacote não conhece o AppError daqui, e o contrato dele manda o host traduzir. Sem esta
+     * tradução, "isso não é áudio" (422) e "áudio ainda está sendo copiado" (409) chegavam ao
+     * cliente como 500 genérico — a UI não tinha como explicar nada ao operador.
+     */
+    if (caughtError instanceof MetaWhatsAppError) {
+      json(caughtError.statusCode, { error: { code: caughtError.code, message: caughtError.message } })
+      return
+    }
     if (!(caughtError instanceof AppError)) {
       json(500, { error: { code: INTERNAL_ERROR, message: 'Internal server error' } })
       return

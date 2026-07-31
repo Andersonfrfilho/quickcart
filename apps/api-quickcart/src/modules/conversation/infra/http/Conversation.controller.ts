@@ -18,16 +18,23 @@
 import JSZip from 'jszip'
 import type { MetaWhatsAppModule } from '@adatechnology/meta-whatsapp-module'
 import type { MessageRow } from '@adatechnology/meta-whatsapp-module'
+import { resolveFailureStatus } from '@adatechnology/meta-whatsapp-module'
+import { MetaWhatsAppError } from '@adatechnology/meta-whatsapp-contracts'
 import type { ObjectStorageInterface } from '@adatechnology/meta-whatsapp-contracts'
 import type { ObjectStorageProvider } from '@adatechnology/object-storage-provider'
 import type { RouteHandler } from '@/infra/http/router'
 import { requireAdminToken } from '@/infra/http/middlewares/requireAdminToken'
 import { environment } from '@/infra/config/environment'
 import { ValidationError, NotFoundError, TooManyRequestsError } from '@/shared/errors/AppError.error'
+import { logger } from '@/shared/logger'
+import { LOG_EVENTS } from '@/shared/constants/log-events.constant'
+import { serializeError } from '@/shared/serializeError'
 import { CONVERSATION_NOT_FOUND, CONVERSATION_DELETE_INCOMPLETE, VALIDATION_ERROR } from '@/shared/errors/codes'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 
 const COMPANY_ID = environment.WHATSAPP_COMPANY_ID
+
+const conversationLog = logger.child('Conversation')
 
 // Teto para não deixar o cliente pedir a coleção inteira numa requisição (padrão de APIs §Paginação).
 const DEFAULT_CONVERSATIONS_PER_PAGE = 50
@@ -498,22 +505,46 @@ export class ConversationController {
     const messageId = request.params[0]
     if (!messageId) throw new ValidationError('Id da mensagem ausente na rota', VALIDATION_ERROR)
 
-    const result = await transcribeAudio.execute({
-      companyId: COMPANY_ID,
-      messageId,
-      // `force` só a pedido explícito: sem isso, reclicar num áudio já transcrito devolveria o
-      // texto salvo (idempotente) — que é o certo, porque retranscrever paga cota de novo.
-      ...(request.query.get('force') === 'true' ? { force: true } : {}),
-    })
+    try {
+      const result = await transcribeAudio.execute({
+        companyId: COMPANY_ID,
+        messageId,
+        // `force` só a pedido explícito: sem isso, reclicar num áudio já transcrito devolveria o
+        // texto salvo (idempotente) — que é o certo, porque retranscrever paga cota de novo.
+        ...(request.query.get('force') === 'true' ? { force: true } : {}),
+      })
 
-    response.json(200, {
-      data: {
-        status: result.status,
-        text: result.text,
-        language: result.language,
-        engine: result.engine,
-      },
-    })
+      response.json(200, {
+        data: {
+          status: result.status,
+          text: result.text,
+          language: result.language,
+          engine: result.engine,
+        },
+      })
+    } catch (error: unknown) {
+      /**
+       * Falha do engine é RESULTADO, não erro interno.
+       *
+       * O use-case propaga a exceção de propósito — é dela que o BullMQ tira o sinal para retentar
+       * um `pending` na fila. Mas aqui, no HTTP, "codec que ninguém aceita" virar 500 seria mentir:
+       * o servidor funcionou, classificou o caso e já gravou `unsupported` na mensagem. Devolver o
+       * status é o que permite a interface dizer "formato não suportado" em vez de "erro".
+       *
+       * Erros do módulo (409 áudio ainda copiando, 422 não é áudio, 409 desligado) já carregam
+       * status próprio e sobem sem tradução.
+       */
+      if (error instanceof MetaWhatsAppError) throw error
+
+      const status = resolveFailureStatus(error)
+      conversationLog.warn(LOG_EVENTS.TRANSCRIPTION_FAILED, {
+        messageId,
+        status,
+        error: serializeError(error),
+      })
+
+      response.json(200, { data: { status, text: null, language: null, engine: null } })
+    }
   }
 
   handleGetContext: RouteHandler = async (request, response) => {

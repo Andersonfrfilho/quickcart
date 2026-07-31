@@ -58,6 +58,9 @@ export const LOG_EVENTS = {
   // Cota estourada ou falha transitória: o áudio ficou 'pending' e voltou para a fila.
   TRANSCRIPTION_DEFERRED: 'transcription_deferred',
   TRANSCRIPTION_DEFER_ENQUEUE_FAILED: 'transcription_defer_enqueue_failed',
+  // Engine falhou na rota sob demanda. Não é 500: o caso foi classificado e gravado na mensagem, e
+  // a resposta devolve o status para a interface explicar o que aconteceu.
+  TRANSCRIPTION_FAILED: 'transcription_failed',
 } as const
 
 export type LogEvent = (typeof LOG_EVENTS)[keyof typeof LOG_EVENTS]
