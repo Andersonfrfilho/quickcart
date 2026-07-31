@@ -21,6 +21,7 @@ import { environment } from '@/infra/config/environment'
 import { logger } from '@/shared/logger'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import { MESSAGES } from '@/modules/conversation/shared/Messages.constant'
+import { judgeCustomerName } from '@/modules/conversation/application/customerNameGuard'
 import type { WhatsAppSender } from '@/modules/webhook/infra/whatsapp/WhatsAppSender'
 import type { RepeatLastOrderUseCase } from '@/modules/order/application/use-cases/RepeatLastOrder.use-case'
 import type { CustomerRepositoryInterface } from '@/modules/webhook/domain/CustomerRepository.interface'
@@ -39,6 +40,29 @@ export const QUICKCART_FLOW_ACTION = {
   START_LIST: 'quickcart_start_list',
   BROWSE_CATALOG: 'quickcart_browse_catalog',
   REPEAT_ORDER: 'quickcart_repeat_order',
+  GREET: 'quickcart_greet',
+  VALIDATE_NAME: 'quickcart_validate_name',
+} as const
+
+/**
+ * Nós que as ações de saudação desviam para. Ficam como constante porque o handler devolve
+ * `next` por id — um literal solto aqui e um nó renomeado no editor viram uma conversa que morre
+ * num destino inexistente, sem erro nenhum.
+ */
+export const MAIN_FLOW_NODE = {
+  ASK_NAME: 'pergunta_nome',
+  /**
+   * Repergunta do nome, com texto próprio.
+   *
+   * Nó separado, e não a mesma pergunta de novo: voltar para `ASK_NAME` fazia o cliente receber
+   * DUAS mensagens — a recusa da ação e, atrás dela, a boas-vindas inteira ("Olá! Eu sou o
+   * assistente...") como se fosse o primeiro contato. Quem já está na segunda tentativa não precisa
+   * ser apresentado ao bot outra vez.
+   */
+  ASK_NAME_RETRY: 'pergunta_nome_retry',
+  /** Mesma ideia da repergunta, para resposta curta demais — o motivo muda, o texto muda. */
+  ASK_NAME_TOO_SHORT: 'pergunta_nome_curto',
+  MENU: 'menu',
 } as const
 
 export type RegisterQuickCartFlowActionsParams = {
@@ -69,6 +93,60 @@ export function registerQuickCartFlowActions(params: RegisterQuickCartFlowAction
     actionLog.info('handed_over_to_engine', { state })
   }
 
+  /**
+   * Porta de entrada: decide entre pedir o nome e receber de volta quem já se apresentou.
+   *
+   * É ação, e não nó de condição, por duas razões. `evaluateCondition` ignora `conditionValue`
+   * vazio e transforma chave ausente na string `"undefined"`, então "tem nome?" não se expressa com
+   * os operadores disponíveis. E a saudação de retorno precisa interpolar o nome na mensagem —
+   * coisa que nó de condição não faz.
+   *
+   * A fonte da verdade é `customers.name`, não o contexto da sessão: contexto se perde ao reiniciar
+   * a conversa, e um cliente que já disse o nome não deve dizer de novo por causa disso.
+   */
+  registerFlowAction(QUICKCART_FLOW_ACTION.GREET, async ({ session }) => {
+    const customer = await customerRepository.findByPhone(session.whatsappNumber)
+    const savedName = customer?.name?.trim()
+
+    if (!savedName) return { next: MAIN_FLOW_NODE.ASK_NAME }
+
+    await whatsAppSender.sendText(session.whatsappNumber, MESSAGES.WELCOME_BACK.replace('{nome}', savedName))
+    // Devolve ao contexto para o painel do atendente e os nós seguintes lerem sem consultar o banco.
+    return { next: MAIN_FLOW_NODE.MENU, context: { customerName: savedName } }
+  })
+
+  /**
+   * Aceita ou recusa o nome que o cliente respondeu.
+   *
+   * Recusar volta para a MESMA pergunta em vez de seguir: aceitar xingamento gravaria em
+   * `customers.name` o texto que depois aparece no painel, na etiqueta de entrega e na nota fiscal.
+   * O laço é seguro porque o nó de pergunta espera resposta nova — não há como girar sozinho.
+   */
+  registerFlowAction(QUICKCART_FLOW_ACTION.VALIDATE_NAME, async ({ session, context }) => {
+    const answer = typeof context['customerName'] === 'string' ? context['customerName'] : undefined
+    const verdict = judgeCustomerName(answer)
+
+    if (verdict.kind === 'rejected') {
+      actionLog.info('customer_name_rejected', { reason: verdict.reason })
+      /**
+       * Só desvia — o texto da recusa é a pergunta do nó de destino.
+       *
+       * Mandar a recusa aqui E cair num nó que pergunta produzia duas mensagens em sequência, a
+       * segunda repetindo a boas-vindas. Uma pergunta por vez.
+       */
+      return {
+        next: verdict.reason === 'offensive' ? MAIN_FLOW_NODE.ASK_NAME_RETRY : MAIN_FLOW_NODE.ASK_NAME_TOO_SHORT,
+        // Limpa em vez de deixar o texto recusado: o painel mostraria o xingamento como "Nome".
+        context: { customerName: '' },
+      }
+    }
+
+    await customerRepository.upsertByPhone({ phone: session.whatsappNumber, name: verdict.name })
+    await whatsAppSender.sendText(session.whatsappNumber, MESSAGES.NAME_ACCEPTED.replace('{nome}', verdict.name))
+
+    return { next: MAIN_FLOW_NODE.MENU, context: { customerName: verdict.name } }
+  })
+
   registerFlowAction(QUICKCART_FLOW_ACTION.START_LIST, async ({ session, context }) => {
     await handOver(session.whatsappNumber, CONVERSATION_STATE.AWAITING_LIST, context)
     await whatsAppSender.sendText(session.whatsappNumber, MESSAGES.AWAITING_LIST_PROMPT)
@@ -78,7 +156,7 @@ export function registerQuickCartFlowActions(params: RegisterQuickCartFlowAction
     // Só posiciona o estado e devolve: quem monta a lista de categorias é o BrowseHandler, na
     // próxima mensagem. Duplicar essa montagem aqui criaria duas fontes para a mesma tela.
     await handOver(session.whatsappNumber, CONVERSATION_STATE.BROWSING_CATEGORIES, context)
-    await whatsAppSender.sendText(session.whatsappNumber, MESSAGES.MENU_HINT)
+    await whatsAppSender.sendText(session.whatsappNumber, MESSAGES.BROWSE_CATALOG_PROMPT)
   })
 
   // Espelha o caminho do GlobalHandler para "repetir pedido": mesmas mensagens, mesmo resumo

@@ -83,6 +83,30 @@ export const GLOBAL_TRIGGER = {
 export const MESSAGES = {
   WELCOME:
     '👋 Olá! Eu sou o assistente de compras do QuickCart. Me manda sua lista (texto ou áudio) que eu já monto seu carrinho, ou escolha uma opção abaixo:',
+  /**
+   * Texto do menu. NÃO reapresenta o bot: a saudação já aconteceu no nó anterior — "Prazer, João!"
+   * para quem chegou agora, "Oi de novo, João!" para quem volta. Repetir "Olá! Eu sou o assistente"
+   * aqui fazia o cliente ser cumprimentado duas vezes seguidas.
+   *
+   * Mantém o convite a mandar a lista: é o caminho principal do produto, e texto ou áudio soltos já
+   * caem nele sem precisar de botão.
+   */
+  MENU_PROMPT:
+    'O que você prefere? Pode me mandar sua lista (texto ou áudio) que eu monto seu carrinho, ou escolher abaixo:',
+  // Primeiro contato: pergunta o nome antes de qualquer coisa. Sem nome, toda mensagem seguinte
+  // trata o cliente como desconhecido — e o atendente que assume no meio herda isso.
+  ASK_NAME: '👋 Olá! Eu sou o assistente de compras do QuickCart. Antes de começar, como você se chama?',
+  // `{nome}` é trocado pela ação de saudação. Cliente que volta não deve reapresentar-se.
+  WELCOME_BACK: '👋 Oi de novo, {nome}! Que bom te ver por aqui. Como posso ajudar hoje?',
+  // Recusa sem sermão: repetir o pedido é mais útil que explicar a regra.
+  NAME_REJECTED: '😅 Esse não parece um nome. Como você se chama de verdade?',
+  NAME_TOO_SHORT: 'Só para eu não errar: me diz seu nome com pelo menos duas letras?',
+  NAME_ACCEPTED: 'Prazer, {nome}! 🙂',
+  /**
+   * Entrada no catálogo. Antes esta ação reusava o `MENU_HINT`, cujo texto é "Não entendi 🤔" — o
+   * cliente tocava no botão certo e levava uma mensagem de erro.
+   */
+  BROWSE_CATALOG_PROMPT: '🛒 Beleza! Vou te mostrar as categorias — só um instante.',
   MENU_HINT:
     'Não entendi 🤔 Toque numa das opções acima ou me envie sua lista de compras (ex.: "2kg arroz, leite, 6 ovos").',
   REPEAT_ORDER_UNAVAILABLE: '🔁 Ainda não tenho nenhum pedido seu pra repetir. Envie sua lista que eu monto o carrinho!',
