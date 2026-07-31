@@ -125,6 +125,13 @@ export const MESSAGES = {
   BROWSE_EMPTY_CATEGORY: 'Essa categoria está sem produtos disponíveis no momento.',
   BROWSE_NO_CATEGORIES: 'Não há categorias disponíveis no momento.',
   BROWSE_UNEXPECTED_INPUT: 'Por favor, escolha uma opção da lista acima ☝️',
+  /**
+   * Dito antes de montar carrinho a partir de uma lista que ninguém pediu.
+   *
+   * O bot muda de assunto por conta própria aqui — a pessoa estava vendo categorias e vai receber um
+   * carrinho. Sem avisar, parece que o menu quebrou; avisando, fica claro que ele entendeu.
+   */
+  LIST_INTENT_DETECTED: '📝 Entendi que é uma lista! Já vou montar seu carrinho…',
   GOODBYE: '👋 Tudo bem, cancelei o que estávamos fazendo. Quando quiser começar de novo é só chamar!',
   SESSION_EXPIRED_PREFIX: '⏰ Faz um tempo que não conversamos, então recomecei sua sessão.\n\n',
   FALLBACK_STATE_NOT_READY: 'Ainda estou aprendendo essa parte 🙏 Envie "menu" para recomeçar.',

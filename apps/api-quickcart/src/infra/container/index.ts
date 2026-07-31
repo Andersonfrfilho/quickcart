@@ -334,6 +334,8 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     cartRepository,
     productRepository,
     repeatLastOrderUseCase,
+    // O mesmo handler do estado `awaiting_list`: lista ditada fora de hora precisa dar no mesmo lugar.
+    listHandler,
   })
 
   const conversationEngine = new ConversationEngine({
