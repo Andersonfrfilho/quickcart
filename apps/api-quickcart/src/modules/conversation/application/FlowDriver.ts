@@ -30,6 +30,7 @@ import type { AudioTranscriber } from '@adatechnology/audio-transcription-provid
 import { serializeError } from '@/shared/serializeError'
 import { MESSAGES } from '@/modules/conversation/shared/Messages.constant'
 import { matchChoiceOption } from '@/modules/conversation/application/matchChoiceOption'
+import { wrapChannelWithLogging } from '@/modules/conversation/application/wrapChannelWithLogging'
 
 const flowLog = logger.child('FlowDriver')
 const COMPANY_ID = environment.WHATSAPP_COMPANY_ID
@@ -54,23 +55,6 @@ export type FlowDriverDependencies = {
   readonly logMessage: LogMessageUseCase
   readonly startState: string
   readonly loadFlow: (key: string) => Promise<FlowGraphData | undefined>
-  /**
-   * Transcreve nota de voz para o grafo poder responder a áudio.
-   *
-   * Ausente, áudio continua sem resposta e o nó repete a pergunta — que é o comportamento de antes.
-   * Injetado, e não construído aqui, pelo mesmo motivo dos outros providers: chave e liga/desliga
-   * são do ambiente do produto.
-   */
-  readonly transcriber?: AudioTranscriber | undefined
-  /** ISO 639-1 do produto. Informar corta a detecção de idioma do engine. */
-  readonly languageHint?: string | undefined
-  /**
-   * Guarda a transcrição na mensagem, para o painel mostrar o texto sem transcrever de novo.
-   *
-   * Ausente, a transcrição do grafo continua efêmera — funciona, só custa uma segunda chamada ao
-   * engine quando o modo automático do módulo passar pelo mesmo áudio.
-   */
-  readonly messageRepository?: MessageRepository | undefined
 }
 
 export type HandleInboundParams = {
@@ -91,24 +75,17 @@ export class FlowDriver {
   constructor(private readonly dependencies: FlowDriverDependencies) {}
 
   /**
-   * A resposta que o grafo consome, transcrevendo áudio quando é o caso.
+   * A resposta que o grafo consome.
    *
-   * Áudio é a forma natural de responder no WhatsApp — pedir "digite seu nome" a quem mandou voz é
-   * transformar conveniência em atrito. Sem isto o nó de pergunta recebia `undefined` e reperguntava
-   * para sempre, o cliente falando e o bot repetindo a mesma frase.
+   * Áudio chega aqui já como texto: quem transcreve é o resolvedor da entrada, antes do roteamento.
+   * Enquanto a transcrição vivia aqui dentro, voz só era entendida DENTRO do grafo — fora dele o
+   * cliente que ditava a compra ouvia "escolha uma opção da lista acima".
    *
-   * O resultado é GRAVADO na mensagem, não descartado. Este é o ponto mais cedo em que o texto
-   * existe — o webhook —, então gravar aqui faz o painel mostrar a transcrição na hora, sem esperar
-   * o worker nem o clique do atendente, e faz o modo automático do módulo pular este áudio em vez de
-   * pagar uma segunda chamada ao engine pelo mesmo texto.
+   * Áudio que sobrou como áudio é transcrição indisponível: `extractAnswer` devolve `undefined` e o
+   * nó repergunta, que é o comportamento correto quando não há o que entender.
    */
-  private async resolveAnswer(
-    message: ParsedInboundMessage,
-    session: ModuleSession,
-    node: FlowNodeData | undefined,
-  ): Promise<string | undefined> {
-    const direct = extractAnswer(message)
-    const text = direct ?? (await this.transcribeAudioAnswer(message, session))
+  private resolveAnswer(message: ParsedInboundMessage, node: FlowNodeData | undefined): string | undefined {
+    const text = extractAnswer(message)
     if (text === undefined) return undefined
 
     /**
@@ -121,7 +98,7 @@ export class FlowDriver {
      * Botão e item de lista não passam por aqui: `extractAnswer` já devolve o id de verdade, e
      * reinterpretá-lo por texto só criaria chance de errar o que já estava certo.
      */
-    if (message.kind === 'text' || message.kind === 'audio') {
+    if (message.kind === 'text') {
       const isChoice = node?.type === 'menu' || node?.questionType === 'choice'
       if (isChoice && node?.options && node.options.length > 0) {
         const optionId = matchChoiceOption(text, node.options)
@@ -133,81 +110,6 @@ export class FlowDriver {
     }
 
     return text
-  }
-
-  /**
-   * Transcreve nota de voz, avisando o cliente se demorar.
-   *
-   * O aviso sai por um timer, e não junto do áudio: mandar sempre dobraria as mensagens do bot no
-   * transcript que o atendente lê depois, e a transcrição costuma levar 2-3s — silêncio curto no
-   * WhatsApp é normal. O aviso aparece só quando a espera passa a incomodar.
-   */
-  private async transcribeAudioAnswer(
-    message: ParsedInboundMessage,
-    session: ModuleSession,
-  ): Promise<string | undefined> {
-    const { transcriber, channel } = this.dependencies
-    if (message.kind !== 'audio' || !transcriber) return undefined
-
-    const notice = setTimeout(() => {
-      // Pelo canal com log: o cliente viu esta mensagem, então ela pertence ao transcript.
-      void this.wrapChannelWithLogging(session.whatsappNumber)
-        .sendText(session.whatsappNumber, MESSAGES.AUDIO_PROCESSING)
-        .catch((error: unknown) => flowLog.warn('flow_audio_notice_failed', { error: serializeError(error) }))
-    }, AUDIO_NOTICE_AFTER_MS)
-
-    try {
-      const media = await channel.fetchMediaAsBase64(message.mediaId)
-      const result = await transcriber.transcribe({
-        buffer: Buffer.from(media.data, 'base64'),
-        mimeType: media.mimeType || message.mimeType,
-        ...(this.dependencies.languageHint ? { languageHint: this.dependencies.languageHint } : {}),
-      })
-
-      const text = result.text.trim()
-      flowLog.info('flow_audio_transcribed', { engine: result.engine, chars: text.length })
-
-      await this.persistTranscription(message.waMessageId, result.engine, result.language, text)
-      // Silêncio devolve `undefined` para o nó tratar como "não respondeu" e repetir a pergunta —
-      // que é o certo: não há o que entender.
-      return text.length > 0 ? text : undefined
-    } catch (error: unknown) {
-      // Falha de transcrição não pode derrubar a conversa: o nó repergunta e o cliente pode digitar.
-      flowLog.warn('flow_audio_transcription_failed', { error: serializeError(error) })
-      return undefined
-    } finally {
-      clearTimeout(notice)
-    }
-  }
-
-  /**
-   * Grava a transcrição na mensagem que o módulo acabou de persistir.
-   *
-   * Endereça por `waMessageId` porque é o único id que o webhook conhece. Falha aqui não interrompe
-   * nada: o cliente já vai receber a resposta certa, e o pior caso é o painel transcrever de novo
-   * depois — perder a conversa por causa de um `UPDATE` seria desproporcional.
-   */
-  private async persistTranscription(
-    waMessageId: string,
-    engine: string,
-    language: string | undefined,
-    text: string,
-  ): Promise<void> {
-    const { messageRepository } = this.dependencies
-    if (!messageRepository) return
-
-    try {
-      await messageRepository.saveTranscriptionByWaMessageId({
-        companyId: COMPANY_ID,
-        waMessageId,
-        status: TRANSCRIPTION_STATUS.DONE,
-        text,
-        engine,
-        language: language ?? null,
-      })
-    } catch (error: unknown) {
-      flowLog.warn('flow_audio_transcription_not_persisted', { error: serializeError(error) })
-    }
   }
 
   registerFlowAction(kind: string, handler: FlowActionHandler): void {
@@ -228,7 +130,7 @@ export class FlowDriver {
     }
 
     const currentNodeId = session.currentNodeId ?? graph.startNodeId
-    const answer = await this.resolveAnswer(message, session, graph.nodes[currentNodeId])
+    const answer = this.resolveAnswer(message, graph.nodes[currentNodeId])
 
     const result = await this.dependencies.interpreter.run({
       graph,
@@ -278,44 +180,7 @@ export class FlowDriver {
 
   private wrapChannelWithLogging(whatsappNumber: string): ChannelAdapterInterface {
     const { channel, logMessage, startState } = this.dependencies
-
-    const log = async (type: string, content: string | null, sent: { externalMessageId: string | null }) => {
-      await logMessage.execute({
-        companyId: COMPANY_ID,
-        whatsappNumber,
-        direction: 'outbound',
-        sender: 'bot',
-        type,
-        content,
-        waMessageId: sent.externalMessageId,
-        status: 'sent',
-        startState,
-      })
-    }
-
-    return {
-      sendText: async (to, body) => {
-        const sent = await channel.sendText(to, body)
-        await log('text', body, sent)
-        return sent
-      },
-      sendMedia: async (mediaParams) => {
-        const sent = await channel.sendMedia(mediaParams)
-        await log('media', mediaParams.caption ?? mediaParams.filename, sent)
-        return sent
-      },
-      sendTemplate: async (templateParams) => {
-        const sent = await channel.sendTemplate(templateParams)
-        await log('template', templateParams.templateName, sent)
-        return sent
-      },
-      sendInteractiveList: async (listParams) => {
-        const sent = await channel.sendInteractiveList(listParams)
-        await log('interactive_list', listParams.body, sent)
-        return sent
-      },
-      fetchMediaAsBase64: (mediaId) => channel.fetchMediaAsBase64(mediaId),
-    }
+    return wrapChannelWithLogging({ channel, logMessage, companyId: COMPANY_ID, whatsappNumber, startState })
   }
 
   private async persistPosition(params: {

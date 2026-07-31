@@ -1,6 +1,13 @@
 ENV ?= dev
 ENV_FILE := envs/env.$(ENV)
 
+# Sobreposição local, fora do git: é onde vivem as chaves de verdade (Groq, por exemplo). Entra DEPOIS
+# do arquivo base para vencer o valor versionado, e só se existir — passar `--env-file` de arquivo
+# ausente derruba o bun. Sem isto, rodar pelo Makefile subia o serviço com a transcrição desligada em
+# silêncio, e o sintoma era áudio sem resposta sem nada no log dizendo o porquê.
+ENV_LOCAL_FILE := envs/env.$(ENV).local
+ENV_LOCAL_ARG := $(if $(wildcard $(ENV_LOCAL_FILE)),--env-file=../../$(ENV_LOCAL_FILE),)
+
 PROJECT_NAME := $(shell grep -m1 '^PROJECT_NAME=' $(ENV_FILE) 2>/dev/null | cut -d '=' -f2)
 PROJECT_NAME := $(if $(PROJECT_NAME),$(PROJECT_NAME),quickcart)
 
@@ -40,19 +47,19 @@ logs: ## 📜 Segue os logs da infra local
 
 migrate: ## 🧱 Roda as migrations do Drizzle
 	@echo "🧱 Rodando migrations ($(ENV))..."
-	@cd apps/api-quickcart && bun --env-file=../../$(ENV_FILE) run db:migrate
+	@cd apps/api-quickcart && bun --env-file=../../$(ENV_FILE) $(ENV_LOCAL_ARG) run db:migrate
 
 seed: ## 🌱 Popula o catálogo via use-cases (nunca INSERT bruto)
 	@echo "🌱 Rodando seeds ($(ENV))..."
-	@cd apps/api-quickcart && bun --env-file=../../$(ENV_FILE) run db:seed
+	@cd apps/api-quickcart && bun --env-file=../../$(ENV_FILE) $(ENV_LOCAL_ARG) run db:seed
 
 reseed-flow: ## 🔁 Reaplica o grafo do fluxo principal (DESCARTA edição feita no painel)
 	@echo "🔁 Reaplicando MAIN_FLOW ($(ENV))..."
-	@cd apps/api-quickcart && bun --env-file=../../$(ENV_FILE) run db:reseed-flow
+	@cd apps/api-quickcart && bun --env-file=../../$(ENV_FILE) $(ENV_LOCAL_ARG) run db:reseed-flow
 
 dev-api: ## 🔌 Sobe a api-quickcart em modo dev (Bun.serve nativo)
 	@echo "🔌 Iniciando api-quickcart..."
-	@cd apps/api-quickcart && bun --env-file=../../$(ENV_FILE) --watch src/index.ts
+	@cd apps/api-quickcart && bun --env-file=../../$(ENV_FILE) $(ENV_LOCAL_ARG) --watch src/index.ts
 
 dev-worker: ## ⚙️ Sobe o worker-quickcart em modo dev
 	@echo "⚙️ Iniciando worker-quickcart..."

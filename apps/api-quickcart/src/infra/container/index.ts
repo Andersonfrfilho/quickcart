@@ -48,6 +48,11 @@ import { ConversationStreamController } from '@/modules/conversation/infra/http/
 import { conversationSseHub, conversationTicketStore } from '@/modules/conversation/infra/realtime/conversationRealtime'
 import { FlowDriver } from '@/modules/conversation/application/FlowDriver'
 import { registerQuickCartFlowActions } from '@/modules/conversation/application/registerQuickCartFlowActions'
+import {
+  createInboundAudioResolver,
+  type ResolveInboundAudio,
+} from '@/modules/conversation/application/resolveInboundAudio'
+import { wrapChannelWithLogging } from '@/modules/conversation/application/wrapChannelWithLogging'
 import { MAIN_FLOW_SEED } from '@/modules/conversation/shared/MainFlow.seed'
 import { logger } from '@/shared/logger'
 import { environment } from '@/infra/config/environment'
@@ -378,12 +383,41 @@ function buildWebhookModule(
   // Amarração circular resolvida por referência tardia: o driver precisa do interpretador que
   // esta fábrica cria, e a fábrica precisa saber chamar o driver.
   let flowDriver: FlowDriver | undefined
+  // Mesma amarração tardia: o resolvedor precisa do canal e do repositório que esta fábrica cria.
+  let resolveInboundAudio: ResolveInboundAudio | undefined
 
   const metaWhatsApp = createQuickCartWhatsAppModule({
     cacheProvider,
     customerRepository,
     resolveConversationEngine: () => conversationEngine,
     resolveFlowDriver: () => flowDriver,
+    resolveInboundAudio: () => resolveInboundAudio,
+  })
+
+  /**
+   * Um único ponto de transcrição, antes de qualquer roteamento.
+   *
+   * Ficava dentro do `FlowDriver`, e por isso voz era entendida só dentro do grafo: fora dele o
+   * `BrowseHandler` respondia "escolha uma opção da lista acima" a quem ditava a compra.
+   */
+  resolveInboundAudio = createInboundAudioResolver({
+    // Mesmo transcritor da inbox. Ausente, áudio segue cru para quem sabe lidar com ele.
+    transcriber: audioTranscriber,
+    languageHint: environment.TRANSCRIPTION_LANGUAGE,
+    fetchMediaAsBase64: (mediaId) => metaWhatsApp.channel.fetchMediaAsBase64(mediaId),
+    // Pelo canal com log: o cliente viu o aviso, então ele pertence ao transcript do atendente.
+    sendNotice: async (whatsappNumber, body) => {
+      await wrapChannelWithLogging({
+        channel: metaWhatsApp.channel,
+        logMessage: metaWhatsApp.conversations.log,
+        companyId: environment.WHATSAPP_COMPANY_ID,
+        whatsappNumber,
+        startState: CONVERSATION_STATE.GREETING,
+      }).sendText(whatsappNumber, body)
+    },
+    // Grava a transcrição na mensagem: o painel mostra na hora e o modo automático do módulo pula o
+    // áudio em vez de pagar uma segunda chamada pelo mesmo texto.
+    messageRepository: metaWhatsApp.conversations.messageRepository,
   })
 
   if (metaWhatsApp.flows) {
@@ -394,13 +428,6 @@ function buildWebhookModule(
       logMessage: metaWhatsApp.conversations.log,
       startState: CONVERSATION_STATE.GREETING,
       loadFlow: (key) => metaWhatsApp.flows!.get.execute({ companyId: environment.WHATSAPP_COMPANY_ID, key }),
-      // Mesmo transcritor da inbox: com ele o grafo entende nota de voz; sem ele áudio segue sem
-      // resposta e o nó repergunta, que é o comportamento de antes.
-      transcriber: audioTranscriber,
-      languageHint: environment.TRANSCRIPTION_LANGUAGE,
-      // Grava a transcrição do grafo na mensagem: o painel mostra na hora e o modo automático do
-      // módulo pula o áudio em vez de pagar uma segunda chamada pelo mesmo texto.
-      messageRepository: metaWhatsApp.conversations.messageRepository,
     })
 
     registerQuickCartFlowActions({

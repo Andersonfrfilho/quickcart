@@ -26,6 +26,7 @@ import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationSt
 import type { CacheProvider } from '@/shared/providers/CacheProvider.interface'
 import type { ConversationEngine } from '@/modules/conversation/application/ConversationEngine'
 import type { FlowDriver } from '@/modules/conversation/application/FlowDriver'
+import type { ResolveInboundAudio } from '@/modules/conversation/application/resolveInboundAudio'
 import type { CustomerRepositoryInterface } from '@/modules/webhook/domain/CustomerRepository.interface'
 import { parseInboundMessage } from '@/modules/webhook/application/parseInboundMessage'
 import { conversationSseHub } from '@/modules/conversation/infra/realtime/conversationRealtime'
@@ -77,6 +78,14 @@ type CreateQuickCartWhatsAppModuleParams = {
   readonly resolveConversationEngine: () => ConversationEngine
   // Também preguiçoso: o driver depende do interpretador que esta própria fábrica cria.
   readonly resolveFlowDriver: () => FlowDriver | undefined
+  /**
+   * Troca nota de voz por texto antes de decidir quem atende.
+   *
+   * Fica ANTES do roteamento porque foi a alternativa a cada caminho aprender a ouvir por conta
+   * própria — o que na prática significou grafo e lista ouvindo, e todo o resto respondendo
+   * "escolha uma opção" para quem falava.
+   */
+  readonly resolveInboundAudio: () => ResolveInboundAudio | undefined
 }
 
 // O anti-replay do módulo precisa de um SET NX atômico compartilhado entre instâncias.
@@ -197,7 +206,13 @@ export function createQuickCartWhatsAppModule(params: CreateQuickCartWhatsAppMod
         // Deliberadamente NÃO aguardado: a Meta reenvia o webhook se não receber 200 a tempo,
         // e tanto o grafo quanto a engine fazem I/O longo (LLM, catálogo, carrinho).
         void (async () => {
-          const parsed = parseInboundMessage(message)
+          const resolveAudio = params.resolveInboundAudio()
+          const inbound = parseInboundMessage(message)
+          // Uma transcrição por mensagem, aqui: quem atende recebe texto e não precisa saber que
+          // houve áudio. Falha ou silêncio devolve o áudio original, e o caminho antigo segue valendo.
+          const parsed = resolveAudio
+            ? await resolveAudio({ message: inbound, whatsappNumber: message.from })
+            : inbound
           const driver = params.resolveFlowDriver()
 
           // O grafo tem a primeira palavra. Ele devolve false quando não havia fluxo para
