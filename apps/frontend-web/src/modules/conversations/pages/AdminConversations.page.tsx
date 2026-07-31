@@ -29,6 +29,7 @@ import {
   useConversationContext,
   useConversationMessages,
   useConversationRealtime,
+  useScrollToLatestMessage,
   WINDOW_FILTERS,
   WindowExpiredNotice,
   windowOf,
@@ -45,6 +46,7 @@ import { useAdminInbox, CONVERSATIONS_PER_PAGE } from '@/modules/conversations/h
 import { useTranscriptionActive } from '@/modules/conversations/hooks/useTranscriptionActive.hook'
 import { toContextEntries } from '@/modules/conversations/shared/conversationContext'
 import { downloadConversation } from '@/modules/conversations/shared/conversationsExport'
+import { fileToAttachment } from '@/modules/conversations/shared/fileToAttachment'
 
 type ConversationPaneProps = {
   conversation: ConversationSummary
@@ -70,6 +72,12 @@ function ConversationPane({
   const { messages, refetch } = useConversationMessages(conversation.id)
   const { context } = useConversationContext(conversation.id)
   const [documentsOpen, setDocumentsOpen] = useState(false)
+  const [attachFailure, setAttachFailure] = useState<string | undefined>(undefined)
+
+  // Abrir a conversa no topo do histórico obrigava a rolar semanas para achar a última mensagem —
+  // que é sempre o que interessa. O hook salta ao trocar de conversa e acompanha mensagem nova, sem
+  // arrastar quem estiver lendo o histórico.
+  const scroll = useScrollToLatestMessage({ conversationId: conversation.id, messageCount: messages.length })
 
   // O evento traz só `{ direction, sender }` — quem tem o conteúdo é a query.
   useConversationRealtime(conversation.id, () => {
@@ -81,6 +89,22 @@ function ConversationPane({
   async function handleSend(text: string): Promise<void> {
     await conversationsApi.sendMessage(conversation.id, text)
     await refetch()
+  }
+
+  /**
+   * Envia anexo e nota de voz — o gravador do composer entrega o áudio por aqui.
+   *
+   * Falha vira aviso na tela em vez de exceção silenciosa: o atendente gravou, achou que mandou, e
+   * sem retorno não teria como saber que o cliente não recebeu nada.
+   */
+  async function handleAttach(file: File): Promise<void> {
+    setAttachFailure(undefined)
+    try {
+      await conversationsApi.sendMedia(conversation.id, await fileToAttachment(file))
+      await refetch()
+    } catch (error: unknown) {
+      setAttachFailure(error instanceof Error ? error.message : 'Falha ao enviar o arquivo.')
+    }
   }
 
   return (
@@ -117,7 +141,11 @@ function ConversationPane({
 
       {/* Mesmo wallpaper do preview do cliente: o atendente e o cliente devem ver a conversa com a
           mesma aparência, senão o preview deixa de ser referência confiável. */}
-      <ConversationWallpaper className="flex-1 min-h-0 overflow-y-auto px-4 py-3">
+      <ConversationWallpaper
+        ref={scroll.containerRef}
+        onScroll={scroll.handleScroll}
+        className="relative flex-1 min-h-0 overflow-y-auto px-4 py-3"
+      >
         {messages.map((message, index) => {
           const previous = index > 0 ? messages[index - 1] : undefined
           const startsNewDay =
@@ -136,11 +164,20 @@ function ConversationPane({
         })}
       </ConversationWallpaper>
 
+      {attachFailure ? (
+        <p role="alert" className="border-t bg-red-50 px-4 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
+          {attachFailure}
+        </p>
+      ) : null}
+
       {blocked ? (
         <WindowExpiredNotice disabled={busy} />
       ) : (
         <MessageComposer
           onSend={(text) => void handleSend(text)}
+          // Habilita clipe E microfone: o composer do SDK desenha o gravador sozinho quando existe
+          // um jeito de entregar arquivo, porque áudio gravado é um anexo como qualquer outro.
+          onAttach={(file) => void handleAttach(file)}
           placeholder="Responder como atendente…"
           quickReplies={CONVERSATION_QUICK_REPLIES}
           quickReplyVariables={quickReplyVariablesFor(conversation.clientName)}
