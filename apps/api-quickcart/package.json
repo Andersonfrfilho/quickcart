@@ -10,7 +10,8 @@
     "test": "bun test --preload ./tests/setup.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "bun run src/infra/database/migrate.ts",
-    "db:seed": "bun run src/infra/database/seeds/index.ts"
+    "db:seed": "bun run src/infra/database/seeds/index.ts",
+    "db:reseed-flow": "bun run src/infra/database/seeds/reseedMainFlow.ts"
   },
   "dependencies": {
     "@adatechnology/audio-transcription-provider": "0.1.0-rc.0",

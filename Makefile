@@ -11,7 +11,7 @@ COMPOSE := docker compose -p $(PROJECT_NAME)-$(ENV) -f infra/docker-compose.yml 
 SDK_PATH ?= $(HOME)/Documents/personal/adatechnology-packages
 SDK_PACKAGES := packages/backend/meta-whatsapp-contracts packages/backend/meta-whatsapp-module packages/backend/text-moderation packages/backend/object-storage-provider packages/frontend/conversations-ui
 
-.PHONY: help all setup up down clean logs migrate seed dev-api dev-worker dev-web test-msg test test-api test-worker build-web validate link-sdk unlink-sdk watch-sdk
+.PHONY: help all setup up down clean logs migrate seed reseed-flow dev-api dev-worker dev-web test-msg test-audio test test-api test-worker build-web validate link-sdk unlink-sdk watch-sdk
 
 help: ## 📖 Lista os comandos disponíveis
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -46,6 +46,10 @@ seed: ## 🌱 Popula o catálogo via use-cases (nunca INSERT bruto)
 	@echo "🌱 Rodando seeds ($(ENV))..."
 	@cd apps/api-quickcart && bun --env-file=../../$(ENV_FILE) run db:seed
 
+reseed-flow: ## 🔁 Reaplica o grafo do fluxo principal (DESCARTA edição feita no painel)
+	@echo "🔁 Reaplicando MAIN_FLOW ($(ENV))..."
+	@cd apps/api-quickcart && bun --env-file=../../$(ENV_FILE) run db:reseed-flow
+
 dev-api: ## 🔌 Sobe a api-quickcart em modo dev (Bun.serve nativo)
 	@echo "🔌 Iniciando api-quickcart..."
 	@cd apps/api-quickcart && bun --env-file=../../$(ENV_FILE) --watch src/index.ts
@@ -60,6 +64,9 @@ dev-web: ## 🖥️ Sobe o frontend-web em modo dev
 
 test-msg: ## 💬 Simula um webhook Meta local (MSG="..." TEL=...)
 	@bash scripts/send-test-webhook.sh "$(MSG)" "$(TEL)"
+
+test-audio: ## 🎤 Simula uma nota de voz: sintetiza MSG com `say` e manda webhook de áudio (macOS)
+	@bash scripts/send-test-webhook.sh "$(MSG)" "$(TEL)" audio
 
 link-sdk: ## 🔗 Aponta os pacotes do SDK para o checkout local (dev cross-repo)
 	@echo "🔗 Registrando pacotes do SDK em $(SDK_PATH)..."
