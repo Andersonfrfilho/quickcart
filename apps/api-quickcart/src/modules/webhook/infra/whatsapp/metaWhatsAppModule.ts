@@ -34,6 +34,20 @@ import { DEFAULT_TRANSCRIPTION_RETRY_SECONDS, DOCUMENTS_JOBS } from '@/infra/que
 
 const webhookLog = logger.child('Webhook')
 
+/**
+ * Chave do job de ingestão, derivada da mídia para a fila descartar reentrega antes de rodar.
+ *
+ * O BullMQ recusa `:` em jobId ("Custom Id cannot contain :"), e o id de mídia do simulador de
+ * conversa é prefixado justamente com `preview-upload:` — o que derrubava o webhook inteiro com um
+ * erro que não mencionava fila nem prefixo. Sanitizar tudo que não é seguro, em vez de só escolher o
+ * separador, é o que impede o próximo formato de id de repetir a surpresa.
+ *
+ * `_` como separador porque companyId é UUID: tem `-`, nunca `_`, então a chave segue sem ambiguidade.
+ */
+function mediaJobId(companyId: string, sourceMediaId: string): string {
+  return `${companyId}_${sourceMediaId.replace(/[^A-Za-z0-9_-]/g, '_')}`
+}
+
 // Construído uma vez: o moderador compila a regex do dicionário no construtor, e refazer isso a
 // cada mensagem seria trabalho repetido em cima do caminho mais quente do webhook.
 // `undefined` quando desligado: a ausência fica visível no tipo do provider, em vez de um storage
@@ -46,9 +60,14 @@ const textModerator = createTextModerator({
   allowedTerms: parseTermList(environment.MODERATION_ALLOWED_TERMS),
 })
 
-// `undefined` quando desligado ou sem chave: o módulo não expõe `transcribeAudio`, e o painel deixa
-// de desenhar o botão em vez de oferecer uma ação que estoura no clique.
-const audioTranscriber = createQuickCartTranscriber()
+/**
+ * `undefined` quando desligado ou sem chave: o módulo não expõe `transcribeAudio`, e o painel deixa
+ * de desenhar o botão em vez de oferecer uma ação que estoura no clique.
+ *
+ * Exportado porque o `FlowDriver` usa a MESMA instância para o grafo entender nota de voz — duas
+ * instâncias significariam duas configurações capazes de divergir sem ninguém notar.
+ */
+export const audioTranscriber = createQuickCartTranscriber()
 
 type CreateQuickCartWhatsAppModuleParams = {
   readonly cacheProvider: CacheProvider
@@ -87,7 +106,10 @@ export function createQuickCartWhatsAppModule(params: CreateQuickCartWhatsAppMod
     // O grafo dirige a conversa: é dono da saudação, do menu e dos fluxos que o lojista
     // desenhar. Os handlers TS continuam existindo, invocados por nós de ação (ver
     // registerQuickCartFlowActions) para as partes que não cabem num grafo declarativo.
-    features: { flowEngine: true },
+    // `previewMedia` só em dev: ligado, o canal aceita id que não veio da Meta e lê o objeto
+    // correspondente do storage — recurso no simulador, leitura arbitrária em produção. A mesma flag
+    // que libera a leitura do transcript pelo preview governa isto.
+    features: { flowEngine: true, previewMedia: environment.PREVIEW_TRANSCRIPT_ENABLED },
     // Com o notificador injetado, cada mensagem gravada e cada mudança de status vira evento
     // SSE — é o que faz a inbox se mover sozinha enquanto o atendente olha.
     //
@@ -121,14 +143,9 @@ export function createQuickCartWhatsAppModule(params: CreateQuickCartWhatsAppMod
       onMediaReceived: async (media) => {
         if (!quickCartObjectStorage) return
 
-        // `_` como separador, não `:`: o BullMQ recusa jobId com dois-pontos ("Custom Id cannot
-        // contain :"), e companyId é UUID — que tem `-` mas nunca `_`, então a chave segue sem
-        // ambiguidade.
-        await documentsQueue.add(
-          DOCUMENTS_JOBS.INGEST_INBOUND_MEDIA,
-          media,
-          { jobId: `${media.companyId}_${media.sourceMediaId}` },
-        )
+        await documentsQueue.add(DOCUMENTS_JOBS.INGEST_INBOUND_MEDIA, media, {
+          jobId: mediaJobId(media.companyId, media.sourceMediaId),
+        })
       },
 
       /**

@@ -39,10 +39,11 @@ import { DrizzleMessageRepository } from '@/modules/webhook/infra/database/Drizz
 import { createQuickCartWhatsAppModule } from '@/modules/webhook/infra/whatsapp/metaWhatsAppModule'
 import type { MetaWhatsAppModule } from '@adatechnology/meta-whatsapp-module'
 import { ConversationController } from '@/modules/conversation/infra/http/Conversation.controller'
-import { quickCartObjectStorage } from '@/modules/webhook/infra/whatsapp/metaWhatsAppModule'
+import { audioTranscriber, quickCartObjectStorage } from '@/modules/webhook/infra/whatsapp/metaWhatsAppModule'
 import type { ObjectStorageInterface } from '@adatechnology/meta-whatsapp-contracts'
 import { ConversationSettingsController } from '@/modules/conversation/infra/http/ConversationSettings.controller'
 import { createPreviewTranscriptController } from '@/modules/conversation/infra/http/PreviewTranscript.controller'
+import { createPreviewMediaController } from '@/modules/conversation/infra/http/PreviewMedia.controller'
 import { ConversationStreamController } from '@/modules/conversation/infra/http/ConversationStream.controller'
 import { conversationSseHub, conversationTicketStore } from '@/modules/conversation/infra/realtime/conversationRealtime'
 import { FlowDriver } from '@/modules/conversation/application/FlowDriver'
@@ -393,6 +394,13 @@ function buildWebhookModule(
       logMessage: metaWhatsApp.conversations.log,
       startState: CONVERSATION_STATE.GREETING,
       loadFlow: (key) => metaWhatsApp.flows!.get.execute({ companyId: environment.WHATSAPP_COMPANY_ID, key }),
+      // Mesmo transcritor da inbox: com ele o grafo entende nota de voz; sem ele áudio segue sem
+      // resposta e o nó repergunta, que é o comportamento de antes.
+      transcriber: audioTranscriber,
+      languageHint: environment.TRANSCRIPTION_LANGUAGE,
+      // Grava a transcrição do grafo na mensagem: o painel mostra na hora e o modo automático do
+      // módulo pula o áudio em vez de pagar uma segunda chamada pelo mesmo texto.
+      messageRepository: metaWhatsApp.conversations.messageRepository,
     })
 
     registerQuickCartFlowActions({
@@ -416,6 +424,7 @@ type ConversationHttpModule = {
   readonly settingsController: ConversationSettingsController
   readonly streamController: ConversationStreamController
   readonly previewTranscriptController: ReturnType<typeof createPreviewTranscriptController>
+  readonly previewMediaController: ReturnType<typeof createPreviewMediaController>
 }
 
 function buildConversationHttpModule(params: {
@@ -434,6 +443,9 @@ function buildConversationHttpModule(params: {
       ticketStore: conversationTicketStore,
     }),
     previewTranscriptController: createPreviewTranscriptController(params.metaWhatsApp),
+    // `undefined` quando features.previewMedia está desligado — o controller responde 404 e o
+    // simulador esconde o microfone, em vez de oferecer um botão que não tem onde guardar o áudio.
+    previewMediaController: createPreviewMediaController(params.metaWhatsApp.previewMedia),
   }
 }
 

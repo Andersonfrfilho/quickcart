@@ -567,7 +567,17 @@ export class ConversationController {
       whatsappNumber: requireNumber(request),
     })
 
-    response.json(200, { data: exported })
+    /**
+     * As mensagens saem no MESMO formato da listagem, e não como a linha crua do banco.
+     *
+     * Estavam cruas, e o cliente monta o arquivo com o mapper escrito para a listagem: ele lê
+     * `sentAt`, a linha traz `createdAt`, e o transcript baixado saía com "Invalid Date" em TODAS as
+     * linhas. Pelo mesmo motivo a transcrição do áudio não chegava ao arquivo — o campo moldado
+     * `transcription` só existe aqui.
+     */
+    response.json(200, {
+      data: { session: exported.session, messages: exported.messages.map(toMessagePayload) },
+    })
   }
 
   // Assume a conversa para atendimento humano: o módulo passa mode='human' e, a partir daí,

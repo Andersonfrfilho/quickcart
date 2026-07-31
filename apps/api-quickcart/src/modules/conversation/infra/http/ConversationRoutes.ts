@@ -16,8 +16,10 @@ import type { ConversationController } from './Conversation.controller'
 import type { ConversationSettingsController } from './ConversationSettings.controller'
 import type { ConversationStreamController } from './ConversationStream.controller'
 import type { createPreviewTranscriptController } from './PreviewTranscript.controller'
+import type { createPreviewMediaController } from './PreviewMedia.controller'
 
 type PreviewTranscriptController = ReturnType<typeof createPreviewTranscriptController>
+type PreviewMediaController = ReturnType<typeof createPreviewMediaController>
 
 type RegisterConversationRoutesParams = {
   readonly router: Router
@@ -25,10 +27,12 @@ type RegisterConversationRoutesParams = {
   readonly settingsController: ConversationSettingsController
   readonly streamController: ConversationStreamController
   readonly previewTranscriptController: PreviewTranscriptController
+  readonly previewMediaController: PreviewMediaController
 }
 
 export function registerConversationRoutes(params: RegisterConversationRoutesParams): void {
   const { router, conversationController, settingsController, streamController, previewTranscriptController } = params
+  const { previewMediaController } = params
 
   router.get('/v1/admin/conversations', conversationController.handleList)
   router.get('/v1/admin/conversations/:number/messages', conversationController.handleListMessages)
@@ -57,6 +61,8 @@ export function registerConversationRoutes(params: RegisterConversationRoutesPar
   // Fora de /v1/admin de propósito: não passa pelo token de admin, e sim por assinatura HMAC do app
   // secret — ver PreviewTranscript.controller. Responde 404 quando a flag está desligada.
   router.get('/v1/preview/conversations/:number/messages', previewTranscriptController.handleListMessages)
+  // Guarda o áudio gravado no simulador. 404 quando o recurso está desligado — ver o controller.
+  router.post('/v1/preview/media', previewMediaController.handleUpload)
 
   router.get('/v1/admin/whatsapp/settings', settingsController.handleGetSettings)
   router.put('/v1/admin/whatsapp/settings', settingsController.handleSaveSettings)

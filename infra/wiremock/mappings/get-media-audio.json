@@ -1,0 +1,40 @@
+{
+  "mappings": [
+    {
+      "name": "Graph API — metadados de mídia de ÁUDIO (fixture de teste do fluxo por voz)",
+      "priority": 1,
+      "request": {
+        "method": "GET",
+        "urlPathPattern": "/v[0-9]+\\.[0-9]+/audio-test-[0-9]+"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "url": "http://localhost:9563/media-binary/audio-test",
+          "mime_type": "audio/ogg; codecs=opus",
+          "sha256": "fake-sha",
+          "file_size": 492,
+          "id": "audio-test-1"
+        }
+      }
+    },
+    {
+      "name": "Graph API — binário de ÁUDIO (tiny.ogg do seed)",
+      "priority": 1,
+      "request": {
+        "method": "GET",
+        "urlPathPattern": "/media-binary/audio-test"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "audio/ogg"
+        },
+        "base64Body": "T2dnUwACAAAAAAAAAABXDTmmAAAAAKMnDKEBE09wdXNIZWFkAQE4AYC7AAAAAABPZ2dTAAAAAAAAAAAAAFcNOaYBAAAAZlPuKwE9T3B1c1RhZ3MMAAAATGF2ZjYyLjMuMTAwAQAAAB0AAABlbmNvZGVyPUxhdmM2Mi4xMS4xMDAgbGlib3B1c09nZ1MABLgmAAAAAAAAVw05pgIAAAA3uL6lCw8REhISEhISEhISeAvkwTbsxY2MSUaZpCaweAfJcifhROpV8fDA1d3pUmB4B8l5yMlXwKISI/rvZ/NkwOB4B8l5yMlXwKISI/rvZ/NkwOB4B8l5yMlXwKISI/rvZ/NkwOB4B8l5yMlXwKISI/rvZ/NkwOB4B8l5yMlXwKISI/rvZ/NkwOB4B8l5yMlXwKISI/rvZ/NkwOB4B8l5yMlXwKISI/rvZ/NkwOB4B8l5yMlXwKISI/rvZ/NkwOB4B8l5yMlXwKISI/rvZ/NkwOA="
+      }
+    }
+  ]
+}

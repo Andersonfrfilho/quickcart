@@ -1,0 +1,16 @@
+{
+  "name": "Graph API — upload de mídia (POST .../media)",
+  "request": {
+    "method": "POST",
+    "urlPathPattern": "/v[0-9]+\\.[0-9]+/[^/]+/media"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "id": "audio-test-1"
+    }
+  }
+}
