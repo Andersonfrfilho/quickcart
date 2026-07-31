@@ -56,6 +56,19 @@
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
   }
 
+  /* O Preflight do Tailwind v3 punha `cursor: pointer` em botão; o v4 removeu, e sem regra
+     explícita o botão herda o `cursor: default` do próprio browser — nada no app aparentava ser
+     clicável. É a receita de migração do v4, e vale para o app inteiro: o conversations-ui tem 91
+     botões e carimbar cada um seria ruído que a próxima tela esqueceria de repetir.
+
+     `:not(:disabled)` porque desabilitado não é clicável, e a classe `disabled:cursor-not-allowed`
+     do `.btn` precisa continuar ganhando. */
+  button:not(:disabled),
+  [role='button']:not(:disabled),
+  summary {
+    cursor: pointer;
+  }
+
   * {
     border-color: hsl(var(--border));
   }
