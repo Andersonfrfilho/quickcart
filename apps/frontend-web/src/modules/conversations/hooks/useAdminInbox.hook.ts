@@ -14,7 +14,7 @@
  * paginação de verdade no servidor — com dezenas de milhares, o gargalo volta.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   CHANNEL_FILTER_ALL,
   DEFAULT_CONVERSATION_CHANNEL,
@@ -145,6 +145,43 @@ export function useAdminInbox(): UseAdminInboxResult {
       setSelectedId(undefined)
     }
   }, [conversations, selectedId])
+
+  /**
+   * Última tentativa de marcar como lida, como `id:unread`.
+   *
+   * Guarda contra laço quente: marcar dispara `refetch`, que muda `conversations`, que reexecuta o
+   * efeito. O `unread === 0` já encerra o ciclo normal, mas se a rota falhar ou devolver dado velho o
+   * par se repetiria para sempre — e uma requisição por render é o tipo de erro que só aparece em
+   * produção, na aba que alguém deixou aberta.
+   */
+  const lastMarkReadAttempt = useRef<string | undefined>(undefined)
+
+  /**
+   * Conversa aberta não exibe contador de não lidas.
+   *
+   * Em efeito, e não dentro do clique, para cobrir os dois casos com a mesma regra: abrir a conversa
+   * e receber mensagem nova enquanto ela está na tela. O atendente está lendo — deixar o badge subir
+   * na linha que ele tem aberta na frente é ruído que ele não tem como resolver.
+   */
+  useEffect(() => {
+    if (!selectedId) return
+
+    const opened = conversations.find((conversation) => conversation.id === selectedId)
+    // Reabrir conversa já lida não gasta requisição.
+    if (!opened || opened.unread === 0) return
+
+    const attempt = `${selectedId}:${opened.unread}`
+    if (lastMarkReadAttempt.current === attempt) return
+    lastMarkReadAttempt.current = attempt
+
+    void conversationsApi
+      .markRead(selectedId)
+      .then(() => refetch())
+      .catch(() => {
+        // Sem tratamento visível de propósito: falhar aqui deixa o badge onde estava, que é
+        // exatamente a verdade — nada foi marcado. Um alerta a mais competiria com o atendimento.
+      })
+  }, [selectedId, conversations, refetch])
 
   const toggleSelected = useCallback((conversationId: string): void => {
     setSelectedIds((current) => {
