@@ -8,7 +8,6 @@
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  */
 
-export const GROQ_TRANSCRIPTIONS_URL = 'https://api.groq.com/openai/v1/audio/transcriptions'
 export const GROQ_WHISPER_MODEL = 'whisper-large-v3-turbo'
 export const GROQ_TRANSCRIBE_LANGUAGE = 'pt'
 export const GROQ_TRANSCRIBE_TIMEOUT_MS = 15_000

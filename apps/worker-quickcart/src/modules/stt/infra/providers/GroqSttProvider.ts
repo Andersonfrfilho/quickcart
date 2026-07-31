@@ -7,75 +7,66 @@
  *
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  *
- * Transcrição opcional via Groq (Whisper large-v3-turbo). Assim como o
- * GroqListRefinerProvider da api-quickcart, qualquer falha (timeout, resposta
- * não-2xx, corpo inválido) devolve undefined em vez de lançar — quem chama decide
- * o fallback (pedir a lista por texto). Envia o áudio recebido do WhatsApp direto,
- * sem conversão de formato (Whisper aceita ogg/opus nativamente).
+ * STT efêmero: transcreve a nota de voz só para o motor de conversa agir, sem persistir nada. O
+ * multipart e a tabela de mime→extensão vivem em @adatechnology/audio-transcription-provider, o
+ * mesmo pacote da transcrição persistida da inbox — aqui só traduzimos para o contrato SttProvider.
+ *
+ * A tradução é engolir a exceção: qualquer falha vira `undefined`, e quem chama resume a conversa
+ * com transcript null (ver ProcessSttJob.use-case). O pacote distingue retriável de definitivo, o
+ * que este caminho não tem como aproveitar — a fila `stt` já reentrega pelo BullMQ e o usuário está
+ * esperando resposta —, então a distinção fica no log, onde serve a diagnóstico.
  */
 
+import {
+  createGroqTranscriber,
+  isRetriableTranscriptionFailure,
+} from '@adatechnology/audio-transcription-provider'
+import type { AudioTranscriber } from '@adatechnology/audio-transcription-provider'
 import { environment } from '@/infra/config/environment'
 import type { SttProvider, TranscribeAudioParams } from '@/modules/stt/application/providers/SttProvider.interface'
-import { GROQ_TRANSCRIBE_LANGUAGE, GROQ_TRANSCRIBE_TIMEOUT_MS, GROQ_TRANSCRIPTIONS_URL, GROQ_WHISPER_MODEL } from '@/shared/Groq.constant'
+import { GROQ_TRANSCRIBE_LANGUAGE, GROQ_TRANSCRIBE_TIMEOUT_MS, GROQ_WHISPER_MODEL } from '@/shared/Groq.constant'
 import { LOG_EVENTS } from '@/shared/log-events.constant'
 import { logger } from '@/shared/logger'
 import { serializeError } from '@/shared/serializeError'
 
 const sttLog = logger.child('GroqSttProvider')
 
-const AUDIO_EXTENSION_BY_MIME_TYPE: Record<string, string> = {
-  'audio/ogg': 'ogg',
-  'audio/opus': 'ogg',
-  'audio/mpeg': 'mp3',
-  'audio/mp4': 'mp4',
-  'audio/amr': 'amr',
-  'audio/wav': 'wav',
-  'audio/webm': 'webm',
-}
-
-function resolveAudioFilename(mimeType: string): string {
-  const baseMimeType = mimeType.split(';')[0]?.trim() ?? mimeType
-  const extension = AUDIO_EXTENSION_BY_MIME_TYPE[baseMimeType] ?? 'ogg'
-  return `audio.${extension}`
-}
-
 export class GroqSttProvider implements SttProvider {
-  async transcribe(params: TranscribeAudioParams): Promise<string | undefined> {
-    if (!environment.GROQ_API_KEY) return undefined
+  private readonly transcriber: AudioTranscriber | undefined
 
-    const abortController = new AbortController()
-    const timeoutId = setTimeout(() => abortController.abort(), GROQ_TRANSCRIBE_TIMEOUT_MS)
+  constructor() {
+    this.transcriber = environment.GROQ_API_KEY
+      ? createGroqTranscriber({
+          apiKey: environment.GROQ_API_KEY,
+          model: GROQ_WHISPER_MODEL,
+          languageHint: GROQ_TRANSCRIBE_LANGUAGE,
+          // Bem abaixo do padrão do pacote: aqui tem alguém esperando a resposta no WhatsApp, e um
+          // minuto de espera já não serve mais à conversa.
+          timeoutMs: GROQ_TRANSCRIBE_TIMEOUT_MS,
+        })
+      : undefined
+  }
+
+  async transcribe(params: TranscribeAudioParams): Promise<string | undefined> {
+    if (!this.transcriber) {
+      sttLog.warn(LOG_EVENTS.STT_TRANSCRIBE_SKIPPED_NO_KEY)
+      return undefined
+    }
 
     try {
-      const audioBuffer = Buffer.from(params.audioBase64, 'base64')
-      const formData = new FormData()
-      formData.append('file', new Blob([audioBuffer], { type: params.mimeType }), resolveAudioFilename(params.mimeType))
-      formData.append('model', GROQ_WHISPER_MODEL)
-      formData.append('language', GROQ_TRANSCRIBE_LANGUAGE)
-      formData.append('response_format', 'json')
-
-      const response = await fetch(GROQ_TRANSCRIPTIONS_URL, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${environment.GROQ_API_KEY}` },
-        body: formData,
-        signal: abortController.signal,
+      const result = await this.transcriber.transcribe({
+        buffer: Buffer.from(params.audioBase64, 'base64'),
+        mimeType: params.mimeType,
       })
 
-      if (!response.ok) {
-        sttLog.warn(LOG_EVENTS.STT_TRANSCRIBE_NON_OK, { status: response.status })
-        return undefined
-      }
-
-      const payload = (await response.json()) as { text?: string }
-      const transcript = payload.text?.trim()
-      return transcript && transcript.length > 0 ? transcript : undefined
+      return result.text.length > 0 ? result.text : undefined
     } catch (error) {
       sttLog.warn(LOG_EVENTS.STT_TRANSCRIBE_FAILED, {
+        mimeType: params.mimeType,
+        isRetriable: isRetriableTranscriptionFailure(error),
         error: serializeError(error),
       })
       return undefined
-    } finally {
-      clearTimeout(timeoutId)
     }
   }
 }
