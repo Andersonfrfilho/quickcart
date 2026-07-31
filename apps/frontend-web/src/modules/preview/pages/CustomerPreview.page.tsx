@@ -18,6 +18,7 @@ import { ConversationPreview, createPreviewWebhookClient } from '@adatechnology/
 import { readPreviewEnvironment } from '@/modules/preview/shared/previewEnvironment'
 import { fetchPreviewTranscript } from '@/modules/preview/shared/previewTranscript'
 
+
 /**
  * SSE que não conecta. O `ConversationPreview` sempre assina o stream, e sem sessão cada assinatura
  * pedia um ticket de admin que voltava 401 — inclusive no ciclo de remontagem do StrictMode, que
@@ -73,6 +74,12 @@ export function CustomerPreviewPage() {
         // Sem SSE aqui (o stream é rota de admin), então o transcript se atualiza por polling —
         // é o que faz a resposta do bot aparecer sozinha, sem depender do próximo envio.
         pollIntervalMs={2500}
+        /**
+         * É `uploadMedia` que faz o microfone aparecer: o simulador manda webhook, e webhook da Meta
+         * carrega referência de mídia, nunca o binário. O helper do SDK guarda o arquivo pela rota de
+         * dev e devolve o id prefixado que o canal reconhece — sem isso o gravador ficaria escondido,
+         * corretamente, porque não teria onde pôr o áudio.
+         */
       />
     </div>
   )

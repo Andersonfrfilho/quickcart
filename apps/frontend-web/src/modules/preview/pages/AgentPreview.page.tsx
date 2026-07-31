@@ -73,7 +73,14 @@ function ConversationPane({ conversationId }: { conversationId: string }) {
           />
         ))}
       </div>
-      <MessageComposer onSend={() => undefined} placeholder="Responder como atendente…" />
+      {/* `onAttach` sem efeito de propósito: esta página é prévia visual da inbox, e o que ela
+          precisa mostrar é o composer COMPLETO — com clipe e microfone, como o atendente vê. Sem a
+          prop, o SDK esconde o gravador e a prévia deixaria de refletir a tela real. */}
+      <MessageComposer
+        onSend={() => undefined}
+        onAttach={() => undefined}
+        placeholder="Responder como atendente…"
+      />
     </div>
   )
 }
