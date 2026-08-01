@@ -36,6 +36,15 @@ export const BROWSE_ROW_PREFIX = {
 
 export const RESOLVE_ROW_ID = {
   SKIP_ITEM: 'skip_item',
+  /**
+   * "Tanto faz" — o cliente delega a escolha, em vez de o bot decidir por ele.
+   *
+   * Só aparece quando os candidatos são equivalentes (mesmo produto e tamanho, muda a marca): aí
+   * "escolha" é uma pergunta sem conteúdo para quem disse "leite" e quer leite. Entre coisas
+   * diferentes de verdade — leite de caixinha e leite em pó — a linha NÃO aparece, porque "o mais
+   * barato" ali escolheria outro produto sem o cliente perceber.
+   */
+  CHEAPEST: 'resolve_cheapest',
 } as const
 
 export const RESOLVE_ROW_PREFIX = {
@@ -116,6 +125,9 @@ export const MESSAGES = {
   LIST_EMPTY_RESULT:
     'Não consegui identificar nenhum item na sua mensagem 🤔 Tenta me mandar algo tipo "2kg arroz, leite, 6 ovos".',
   RESOLVE_PROMPT_PREFIX: 'Encontrei mais de uma opção para',
+  /** Rótulo da linha de delegação. Diz o critério, para o cliente saber o que está aceitando. */
+  RESOLVE_CHEAPEST_LABEL: '🤷 Tanto faz — o mais barato',
+  RESOLVE_CHEAPEST_CONFIRMATION: 'Beleza, peguei {produto} por {preco}.',
   RESOLVE_UNEXPECTED_INPUT: 'Por favor, escolha uma das opções da lista acima ☝️',
   BROWSE_PICK_CATEGORY: '🛒 Escolha uma categoria:',
   BROWSE_PICK_PRODUCT: 'Escolha um produto:',

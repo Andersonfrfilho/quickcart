@@ -18,6 +18,7 @@ import type { Category, Product } from '@/infra/database/schema'
 import type { MatchCandidate } from '@/modules/conversation/application/types/MatchProducts.types'
 import type { PendingResolution } from '@/modules/conversation/shared/ConversationContext.types'
 import {
+  MESSAGES,
   BROWSE_ROW_ID,
   BROWSE_ROW_PREFIX,
   EDITING_CART_ROW_ID,
@@ -84,15 +85,61 @@ export function buildEditingCartSection(rows: readonly EditingCartRow[]): Intera
   return { title: truncate('Seus itens', LIST_SECTION_TITLE_MAX_LENGTH), rows: [...itemRows, doneRow] }
 }
 
+/**
+ * Candidatos que só diferem pela marca — mesmo nome de produto, mesmo tamanho.
+ *
+ * É o caso comum de supermercado: "leite" casa com três `Leite Integral 1L` de marcas diferentes.
+ * Reconhecer isso é o que permite oferecer "tanto faz" sem risco: a delegação troca de marca, não de
+ * produto. Entre `Leite Integral 1L` e `Leite em Pó 400g` a resposta é falsa, e a linha não aparece.
+ */
+export function areCandidatesInterchangeable(candidates: readonly MatchCandidate[]): boolean {
+  if (candidates.length < 2) return false
+
+  const normalize = (value: string): string =>
+    value
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+
+  const [first, ...rest] = candidates
+  if (!first) return false
+
+  return rest.every(
+    (candidate) =>
+      normalize(candidate.name) === normalize(first.name) &&
+      (candidate.unitSize ?? '') === (first.unitSize ?? ''),
+  )
+}
+
+/** O mais barato entre os candidatos. Usado pela linha de delegação, nunca em silêncio. */
+export function cheapestCandidate(candidates: readonly MatchCandidate[]): MatchCandidate | undefined {
+  return candidates.reduce<MatchCandidate | undefined>(
+    (cheapest, candidate) => (!cheapest || candidate.priceInCents < cheapest.priceInCents ? candidate : cheapest),
+    undefined,
+  )
+}
+
 export function buildResolveSection(pending: PendingResolution): InteractiveListSection {
-  const candidateRows: InteractiveListRow[] = pending.candidates.map((candidate: MatchCandidate) => ({
+  // Do mais barato para o mais caro: com nomes iguais, o preço é a única coisa que o cliente compara,
+  // e ele não deveria ter de varrer a lista para achar o menor.
+  const orderedCandidates = [...pending.candidates].sort(
+    (left, right) => left.priceInCents - right.priceInCents,
+  )
+
+  const candidateRows: InteractiveListRow[] = orderedCandidates.map((candidate: MatchCandidate) => ({
     id: `${RESOLVE_ROW_PREFIX.PRODUCT}${candidate.productId}`,
     title: truncate(candidate.name, LIST_ROW_TITLE_MAX_LENGTH),
     description: buildItemDescription(candidate),
   }))
+
+  const delegateRows: InteractiveListRow[] = areCandidatesInterchangeable(orderedCandidates)
+    ? [{ id: RESOLVE_ROW_ID.CHEAPEST, title: MESSAGES.RESOLVE_CHEAPEST_LABEL }]
+    : []
+
   const skipRow: InteractiveListRow = { id: RESOLVE_ROW_ID.SKIP_ITEM, title: '❌ Nenhum desses' }
   return {
     title: truncate(`Opções: ${pending.originalTerm}`, LIST_SECTION_TITLE_MAX_LENGTH),
-    rows: [...candidateRows, skipRow],
+    rows: [...candidateRows, ...delegateRows, skipRow],
   }
 }

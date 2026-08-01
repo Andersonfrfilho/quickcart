@@ -78,6 +78,16 @@ export async function advanceResolutionQueue(params: AdvanceResolutionQueueParam
   })
 
   const section = buildResolveSection(nextPending)
-  const bodyText = `${MESSAGES.RESOLVE_PROMPT_PREFIX} "${nextPending.originalTerm}"`
+  /**
+   * Quantas escolhas ainda vêm depois desta.
+   *
+   * Lista de supermercado com vinte itens rende uma sequência de perguntas, e sem saber onde ela
+   * termina o cliente desiste no meio — a sensação é de interrogatório sem fim. Sai do tamanho da
+   * fila, sem contabilidade nova: é sempre verdade no momento em que a mensagem é montada.
+   */
+  const remainingAfterThis = pendingResolutions.length - 1
+  const remainingSuffix =
+    remainingAfterThis > 0 ? ` (falta${remainingAfterThis > 1 ? 'm' : ''} ${remainingAfterThis} depois)` : ''
+  const bodyText = `${MESSAGES.RESOLVE_PROMPT_PREFIX} "${nextPending.originalTerm}"${remainingSuffix}`
   await whatsAppSender.sendInteractiveList(session.customerPhone, bodyText, 'Ver opções', [section])
 }
