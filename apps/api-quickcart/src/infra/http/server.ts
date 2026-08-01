@@ -43,6 +43,7 @@ export function createRouter(): Router {
     streamController: container.conversationHttp.streamController,
     previewTranscriptController: container.conversationHttp.previewTranscriptController,
     previewMediaController: container.conversationHttp.previewMediaController,
+    unmatchedDemandController: container.conversationHttp.unmatchedDemandController,
   })
 
   router.registerNotFoundHandler()

@@ -17,6 +17,7 @@ import type { ConversationSettingsController } from './ConversationSettings.cont
 import type { ConversationStreamController } from './ConversationStream.controller'
 import type { createPreviewTranscriptController } from './PreviewTranscript.controller'
 import type { createPreviewMediaController } from './PreviewMedia.controller'
+import type { UnmatchedDemandController } from './UnmatchedDemand.controller'
 
 type PreviewTranscriptController = ReturnType<typeof createPreviewTranscriptController>
 type PreviewMediaController = ReturnType<typeof createPreviewMediaController>
@@ -28,11 +29,16 @@ type RegisterConversationRoutesParams = {
   readonly streamController: ConversationStreamController
   readonly previewTranscriptController: PreviewTranscriptController
   readonly previewMediaController: PreviewMediaController
+  readonly unmatchedDemandController: UnmatchedDemandController
 }
 
 export function registerConversationRoutes(params: RegisterConversationRoutesParams): void {
   const { router, conversationController, settingsController, streamController, previewTranscriptController } = params
-  const { previewMediaController } = params
+  const { previewMediaController, unmatchedDemandController } = params
+
+  // Demanda que a loja está perdendo. Fica em /admin porque é leitura sobre comportamento de cliente,
+  // e agregada ela ainda diz quantas pessoas pediram cada item.
+  router.get('/v1/admin/demands/unmatched', unmatchedDemandController.handleListAdmin)
 
   router.get('/v1/admin/conversations', conversationController.handleList)
   router.get('/v1/admin/conversations/:number/messages', conversationController.handleListMessages)

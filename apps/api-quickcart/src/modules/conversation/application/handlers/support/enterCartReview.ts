@@ -26,7 +26,15 @@ import type { CartDraftItem } from '@/modules/conversation/shared/ConversationCo
 import { sendCartSummary } from '@/modules/conversation/application/handlers/support/CartSummary'
 import { materializeCartDraft } from '@/modules/conversation/application/handlers/support/materializeCartDraft'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
+import {
+  UNMATCHED_DEMAND_SOURCE,
+  type UnmatchedDemandRepositoryInterface,
+} from '@/modules/conversation/domain/UnmatchedDemandRepository.interface'
+import { logger } from '@/shared/logger'
+import { serializeError } from '@/shared/serializeError'
 import { MESSAGES } from '@/modules/conversation/shared/Messages.constant'
+
+const cartReviewLog = logger.child('EnterCartReview')
 
 export type EnterCartReviewParams = {
   readonly session: ConversationSession
@@ -39,6 +47,13 @@ export type EnterCartReviewParams = {
   readonly cartRepository: CartRepositoryInterface
   readonly productRepository: ProductRepositoryInterface
   readonly addCartItemUseCase: AddCartItemUseCase
+  /**
+   * Registra o que o cliente pediu e a loja não tinha.
+   *
+   * Opcional para não obrigar quem já chamava esta função a conhecer o relatório; ausente, a demanda
+   * segue só sendo avisada ao cliente, como era antes.
+   */
+  readonly unmatchedDemandRepository?: UnmatchedDemandRepositoryInterface | undefined
 }
 
 export async function enterCartReview(params: EnterCartReviewParams): Promise<void> {
@@ -53,20 +68,48 @@ export async function enterCartReview(params: EnterCartReviewParams): Promise<vo
     cartRepository,
     productRepository,
     addCartItemUseCase,
+    unmatchedDemandRepository,
   } = params
 
   const materializeResult = await materializeCartDraft({ customerId, channel, cartDraft, addCartItemUseCase })
   const allUnmatchedTerms = [...unmatchedTerms, ...materializeResult.failedTerms]
 
+  /**
+   * Zera os não-encontrados no contexto depois de usá-los.
+   *
+   * Esta função é reentrante — "adicionar mais itens" volta aqui —, e carregar a lista adiante fazia o
+   * bot repetir "não encontrei: ovos" a cada rodada, além de contar a mesma demanda várias vezes no
+   * relatório. O aviso ao cliente já foi dado; a demanda já foi gravada.
+   */
   await conversationSessionRepository.updateStateByPhone({
     customerPhone: session.customerPhone,
     currentState: CONVERSATION_STATE.CART_REVIEW,
-    context: { unmatchedTerms: allUnmatchedTerms },
+    context: { unmatchedTerms: [] },
   })
 
   if (allUnmatchedTerms.length > 0) {
     const bodyText = `${MESSAGES.CART_REVIEW_UNMATCHED_PREFIX}\n${allUnmatchedTerms.map((term) => `• ${term}`).join('\n')}`
     await whatsAppSender.sendText(session.customerPhone, bodyText)
+
+    /**
+     * Grava só o que ESTA função descobriu: produto que existia no rascunho e não entrou no carrinho.
+     *
+     * Os outros termos já foram gravados na origem, por quem sabia o motivo — a leitura da lista e o
+     * "nenhum desses" da desambiguação. Gravar a lista acumulada aqui contaria a mesma demanda duas
+     * vezes e apagaria a distinção entre "a loja não tem" e "a loja não tem o certo".
+     *
+     * Depois de avisar o cliente, e sem poder atrapalhar: relatório é do lojista, e falhar aqui não
+     * pode custar o carrinho de quem está comprando agora.
+     */
+    try {
+      await unmatchedDemandRepository?.record({
+        terms: materializeResult.failedTerms,
+        customerId,
+        source: UNMATCHED_DEMAND_SOURCE.LIST,
+      })
+    } catch (error: unknown) {
+      cartReviewLog.warn('unmatched_demand_not_recorded', { error: serializeError(error) })
+    }
   }
 
   const openCart = materializeResult.cartId

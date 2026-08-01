@@ -23,6 +23,7 @@ import type { WhatsAppSender } from '@/modules/webhook/infra/whatsapp/WhatsAppSe
 import type { ConversationContext } from '@/modules/conversation/shared/ConversationContext.types'
 import { buildResolveSection } from '@/modules/conversation/application/handlers/support/InteractiveListBuilders'
 import { enterCartReview } from '@/modules/conversation/application/handlers/support/enterCartReview'
+import type { UnmatchedDemandRepositoryInterface } from '@/modules/conversation/domain/UnmatchedDemandRepository.interface'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import { MESSAGES } from '@/modules/conversation/shared/Messages.constant'
 
@@ -36,6 +37,8 @@ export type AdvanceResolutionQueueParams = {
   readonly cartRepository: CartRepositoryInterface
   readonly productRepository: ProductRepositoryInterface
   readonly addCartItemUseCase: AddCartItemUseCase
+  /** Repassado ao `enterCartReview`, que grava o produto que sumiu entre rascunho e carrinho. */
+  readonly unmatchedDemandRepository?: UnmatchedDemandRepositoryInterface | undefined
 }
 
 export async function advanceResolutionQueue(params: AdvanceResolutionQueueParams): Promise<void> {
@@ -67,6 +70,9 @@ export async function advanceResolutionQueue(params: AdvanceResolutionQueueParam
       cartRepository,
       productRepository,
       addCartItemUseCase,
+      ...(params.unmatchedDemandRepository
+        ? { unmatchedDemandRepository: params.unmatchedDemandRepository }
+        : {}),
     })
     return
   }

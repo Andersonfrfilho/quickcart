@@ -64,6 +64,8 @@ import { MatchProductsUseCase } from '@/modules/conversation/application/use-cas
 import { ParseShoppingListUseCase } from '@/modules/conversation/application/use-cases/ParseShoppingList.use-case'
 import { GroqListRefinerProvider } from '@/modules/conversation/infra/providers/GroqListRefinerProvider'
 import { DrizzleListImportRepository } from '@/modules/conversation/infra/database/DrizzleListImportRepository'
+import { DrizzleUnmatchedDemandRepository } from '@/modules/conversation/infra/database/DrizzleUnmatchedDemandRepository'
+import { UnmatchedDemandController } from '@/modules/conversation/infra/http/UnmatchedDemand.controller'
 import { ProcessParsedListItems } from '@/modules/conversation/application/handlers/support/ProcessParsedListItems'
 import { GreetingHandler } from '@/modules/conversation/application/handlers/GreetingHandler'
 import { MenuHandler } from '@/modules/conversation/application/handlers/MenuHandler'
@@ -281,9 +283,12 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
   const matchProductsUseCase = new MatchProductsUseCase(productRepository)
   const parseShoppingListUseCase = new ParseShoppingListUseCase(new GroqListRefinerProvider())
   const listImportRepository = new DrizzleListImportRepository()
+  // Demanda que a loja está perdendo: gravada onde o motivo é conhecido, lida pelo relatório do admin.
+  const unmatchedDemandRepository = new DrizzleUnmatchedDemandRepository()
 
   const processParsedListItems = new ProcessParsedListItems({
     matchProductsUseCase,
+    unmatchedDemandRepository,
     conversationSessionRepository,
     whatsAppSender,
     listImportRepository,
@@ -307,6 +312,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     cartRepository,
     productRepository,
     addCartItemUseCase,
+    unmatchedDemandRepository,
   })
   const browseHandler = new BrowseHandler({
     conversationSessionRepository,
@@ -314,6 +320,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     productRepository,
     cartRepository,
     addCartItemUseCase,
+    unmatchedDemandRepository,
   })
   const cartHandler = new CartHandler({
     conversationSessionRepository,
@@ -466,6 +473,7 @@ type ConversationHttpModule = {
   readonly streamController: ConversationStreamController
   readonly previewTranscriptController: ReturnType<typeof createPreviewTranscriptController>
   readonly previewMediaController: ReturnType<typeof createPreviewMediaController>
+  readonly unmatchedDemandController: UnmatchedDemandController
 }
 
 function buildConversationHttpModule(params: {
@@ -487,6 +495,9 @@ function buildConversationHttpModule(params: {
     // `undefined` quando features.previewMedia está desligado — o controller responde 404 e o
     // simulador esconde o microfone, em vez de oferecer um botão que não tem onde guardar o áudio.
     previewMediaController: createPreviewMediaController(params.metaWhatsApp.previewMedia),
+    unmatchedDemandController: new UnmatchedDemandController({
+      unmatchedDemandRepository: new DrizzleUnmatchedDemandRepository(),
+    }),
   }
 }
 

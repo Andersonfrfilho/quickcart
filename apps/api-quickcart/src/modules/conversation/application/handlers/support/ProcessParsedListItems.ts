@@ -28,6 +28,14 @@ import { advanceResolutionQueue } from '@/modules/conversation/application/handl
 import type { ListImportSource } from '@/modules/conversation/shared/ListImport.constant'
 import { MATCH_TYPE } from '@/modules/conversation/shared/Matcher.constant'
 import { generateId } from '@/shared/id'
+import {
+  UNMATCHED_DEMAND_SOURCE,
+  type UnmatchedDemandRepositoryInterface,
+} from '@/modules/conversation/domain/UnmatchedDemandRepository.interface'
+import { logger } from '@/shared/logger'
+import { serializeError } from '@/shared/serializeError'
+
+const listItemsLog = logger.child('ProcessParsedListItems')
 
 export type ProcessParsedListItemsDependencies = {
   readonly matchProductsUseCase: MatchProductsUseCase
@@ -37,6 +45,8 @@ export type ProcessParsedListItemsDependencies = {
   readonly cartRepository: CartRepositoryInterface
   readonly productRepository: ProductRepositoryInterface
   readonly addCartItemUseCase: AddCartItemUseCase
+  /** Registra o que o cliente pediu e o catálogo não tem. Ausente, o relatório só não recebe o dado. */
+  readonly unmatchedDemandRepository?: UnmatchedDemandRepositoryInterface | undefined
 }
 
 export type ProcessParsedListItemsParams = {
@@ -61,6 +71,14 @@ export class ProcessParsedListItems {
     const unmatchedTerms: string[] = [...(existingContext.unmatchedTerms ?? [])]
     const pendingResolutions: PendingResolution[] = [...(existingContext.pendingResolutions ?? [])]
 
+    /**
+     * Só os desta leva, para não regravar o que já estava no contexto.
+     *
+     * `unmatchedTerms` vem acumulado de rodadas anteriores ("adicionar mais itens"), e usá-lo aqui
+     * contaria a mesma demanda de novo a cada lista nova da mesma conversa.
+     */
+    const demandTerms: string[] = []
+
     let matchedCount = 0
     let ambiguousCount = 0
     let unmatchedCount = 0
@@ -82,6 +100,8 @@ export class ProcessParsedListItems {
 
       if (result.matchType === MATCH_TYPE.NOT_FOUND) {
         unmatchedTerms.push(result.item.term)
+        // Termos desta leva que o catálogo não reconheceu — gravados juntos no fim, numa inserção só.
+        demandTerms.push(result.item.term)
         unmatchedCount += 1
         continue
       }
@@ -105,6 +125,20 @@ export class ProcessParsedListItems {
       ambiguousCount,
       unmatchedCount,
     })
+
+    // Demanda perdida do lojista, gravada depois da lista já estar salva e sem poder atrapalhar a
+    // conversa: relatório atrasado é problema pequeno, carrinho perdido não.
+    if (demandTerms.length > 0) {
+      try {
+        await this.dependencies.unmatchedDemandRepository?.record({
+          terms: demandTerms,
+          customerId: params.customerId,
+          source: UNMATCHED_DEMAND_SOURCE.LIST,
+        })
+      } catch (error: unknown) {
+        listItemsLog.warn('unmatched_demand_not_recorded', { error: serializeError(error) })
+      }
+    }
 
     await advanceResolutionQueue({
       session: params.session,
