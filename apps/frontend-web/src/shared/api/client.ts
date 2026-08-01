@@ -12,6 +12,7 @@ import type {
   ProductSortableField,
   ReceiptPreference,
   SortDirection,
+  UnmatchedDemand,
 } from '@/shared/api/api.types'
 
 const apiClient = axios.create({
@@ -106,6 +107,26 @@ export async function adminUpdateProduct(token: string, id: string, body: unknow
 
 export async function adminAdjustStock(token: string, id: string, body: { delta: number }): Promise<ApiItemResponse<Product>> {
   return apiClient.patch(`/v1/admin/products/${id}/stock`, body, { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export type ListUnmatchedDemandsParams = {
+  limit?: number
+  windowDays?: number
+}
+
+export type UnmatchedDemandsResponse = {
+  readonly data: readonly UnmatchedDemand[]
+  readonly meta: { readonly windowDays: number; readonly since: string }
+}
+
+export async function adminListUnmatchedDemands(
+  token: string,
+  params: ListUnmatchedDemandsParams = {},
+): Promise<UnmatchedDemandsResponse> {
+  return apiClient.get('/v1/admin/demands/unmatched', {
+    headers: { Authorization: `Bearer ${token}` },
+    params,
+  })
 }
 
 export async function adminListOrders(token: string, params: ListAdminOrdersParams = {}): Promise<ApiListResponse<Order>> {

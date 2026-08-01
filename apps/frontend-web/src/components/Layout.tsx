@@ -25,6 +25,7 @@ const ADMIN_SECTIONS: NavSection[] = [
     items: [
       { label: 'Produtos', path: '/admin/products', icon: '📦' },
       { label: 'Pedidos', path: '/admin/orders', icon: '🛒' },
+      { label: 'Demanda', path: '/admin/demands', icon: '🔎' },
     ],
   },
   {

@@ -33,6 +33,28 @@ export type Product = {
   readonly stockQuantity: number
   readonly isAvailable: boolean
   readonly imageUrl: string | null
+  /**
+   * Apelidos que o casador usa para reconhecer o produto na fala do cliente.
+   *
+   * Declarado aqui porque a tela de demanda ACRESCENTA um apelido, e a rota de atualização substitui a
+   * lista inteira — sem os atuais em mãos, salvar um apelido novo apagaria os antigos em silêncio.
+   */
+  readonly aliases: readonly string[]
+}
+
+/**
+ * Termo que clientes pediram e a loja não tinha, já agregado.
+ *
+ * Sem identificar quem pediu: a decisão do lojista é sobre o catálogo, e nome de cliente não entra em
+ * tela de relatório sem precisar.
+ */
+export type UnmatchedDemand = {
+  readonly term: string
+  /** Como foi falado da última vez — inclusive com erro de transcrição, que é o dado útil aqui. */
+  readonly lastRawTerm: string
+  readonly requestCount: number
+  readonly customerCount: number
+  readonly lastRequestedAt: string
 }
 
 export const ORDER_STATUS = {
