@@ -56,6 +56,25 @@ export type FlowDriverDependencies = {
   readonly logMessage: LogMessageUseCase
   readonly startState: string
   readonly loadFlow: (key: string) => Promise<FlowGraphData | undefined>
+  /**
+   * Esconde opções que não servem para ESTE cliente antes de desenhar a lista.
+   *
+   * Oferecer "repetir minha última compra" a quem nunca comprou é prometer o que não existe: o cliente
+   * toca, ouve que não há pedido anterior e aprende que o menu mente. Filtrar na hora de exibir é o
+   * que mantém a promessa — e não pode ser resolvido no grafo, porque o lojista edita o grafo sem
+   * saber quem vai receber a mensagem.
+   *
+   * Ausente, todas as opções aparecem, que é o comportamento de antes. O filtro NÃO mexe no
+   * roteamento: `next.byAnswer` continua com todas, então um toque em lista antiga (ou a mesma
+   * intenção dita por voz) ainda chega no lugar certo, com a ação respondendo o que for verdade.
+   */
+  readonly filterNodeOptions?:
+    | ((params: {
+        readonly whatsappNumber: string
+        readonly node: FlowNodeData
+        readonly options: readonly (readonly [string, string])[]
+      }) => Promise<readonly (readonly [string, string])[]>)
+    | undefined
 }
 
 export type HandleInboundParams = {
@@ -196,7 +215,12 @@ export class FlowDriver {
     if (!node?.question) return
 
     const channel = this.wrapChannelWithLogging(whatsappNumber)
-    const options = node.options ?? []
+    const declaredOptions = node.options ?? []
+    const { filterNodeOptions } = this.dependencies
+    const options =
+      filterNodeOptions && declaredOptions.length > 0
+        ? await filterNodeOptions({ whatsappNumber, node, options: declaredOptions })
+        : declaredOptions
 
     if (options.length === 0) {
       await channel.sendText(whatsappNumber, node.question)
