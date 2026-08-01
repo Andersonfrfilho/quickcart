@@ -166,6 +166,16 @@ export class DrizzleOrderRepository implements OrderRepositoryInterface {
     return order ? toOrderRecord(order) : undefined
   }
 
+  async listRecentByCustomer(customerId: string, limit: number): Promise<OrderRecord[]> {
+    const rows = await db
+      .select()
+      .from(orders)
+      .where(eq(orders.customerId, customerId))
+      .orderBy(desc(orders.createdAt))
+      .limit(limit)
+    return rows.map(toOrderRecord)
+  }
+
   async listItems(orderId: string): Promise<OrderItemRecord[]> {
     const items = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId))
     return items.map(toOrderItemRecord)

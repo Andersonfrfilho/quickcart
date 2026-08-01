@@ -85,10 +85,23 @@ export const MAIN_FLOW_SEED: Omit<FlowGraphData, 'version'> = {
       type: 'question',
       questionType: 'choice',
       question: MESSAGES.MENU_PROMPT,
+      /**
+       * Verbo concreto e o caminho mais curto primeiro.
+       *
+       * Nenhuma linha é categoria ("fazer pedido" viraria uma pergunta a mais para chegar onde já
+       * podia estar), e as duas que dependem de histórico são escondidas em tempo de exibição para
+       * quem nunca comprou — ver `createMenuOptionsFilter`. O roteamento abaixo mantém todas, então
+       * um toque em menu antigo ou a mesma intenção dita por voz continua chegando ao lugar certo.
+       *
+       * Vale lembrar que o cliente mais rápido nunca abre este menu: a saudação convida a ditar a
+       * lista, e lista é entendida em qualquer ponto da conversa.
+       */
       options: [
-        [MENU_BUTTON_ID.SEND_LIST, '📝 Enviar lista'],
-        [MENU_BUTTON_ID.BROWSE, '🛒 Ver produtos'],
-        [MENU_BUTTON_ID.REPEAT_ORDER, '🔁 Repetir pedido'],
+        [MENU_BUTTON_ID.SEND_LIST, '📝 Mandar minha lista'],
+        [MENU_BUTTON_ID.REPEAT_ORDER, '🔁 Repetir última compra'],
+        [MENU_BUTTON_ID.ORDER_HISTORY, '📜 Minhas últimas compras'],
+        [MENU_BUTTON_ID.BROWSE, '🛒 Ver produtos da loja'],
+        [MENU_BUTTON_ID.TALK_TO_AGENT, '💬 Falar com atendente'],
       ],
       fallbackMessage: MESSAGES.MENU_HINT,
       contextKey: 'menuChoice',
@@ -98,6 +111,8 @@ export const MAIN_FLOW_SEED: Omit<FlowGraphData, 'version'> = {
           [MENU_BUTTON_ID.SEND_LIST]: 'acao_lista',
           [MENU_BUTTON_ID.BROWSE]: 'acao_catalogo',
           [MENU_BUTTON_ID.REPEAT_ORDER]: 'acao_repetir',
+          [MENU_BUTTON_ID.ORDER_HISTORY]: 'acao_historico',
+          [MENU_BUTTON_ID.TALK_TO_AGENT]: 'acao_atendente',
         },
         // Resposta fora das opções volta ao próprio menu, que reenvia os botões — mesmo
         // comportamento do MenuHandler ao receber texto solto.
@@ -121,6 +136,18 @@ export const MAIN_FLOW_SEED: Omit<FlowGraphData, 'version'> = {
       type: 'action',
       actionKind: QUICKCART_FLOW_ACTION.REPEAT_ORDER,
       position: { x: 240, y: 200 },
+    },
+    acao_historico: {
+      id: 'acao_historico',
+      type: 'action',
+      actionKind: QUICKCART_FLOW_ACTION.ORDER_HISTORY,
+      position: { x: 480, y: 200 },
+    },
+    acao_atendente: {
+      id: 'acao_atendente',
+      type: 'action',
+      actionKind: QUICKCART_FLOW_ACTION.REQUEST_HUMAN,
+      position: { x: -480, y: 200 },
     },
   },
 }

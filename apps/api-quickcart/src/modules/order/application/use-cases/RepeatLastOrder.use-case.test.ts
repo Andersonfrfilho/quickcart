@@ -162,6 +162,10 @@ class FakeOrderRepository implements OrderRepositoryInterface {
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0]
   }
 
+  async listRecentByCustomer(customerId: string, limit: number): Promise<OrderRecord[]> {
+    return [...this.orders.values()].filter((order) => order.customerId === customerId).slice(0, limit)
+  }
+
   async listItems(orderId: string): Promise<OrderItemRecord[]> {
     return this.itemsByOrder.get(orderId) ?? []
   }

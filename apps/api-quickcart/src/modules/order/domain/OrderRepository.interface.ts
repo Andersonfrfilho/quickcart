@@ -87,6 +87,14 @@ export interface OrderRepositoryInterface {
   findById(id: string): Promise<OrderRecord | undefined>
   findByShortCode(shortCode: string): Promise<OrderRecord | undefined>
   findLastByCustomer(customerId: string): Promise<OrderRecord | undefined>
+  /**
+   * Últimas compras DAQUELE cliente, para ele mesmo ver no WhatsApp.
+   *
+   * Separado do `list` paginado de propósito: aquele é da área administrativa e não filtra por
+   * cliente, então usá-lo aqui mostraria pedido de outra pessoa a quem só pediu o próprio histórico.
+   * O limite é do chamador porque lista do WhatsApp cabe 10 linhas, não porque o banco se importe.
+   */
+  listRecentByCustomer(customerId: string, limit: number): Promise<OrderRecord[]>
   listItems(orderId: string): Promise<OrderItemRecord[]>
   list(params: ListOrdersRepositoryParams): Promise<ListOrdersRepositoryResult>
   updateStatus(id: string, status: string): Promise<OrderRecord | undefined>

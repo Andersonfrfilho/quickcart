@@ -53,6 +53,7 @@ import {
   type ResolveInboundAudio,
 } from '@/modules/conversation/application/resolveInboundAudio'
 import { wrapChannelWithLogging } from '@/modules/conversation/application/wrapChannelWithLogging'
+import { createMenuOptionsFilter } from '@/modules/conversation/application/createMenuOptionsFilter'
 import { MAIN_FLOW_SEED } from '@/modules/conversation/shared/MainFlow.seed'
 import { logger } from '@/shared/logger'
 import { environment } from '@/infra/config/environment'
@@ -378,6 +379,7 @@ function buildWebhookModule(
       readonly repeatLastOrderUseCase: RepeatLastOrderUseCase
       readonly cartRepository: CartRepositoryInterface
       readonly productRepository: ProductRepositoryInterface
+      readonly orderRepository: OrderRepositoryInterface
     },
 ): WebhookModule {
   const { cacheProvider, customerRepository, whatsAppSender, conversationEngine, repeatLastOrderUseCase } = params
@@ -430,6 +432,11 @@ function buildWebhookModule(
       logMessage: metaWhatsApp.conversations.log,
       startState: CONVERSATION_STATE.GREETING,
       loadFlow: (key) => metaWhatsApp.flows!.get.execute({ companyId: environment.WHATSAPP_COMPANY_ID, key }),
+      // Esconde do menu o que depende de compra anterior, para quem ainda não comprou.
+      filterNodeOptions: createMenuOptionsFilter({
+        customerRepository,
+        orderRepository: params.orderRepository,
+      }),
     })
 
     registerQuickCartFlowActions({
@@ -440,6 +447,7 @@ function buildWebhookModule(
       repeatLastOrderUseCase,
       cartRepository: params.cartRepository,
       productRepository: params.productRepository,
+      orderRepository: params.orderRepository,
     })
   }
 
@@ -533,6 +541,7 @@ const webhookModule = buildWebhookModule({
   repeatLastOrderUseCase: orderModule.repeatLastOrderUseCase,
   cartRepository: cartModule.cartRepository,
   productRepository: catalogModule.productRepository,
+  orderRepository: orderModule.orderRepository,
 })
 
 // Chamada pelo boot DEPOIS das migrations: na construção do container as tabelas do módulo

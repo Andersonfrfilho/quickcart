@@ -17,6 +17,13 @@ export const MENU_BUTTON_ID = {
   SEND_LIST: 'send_list',
   BROWSE: 'browse',
   REPEAT_ORDER: 'repeat_order',
+  /** Histórico: navegar e escolher. Não substitui `REPEAT_ORDER`, que é um toque até o carrinho. */
+  ORDER_HISTORY: 'order_history',
+  /**
+   * Saída para gente de verdade. Sem ela, quem o bot não entende fica preso repetindo — e é justamente
+   * quem já está irritado.
+   */
+  TALK_TO_AGENT: 'talk_to_agent',
 } as const
 
 export const CART_REVIEW_BUTTON_ID = {
@@ -143,6 +150,16 @@ export const MESSAGES = {
    * O bot muda de assunto por conta própria aqui — a pessoa estava vendo categorias e vai receber um
    * carrinho. Sem avisar, parece que o menu quebrou; avisando, fica claro que ele entendeu.
    */
+  /**
+   * Dito ao pedir atendente. Promete o que o produto cumpre — a conversa entra na fila da inbox com
+   * o marcador de espera — e deixa claro que o bot NÃO vai calar a boca no meio.
+   *
+   * Silenciar o bot aqui seria a escolha errada: quem pediu ajuda receberia silêncio até alguém
+   * aparecer, e com a loja fechada isso é a madrugada inteira. Fila marcada, atendimento seguindo.
+   */
+  AGENT_REQUESTED: '💬 Já avisei a equipe — alguém vai te responder por aqui. Enquanto isso posso seguir te ajudando.',
+  ORDER_HISTORY_EMPTY: 'Você ainda não tem compra fechada por aqui. Quando tiver, ela aparece nesta opção.',
+  ORDER_HISTORY_HEADER: '📜 Suas últimas compras:',
   LIST_INTENT_DETECTED: '📝 Entendi que é uma lista! Já vou montar seu carrinho…',
   GOODBYE: '👋 Tudo bem, cancelei o que estávamos fazendo. Quando quiser começar de novo é só chamar!',
   SESSION_EXPIRED_PREFIX: '⏰ Faz um tempo que não conversamos, então recomecei sua sessão.\n\n',

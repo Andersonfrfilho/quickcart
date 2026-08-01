@@ -28,6 +28,8 @@ import type { CustomerRepositoryInterface } from '@/modules/webhook/domain/Custo
 import type { CartRepositoryInterface } from '@/modules/cart/domain/CartRepository.interface'
 import type { ProductRepositoryInterface } from '@/modules/catalog/domain/ProductRepository.interface'
 import { sendCartSummary } from '@/modules/conversation/application/handlers/support/CartSummary'
+import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInCents'
+import type { OrderRepositoryInterface } from '@/modules/order/domain/OrderRepository.interface'
 import { OrderNoPreviousOrderError } from '@/shared/errors/OrderErrors'
 import { CHANNEL } from '@/modules/shared/shared.constant'
 
@@ -42,7 +44,17 @@ export const QUICKCART_FLOW_ACTION = {
   REPEAT_ORDER: 'quickcart_repeat_order',
   GREET: 'quickcart_greet',
   VALIDATE_NAME: 'quickcart_validate_name',
+  ORDER_HISTORY: 'quickcart_order_history',
+  REQUEST_HUMAN: 'quickcart_request_human',
 } as const
+
+/**
+ * Quantas compras o histórico mostra.
+ *
+ * Lista do WhatsApp cabe 10 linhas, mas histórico é para reconhecer a compra certa, não para auditar:
+ * cinco cobre o mês de quem compra semanalmente e mantém a mensagem legível no celular.
+ */
+const ORDER_HISTORY_LIMIT = 5
 
 /**
  * Nós que as ações de saudação desviam para. Ficam como constante porque o handler devolve
@@ -73,6 +85,7 @@ export type RegisterQuickCartFlowActionsParams = {
   readonly repeatLastOrderUseCase: RepeatLastOrderUseCase
   readonly cartRepository: CartRepositoryInterface
   readonly productRepository: ProductRepositoryInterface
+  readonly orderRepository: OrderRepositoryInterface
 }
 
 export function registerQuickCartFlowActions(params: RegisterQuickCartFlowActionsParams): void {
@@ -84,6 +97,7 @@ export function registerQuickCartFlowActions(params: RegisterQuickCartFlowAction
     repeatLastOrderUseCase,
     cartRepository,
     productRepository,
+    orderRepository,
   } = params
 
   // Entrega a conversa a um estado da engine TS. O contexto do grafo é preservado: o cliente
@@ -145,6 +159,39 @@ export function registerQuickCartFlowActions(params: RegisterQuickCartFlowAction
     await whatsAppSender.sendText(session.whatsappNumber, MESSAGES.NAME_ACCEPTED.replace('{nome}', verdict.name))
 
     return { next: MAIN_FLOW_NODE.MENU, context: { customerName: verdict.name } }
+  })
+
+  /**
+   * Pedido de gente de verdade. Marca a espera e continua atendendo.
+   *
+   * NÃO põe a sessão em modo humano: o modo humano cala o bot, e calar o bot para quem acabou de
+   * pedir ajuda troca "não entendi" por silêncio. A inbox já mostra quem está esperando (filtro "Só
+   * aguardando atendimento"), então o atendente vê a fila sem que o cliente pague com abandono.
+   */
+  registerFlowAction(QUICKCART_FLOW_ACTION.REQUEST_HUMAN, async ({ session }) => {
+    await sessionRepository.requestHuman(COMPANY_ID, session.whatsappNumber)
+    await whatsAppSender.sendText(session.whatsappNumber, MESSAGES.AGENT_REQUESTED)
+    return { next: MAIN_FLOW_NODE.MENU }
+  })
+
+  registerFlowAction(QUICKCART_FLOW_ACTION.ORDER_HISTORY, async ({ session }) => {
+    const customer = await customerRepository.findByPhone(session.whatsappNumber)
+    const orders = customer ? await orderRepository.listRecentByCustomer(customer.id, ORDER_HISTORY_LIMIT) : []
+
+    if (orders.length === 0) {
+      // O menu esconde esta opção de quem não tem histórico, mas a rota continua alcançável por voz
+      // ("ver minhas compras") e por toque em menu antigo — então a ação diz a verdade em vez de
+      // devolver uma lista vazia.
+      await whatsAppSender.sendText(session.whatsappNumber, MESSAGES.ORDER_HISTORY_EMPTY)
+      return { next: MAIN_FLOW_NODE.MENU }
+    }
+
+    const lines = orders.map((order) => {
+      const when = order.createdAt.toLocaleDateString('pt-BR')
+      return `• ${when} — ${formatPriceInCents(order.totalInCents)} (${order.shortCode})`
+    })
+    await whatsAppSender.sendText(session.whatsappNumber, `${MESSAGES.ORDER_HISTORY_HEADER}\n${lines.join('\n')}`)
+    return { next: MAIN_FLOW_NODE.MENU }
   })
 
   registerFlowAction(QUICKCART_FLOW_ACTION.START_LIST, async ({ session, context }) => {
