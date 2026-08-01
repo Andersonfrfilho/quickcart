@@ -18,7 +18,7 @@ COMPOSE := docker compose -p $(PROJECT_NAME)-$(ENV) -f infra/docker-compose.yml 
 SDK_PATH ?= $(HOME)/Documents/personal/adatechnology-packages
 SDK_PACKAGES := packages/backend/meta-whatsapp-contracts packages/backend/meta-whatsapp-module packages/backend/text-moderation packages/backend/object-storage-provider packages/frontend/conversations-ui
 
-.PHONY: help all setup up down clean logs migrate seed reseed-flow dev-api dev-worker dev-web test-msg test-audio test test-api test-worker build-web validate link-sdk unlink-sdk watch-sdk
+.PHONY: help all setup up down clean logs migrate seed reseed-flow dev-api dev-worker dev-web test-msg test-audio test-reply test test-api test-worker build-web validate link-sdk unlink-sdk watch-sdk
 
 help: ## 📖 Lista os comandos disponíveis
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -74,6 +74,9 @@ test-msg: ## 💬 Simula um webhook Meta local (MSG="..." TEL=...)
 
 test-audio: ## 🎤 Simula uma nota de voz: sintetiza MSG com `say` e manda webhook de áudio (macOS)
 	@bash scripts/send-test-webhook.sh "$(MSG)" "$(TEL)" audio
+
+test-reply: ## 👆 Simula toque em item de lista (MSG=<id da linha> TEL=...)
+	@bash scripts/send-test-webhook.sh "$(MSG)" "$(TEL)" list
 
 link-sdk: ## 🔗 Aponta os pacotes do SDK para o checkout local (dev cross-repo)
 	@echo "🔗 Registrando pacotes do SDK em $(SDK_PATH)..."

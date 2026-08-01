@@ -57,6 +57,10 @@ if [[ "$KIND" == "audio" ]]; then
     -d "{\"request\":{\"method\":\"GET\",\"urlPathPattern\":\"/media-binary/$MEDIA_ID\"},\"response\":{\"status\":200,\"headers\":{\"Content-Type\":\"audio/mp4\"},\"base64Body\":\"$BASE64_AUDIO\"}}" >/dev/null
 
   MESSAGE_JSON="{\"from\":\"$TEL\",\"id\":\"$WA_MESSAGE_ID\",\"timestamp\":\"$TIMESTAMP\",\"type\":\"audio\",\"audio\":{\"id\":\"$MEDIA_ID\",\"mime_type\":\"audio/mp4\",\"voice\":true}}"
+elif [[ "$KIND" == "list" ]]; then
+  # Toque em item de lista. O id É a mensagem aqui: o handler roteia por ele, e o título só existe
+  # para o cliente ler — mandar título no lugar do id testaria um caminho que a Meta nunca produz.
+  MESSAGE_JSON="{\"from\":\"$TEL\",\"id\":\"$WA_MESSAGE_ID\",\"timestamp\":\"$TIMESTAMP\",\"type\":\"interactive\",\"interactive\":{\"type\":\"list_reply\",\"list_reply\":{\"id\":\"$MSG\",\"title\":\"(simulado)\"}}}"
 else
   MESSAGE_JSON="{\"from\":\"$TEL\",\"id\":\"$WA_MESSAGE_ID\",\"timestamp\":\"$TIMESTAMP\",\"type\":\"text\",\"text\":{\"body\":\"$MSG\"}}"
 fi
