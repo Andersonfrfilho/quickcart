@@ -26,13 +26,37 @@ const SEGMENT_SEPARATOR = /\s*(?:(?<!\d),(?!\d)|;|\se\s)\s*/
 const WEIGHT_UNIT_LEADING = /^(\d+[.,]?\d*)\s*(kg|g|l|ml|litros?|quilos?|gramas?)\s+(.+)$/i
 const COUNT_UNIT_LEADING = /^(\d+)\s*(x|un|unidades?|pacotes?|caixas?|latas?|dz|d[uú]zias?)\s+(.+)$/i
 const WEIGHT_UNIT_TRAILING = /^(.+?)\s+(\d+[.,]?\d*)\s*(kg|g|l|ml|un)$/i
-// Alternativas com "duzia" vêm antes de "uma?" — alternação regex tenta da esquerda pra
-// direita e para na primeira que casar, então "uma?" sozinho intercetaria "uma duzia".
-const SPELLED_OUT_NUMBER = /^(meia\s+d[uú]zia|uma\s+d[uú]zia|tr[eê]s|duas|dois|uma?)\s+(.+)$/i
+/**
+ * Números por extenso, de um a doze.
+ *
+ * Ia até três, e quem MANDA ÁUDIO fala por extenso: "seis ovos" caía no fallback, virava o termo
+ * `seis ovos` com quantidade 1 e não casava com nada — nem no catálogo, nem como apelido, e ainda
+ * entrava no relatório de demanda como se o cliente tivesse pedido um produto chamado "seis ovos".
+ *
+ * Para em doze porque acima disso a pessoa volta a usar algarismo, e "cem" em compra de supermercado
+ * aparece mais em "cem gramas" (que as regras de unidade já pegam) do que contando item.
+ *
+ * Alternativas com "duzia" vêm antes de "uma?" — alternação regex tenta da esquerda pra direita e para
+ * na primeira que casar, então "uma?" sozinho intercetaria "uma duzia".
+ */
+const SPELLED_OUT_NUMBER =
+  /^(meia\s+d[uú]zia|uma\s+d[uú]zia|duas\s+d[uú]zias|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|tr[eê]s|duas|dois|uma?)\s+(.+)$/i
 // Última regra antes do fallback: número solto sem palavra de unidade (ex: "6 ovos",
 // "3 bananas") — sem ela, o dígito ficava preso ao termo e a quantidade virava 1.
 const BARE_COUNT_LEADING = /^(\d+)\s+(.+)$/
 const LEADING_PREPOSITION = /^(?:de|do|da)\s+/
+
+/**
+ * Unidade que sobra depois de um número ESCRITO: "dois pacotes de modess", "um litro de leite".
+ *
+ * As regras de dígito já separam a unidade ("2 kg de arroz" vira `arroz`), mas a de número escrito
+ * jogava todo o resto no termo — e quem manda áudio fala "dois pacotes", não "2 pct". O resultado eram
+ * termos como `pacotes de modess`, que não casam com o catálogo, entopem o relatório de demanda com
+ * uma linha por embalagem e, pior, tornam o apelido inútil: ninguém cadastra "pacotes de modess" como
+ * apelido de um produto.
+ */
+const LEADING_UNIT_AFTER_SPELLED_NUMBER =
+  /^(kg|g|l|ml|litros?|quilos?|gramas?|un|unidades?|pacotes?|caixas?|latas?|garrafas?|potes?|bandejas?|sacos?|fardos?|d[uú]zias?)\s+(.+)$/i
 
 /**
  * Pontuação no fim do termo, que a transcrição sempre traz: "…e um litro de leite." vira `leite.`
@@ -49,8 +73,18 @@ const SPELLED_NUMBER_QUANTITY: Record<string, number> = {
   dois: 2,
   duas: 2,
   tres: 3,
+  quatro: 4,
+  cinco: 5,
+  seis: 6,
+  sete: 7,
+  oito: 8,
+  nove: 9,
+  dez: 10,
+  onze: 11,
+  doze: 12,
   'meia duzia': 6,
   'uma duzia': 12,
+  'duas duzias': 24,
 }
 
 const FALLBACK_UNIT = 'un'
@@ -117,6 +151,13 @@ function extractItem(segment: string): ParsedListItem {
     const term = spelledOutMatch[2]!
     const normalizedSpelledNumber = spelledNumber.toLowerCase().replace(/\s+/g, ' ')
     const quantity = SPELLED_NUMBER_QUANTITY[normalizedSpelledNumber] ?? FALLBACK_QUANTITY
+
+    // "dois PACOTES de modess": a unidade é dela, não do termo.
+    const unitMatch = term.match(LEADING_UNIT_AFTER_SPELLED_NUMBER)
+    if (unitMatch) {
+      return { term: cleanTerm(unitMatch[2]!), quantity, unit: unitMatch[1]!.toLowerCase() }
+    }
+
     return { term: cleanTerm(term), quantity, unit: FALLBACK_UNIT }
   }
 
