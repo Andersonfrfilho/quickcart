@@ -3,11 +3,19 @@ import { useRouter, Link } from '@/app/router'
 import { TYPOGRAPHY } from '@/shared/theme'
 import { useCartStore } from '@/modules/store/shared/cartStore'
 import { Badge } from '@/components/ui'
+import { usePendingOrdersAlert } from '@/modules/admin/hooks/usePendingOrdersAlert.hook'
 
 type NavItem = {
   label: string
   path: string
   icon: string
+  /**
+   * Caminho que mostra contagem ao vivo ao lado do rótulo.
+   *
+   * Marcado no item, e não no componente que desenha: quem lê a lista descobre ali que Pedidos tem
+   * sinal, sem precisar caçar um `if` no meio do JSX.
+   */
+  showsPendingOrders?: boolean
 }
 
 type NavSection = {
@@ -24,7 +32,7 @@ const ADMIN_SECTIONS: NavSection[] = [
     label: 'Loja',
     items: [
       { label: 'Produtos', path: '/admin/products', icon: '📦' },
-      { label: 'Pedidos', path: '/admin/orders', icon: '🛒' },
+      { label: 'Pedidos', path: '/admin/orders', icon: '🛒', showsPendingOrders: true },
       { label: 'Demanda', path: '/admin/demands', icon: '🔎' },
     ],
   },
@@ -47,6 +55,7 @@ const STORE_NAV: NavItem[] = [
 export function AdminLayout({ children }: { children: React.ReactNode }) {
   const { currentPath, navigate } = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const { pendingCount } = usePendingOrdersAlert()
 
   const isActive = (path: string) => currentPath.startsWith(path)
 
@@ -96,6 +105,13 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                   >
                     <span>{item.icon}</span>
                     <span>{item.label}</span>
+                    {/* Pedido esperando é trabalho parado: o número fica no menu, visível de qualquer
+                        tela do painel, e não só na de Pedidos. */}
+                    {item.showsPendingOrders && pendingCount > 0 && (
+                      <Badge variant="destructive" className="ml-auto">
+                        {pendingCount}
+                      </Badge>
+                    )}
                   </button>
                 ))}
 
