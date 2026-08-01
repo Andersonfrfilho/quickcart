@@ -83,6 +83,17 @@ export const RECEIPT_PREFERENCE_BUTTON_ID = {
   BOTH: 'both',
 } as const
 
+/**
+ * Atalho do cliente que já comprou: aceitar as escolhas da última vez, ou refazer uma por uma.
+ *
+ * Duas opções e não uma: aceitar por omissão (só "confirmar") esconderia a mudança de quem quer mudar,
+ * e o pedido erra em silêncio.
+ */
+export const REMEMBERED_CHECKOUT_BUTTON_ID = {
+  SAME_AS_LAST: 'same_as_last',
+  CHANGE_PREFERENCES: 'change_preferences',
+} as const
+
 export const CONFIRMING_BUTTON_ID = {
   CONFIRM: 'confirm_order',
   CANCEL: 'cancel_order',
@@ -175,6 +186,13 @@ export const MESSAGES = {
   EDITING_CART_ITEM_UPDATED: '✅ Atualizado!',
   EDITING_CART_ITEM_REMOVED: '🗑️ Item removido do carrinho.',
   EDITING_CART_UNEXPECTED_INPUT: 'Por favor, escolha um item da lista ou "Concluir edição" ☝️',
+  /**
+   * Pergunta única que substitui quatro, para quem já fechou pedido antes.
+   *
+   * Mostra o que vai valer ANTES de valer: memória sem transparência é o bot decidindo por conta
+   * própria, e um endereço antigo aplicado em silêncio entrega compra na casa errada.
+   */
+  CHECKOUT_SAME_AS_LAST: 'Da última vez foi assim:\n\n{resumo}\n\nMantenho igual?',
   CHECKOUT_ASK_DELIVERY_TYPE: 'Como você prefere receber seu pedido?',
   CHECKOUT_ASK_ADDRESS: '📍 Pode me mandar o endereço completo de entrega?',
   CHECKOUT_ASK_PAYMENT: 'Como você vai pagar?',
@@ -220,6 +238,11 @@ export const RECEIPT_PREFERENCE_BUTTONS = [
   { id: RECEIPT_PREFERENCE_BUTTON_ID.WHATSAPP, title: '📱 WhatsApp' },
   { id: RECEIPT_PREFERENCE_BUTTON_ID.EMAIL, title: '📧 E-mail' },
   { id: RECEIPT_PREFERENCE_BUTTON_ID.BOTH, title: '📱📧 Ambos' },
+] as const
+
+export const REMEMBERED_CHECKOUT_BUTTONS = [
+  { id: REMEMBERED_CHECKOUT_BUTTON_ID.SAME_AS_LAST, title: '✅ Isso mesmo' },
+  { id: REMEMBERED_CHECKOUT_BUTTON_ID.CHANGE_PREFERENCES, title: '✏️ Quero mudar' },
 ] as const
 
 export const CONFIRMING_BUTTONS = [

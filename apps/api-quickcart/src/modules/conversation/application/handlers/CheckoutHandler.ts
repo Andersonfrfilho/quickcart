@@ -32,6 +32,7 @@ import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInC
 import {
   CONFIRMING_BUTTON_ID,
   CONFIRMING_BUTTONS,
+  REMEMBERED_CHECKOUT_BUTTON_ID,
   DELIVERY_TYPE_BUTTON_ID,
   DELIVERY_TYPE_BUTTONS,
   MESSAGES,
@@ -54,6 +55,18 @@ export type CheckoutHandlerDependencies = {
   readonly productRepository: ProductRepositoryInterface
   readonly customerRepository: CustomerRepositoryInterface
   readonly createOrderFromCartUseCase: CreateOrderFromCartUseCase
+}
+
+/**
+ * Tira a memória do contexto depois de usada (ou recusada).
+ *
+ * Com `exactOptionalPropertyTypes`, atribuir `undefined` não é o mesmo que não ter a chave — e deixar a
+ * memória para trás faria a pergunta "mantenho igual?" reaparecer no meio do caminho longo.
+ */
+function withoutRememberedCheckout(context: ConversationContext): ConversationContext {
+  const next = { ...context }
+  delete (next as { rememberedCheckout?: unknown }).rememberedCheckout
+  return next
 }
 
 export class CheckoutHandler implements ConversationHandlerInterface {
@@ -81,11 +94,47 @@ export class CheckoutHandler implements ConversationHandlerInterface {
     }
   }
 
-  private async handleAwaitingDeliveryType({ session, message }: ConversationHandlerContext): Promise<void> {
+  private async handleAwaitingDeliveryType({ session, customer, message }: ConversationHandlerContext): Promise<void> {
     const checkoutContext = (session.context ?? {}) as ConversationContext
 
     if (message.kind !== 'button_reply') {
       await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_UNEXPECTED_INPUT)
+      return
+    }
+
+    const remembered = checkoutContext.rememberedCheckout
+
+    /**
+     * "Isso mesmo": aplica em bloco o que o cliente ACABOU de ler e vai direto à confirmação final.
+     *
+     * Os valores vêm do contexto, não de uma nova leitura do banco: entre a pergunta e a resposta ele
+     * viu um resumo, e aplicar algo diferente do que estava na tela trairia a confirmação. Ele ainda
+     * passa pela tela de confirmar/cancelar — este atalho corta as perguntas, não a última palavra.
+     */
+    if (remembered && message.buttonId === REMEMBERED_CHECKOUT_BUTTON_ID.SAME_AS_LAST) {
+      await this.enterConfirming(session, customer.id, {
+        ...withoutRememberedCheckout(checkoutContext),
+        checkoutDeliveryType: remembered.deliveryType,
+        ...(remembered.address !== undefined ? { checkoutAddress: remembered.address } : {}),
+        checkoutPaymentMethod: remembered.paymentMethod,
+        checkoutReceiptPreference: remembered.receiptPreference,
+        ...(remembered.email ? { checkoutEmail: remembered.email } : {}),
+      })
+      return
+    }
+
+    // "Quero mudar": volta ao caminho longo, e esquece a memória para não reoferecer no meio dele.
+    if (remembered && message.buttonId === REMEMBERED_CHECKOUT_BUTTON_ID.CHANGE_PREFERENCES) {
+      await this.dependencies.conversationSessionRepository.updateStateByPhone({
+        customerPhone: session.customerPhone,
+        currentState: CONVERSATION_STATE.AWAITING_DELIVERY_TYPE,
+        context: withoutRememberedCheckout(checkoutContext),
+      })
+      await this.dependencies.whatsAppSender.sendInteractiveButtons(
+        session.customerPhone,
+        MESSAGES.CHECKOUT_ASK_DELIVERY_TYPE,
+        DELIVERY_TYPE_BUTTONS,
+      )
       return
     }
 

@@ -50,4 +50,17 @@ export type ConversationContext = {
   readonly checkoutPaymentMethod?: string
   readonly checkoutReceiptPreference?: string
   readonly checkoutEmail?: string
+  /**
+   * Escolhas do último pedido, oferecidas em bloco no início do checkout.
+   *
+   * Fica no contexto da sessão e não é relida do banco ao confirmar: entre a pergunta e a resposta o
+   * cliente vê um resumo, e aplicar valor diferente do que ele leu seria trair a confirmação.
+   */
+  readonly rememberedCheckout?: {
+    readonly deliveryType: string
+    readonly address?: unknown
+    readonly paymentMethod: string
+    readonly receiptPreference: string
+    readonly email?: string
+  }
 }

@@ -255,6 +255,7 @@ type ConversationModuleDependencies = {
   readonly updateCartItemQuantityUseCase: UpdateCartItemQuantityUseCase
   readonly createOrderFromCartUseCase: CreateOrderFromCartUseCase
   readonly repeatLastOrderUseCase: RepeatLastOrderUseCase
+  readonly orderRepository: OrderRepositoryInterface
 }
 
 type ConversationModule = {
@@ -274,6 +275,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     updateCartItemQuantityUseCase,
     createOrderFromCartUseCase,
     repeatLastOrderUseCase,
+    orderRepository,
   } = dependencies
 
   const matchProductsUseCase = new MatchProductsUseCase(productRepository)
@@ -320,6 +322,8 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     productRepository,
     removeCartItemUseCase,
     updateCartItemQuantityUseCase,
+    // Reaproveita as escolhas do último pedido no checkout: quatro perguntas viram uma.
+    orderRepository,
   })
   const checkoutHandler = new CheckoutHandler({
     conversationSessionRepository,
@@ -533,6 +537,7 @@ const conversationModule = buildConversationModule({
   updateCartItemQuantityUseCase: cartModule.updateCartItemQuantityUseCase,
   createOrderFromCartUseCase: orderModule.createOrderFromCartUseCase,
   repeatLastOrderUseCase: orderModule.repeatLastOrderUseCase,
+  orderRepository: orderModule.orderRepository,
 })
 
 const webhookModule = buildWebhookModule({
