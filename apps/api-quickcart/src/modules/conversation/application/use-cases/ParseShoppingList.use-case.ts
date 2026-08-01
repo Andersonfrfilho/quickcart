@@ -34,6 +34,15 @@ const SPELLED_OUT_NUMBER = /^(meia\s+d[uú]zia|uma\s+d[uú]zia|tr[eê]s|duas|doi
 const BARE_COUNT_LEADING = /^(\d+)\s+(.+)$/
 const LEADING_PREPOSITION = /^(?:de|do|da)\s+/
 
+/**
+ * Pontuação no fim do termo, que a transcrição sempre traz: "…e um litro de leite." vira `leite.`
+ *
+ * Não é só estética — o termo vai para a pergunta de desambiguação ("mais de uma opção para
+ * 'leite.'") e para a lista do que não foi encontrado, e é usado no casamento contra o catálogo, onde
+ * um ponto a mais é diferença que não deveria existir.
+ */
+const TRAILING_PUNCTUATION = /[.,;:!?]+$/
+
 const SPELLED_NUMBER_QUANTITY: Record<string, number> = {
   um: 1,
   uma: 1,
@@ -72,7 +81,7 @@ function parseQuantity(rawQuantity: string): number {
 }
 
 function cleanTerm(rawTerm: string): string {
-  return rawTerm.trim().replace(LEADING_PREPOSITION, '').trim()
+  return rawTerm.trim().replace(LEADING_PREPOSITION, '').replace(TRAILING_PUNCTUATION, '').trim()
 }
 
 // Grupos de captura das regexes acima nunca são opcionais quando o match ocorre —
