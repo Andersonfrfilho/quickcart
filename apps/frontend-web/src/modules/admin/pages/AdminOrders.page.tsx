@@ -21,7 +21,6 @@ import {
 } from '@/components/ui'
 import { FilterRow } from '@/modules/admin/components/FilterRow'
 import { formatPhone } from '@adatechnology/conversations-ui'
-import { nextStatusesFor } from '@/modules/admin/shared/orderTransitions'
 import {
   ORDER_STATUS_LABELS,
   orderStatusBadgeClass,
@@ -318,8 +317,8 @@ export function AdminOrdersPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
-                        {/* Filtrado pelo tipo de entrega: "saiu para entrega" não existe em retirada. */}
-                        {nextStatusesFor({ status: order.status, deliveryType: order.deliveryType }).map((next) => (
+                        {/* A esteira vem do servidor, inclusive o filtro por tipo de entrega. */}
+                        {order.allowedNextStatuses.map((next) => (
                           <Button
                             key={next}
                             variant={next === 'cancelled' ? 'destructive' : 'outline'}

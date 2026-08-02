@@ -144,6 +144,14 @@ export interface OrderRepositoryInterface {
     readonly itemId: string
     readonly unavailable: boolean
   }): Promise<OrderDetail | undefined>
-  updateStatus(id: string, status: string): Promise<OrderRecord | undefined>
+  /**
+   * Muda o status, opcionalmente só se o atual for `expectedCurrentStatus`.
+   *
+   * A checagem vai para o `WHERE` porque validar em memória e gravar depois deixa uma janela entre as duas
+   * coisas: dois cliques (ou duas pessoas) leem o mesmo estado, os dois passam pela validação e o segundo
+   * sobrescreve o primeiro — cada um disparando uma mensagem ao cliente. Devolve `undefined` quando nada
+   * casou, e aí quem chamou sabe que alguém chegou antes.
+   */
+  updateStatus(id: string, status: string, expectedCurrentStatus?: string): Promise<OrderRecord | undefined>
   cancelAndRestoreStock(id: string): Promise<OrderRecord | undefined>
 }

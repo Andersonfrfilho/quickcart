@@ -10,6 +10,7 @@
 
 import type { RouteHandler } from '@/infra/http/router'
 import { requireAdminToken } from '@/infra/http/middlewares/requireAdminToken'
+import { allowedNextStatuses } from '@/modules/order/domain/orderStatusFlow'
 import type { GetAdminOrderDetailUseCase } from '@/modules/order/application/use-cases/GetAdminOrderDetail.use-case'
 import type { SetOrderItemUnavailableUseCase } from '@/modules/order/application/use-cases/SetOrderItemUnavailable.use-case'
 import type { NotifyUnavailableItemsUseCase } from '@/modules/order/application/use-cases/NotifyUnavailableItems.use-case'
@@ -37,6 +38,22 @@ type OrderControllerDependencies = {
   readonly notifyUnavailableItemsUseCase: NotifyUnavailableItemsUseCase
 }
 
+/**
+ * Acrescenta ao pedido os próximos passos válidos.
+ *
+ * A tela precisa desenhar botões, e a única forma de não existirem duas esteiras (uma no servidor, outra no
+ * front) é o servidor dizer quais são. Antes o front tinha o mapa próprio, e qualquer mudança de fluxo
+ * precisava ser feita nos dois lugares — divergir era questão de tempo.
+ */
+function withAllowedTransitions<TOrder extends { readonly status: string; readonly deliveryType: string }>(
+  order: TOrder,
+): TOrder & { readonly allowedNextStatuses: readonly string[] } {
+  return {
+    ...order,
+    allowedNextStatuses: allowedNextStatuses({ status: order.status, deliveryType: order.deliveryType }),
+  }
+}
+
 export class OrderController {
   constructor(private readonly dependencies: OrderControllerDependencies) {}
 
@@ -62,14 +79,17 @@ export class OrderController {
     requireAdminToken(request)
     const query = validateQuery(listOrdersQuerySchema, request.query)
     const result = await this.dependencies.listOrdersUseCase.execute(query)
-    response.json(200, { data: result.items, pagination: { total: result.total, page: result.page, perPage: result.perPage } })
+    response.json(200, {
+      data: result.items.map(withAllowedTransitions),
+      pagination: { total: result.total, page: result.page, perPage: result.perPage },
+    })
   }
 
   handleGetAdminDetail: RouteHandler = async (request, response) => {
     requireAdminToken(request)
     const id = request.params[0] ?? ''
     const detail = await this.dependencies.getAdminOrderDetailUseCase.execute({ orderId: id })
-    response.json(200, { data: { ...detail.order, items: detail.items } })
+    response.json(200, { data: { ...withAllowedTransitions(detail.order), items: detail.items } })
   }
 
   handleSetItemUnavailable: RouteHandler = async (request, response) => {
@@ -80,7 +100,7 @@ export class OrderController {
     const { unavailable } = validateBody(setOrderItemUnavailableBodySchema, request.body)
 
     const detail = await this.dependencies.setOrderItemUnavailableUseCase.execute({ orderId, itemId, unavailable })
-    response.json(200, { data: { ...detail.order, items: detail.items } })
+    response.json(200, { data: { ...withAllowedTransitions(detail.order), items: detail.items } })
   }
 
   handleNotifyUnavailableItems: RouteHandler = async (request, response) => {
@@ -91,7 +111,7 @@ export class OrderController {
     // `notifiedCount` no corpo para a tela dizer o que aconteceu: zero significa que não havia nada novo,
     // e um "avisado!" nesse caso seria mentira.
     response.json(200, {
-      data: { ...result.detail.order, items: result.detail.items },
+      data: { ...withAllowedTransitions(result.detail.order), items: result.detail.items },
       meta: { notifiedCount: result.notifiedCount },
     })
   }

@@ -71,6 +71,24 @@ function buildPreviewItems(): OrderItem[] {
 
 const PREVIEW_ITEMS = buildPreviewItems()
 
+/**
+ * O que o SERVIDOR responderia em `allowedNextStatuses`, espelhado aqui só para o preview funcionar.
+ *
+ * É mock, não regra: a esteira de verdade vive em `apps/api-quickcart/.../orderStatusFlow.ts` e é ela que
+ * decide. Se este espelho divergir, quem quebra é o preview — a tela real desenha o que a API mandar.
+ */
+function previewAllowedNextStatuses(status: string, deliveryType: string): readonly string[] {
+  const byStatus: Record<string, readonly string[]> = {
+    pending_confirmation: ['confirmed', 'cancelled'],
+    confirmed: ['preparing', 'cancelled'],
+    preparing: ['separated', 'cancelled'],
+    separated: [deliveryType === 'pickup' ? 'ready_for_pickup' : 'out_for_delivery', 'cancelled'],
+    out_for_delivery: ['completed'],
+    ready_for_pickup: ['completed'],
+  }
+  return byStatus[status] ?? []
+}
+
 const PREVIEW_ORDER: OrderDetail = {
   id: 'preview-order',
   shortCode: 'QC-1042',
@@ -87,6 +105,7 @@ const PREVIEW_ORDER: OrderDetail = {
   createdAt: new Date(Date.now() - 62 * 60 * 1000).toISOString(),
   totalInCents: PREVIEW_ITEMS.reduce((total, item) => total + item.totalInCents, 0),
   items: PREVIEW_ITEMS,
+  allowedNextStatuses: [],
 }
 
 export function OrderDetailPreviewPage() {
@@ -133,6 +152,7 @@ export function OrderDetailPreviewPage() {
     ...PREVIEW_ORDER,
     status: status as OrderDetail['status'],
     deliveryType: deliveryType as OrderDetail['deliveryType'],
+    allowedNextStatuses: previewAllowedNextStatuses(status, deliveryType),
     // Retirada não tem endereço: mostrar um faria a tela ensinar errado.
     address: deliveryType === 'pickup' ? null : PREVIEW_ORDER.address,
     items,

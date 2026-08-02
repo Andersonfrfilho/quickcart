@@ -1,7 +1,7 @@
 import { formatPhone } from '@adatechnology/conversations-ui'
 import { ORDER_URGENCY, formatWaitingFor, resolveOrderUrgency } from '@/modules/admin/shared/orderUrgency'
 import { Badge, Button, Card, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui'
-import { PICKING_STATE, nextStatusesFor, resolvePickingState } from '@/modules/admin/shared/orderTransitions'
+import { PICKING_STATE, resolvePickingState } from '@/modules/admin/shared/orderTransitions'
 import { orderStatusBadgeClass, orderStatusLabel } from '@/modules/admin/shared/orderStatusStyle'
 import { ORDER_STATUS, type OrderDetail, type OrderItem } from '@/shared/api/api.types'
 
@@ -134,7 +134,8 @@ export function OrderDetailView({
     (item) => item.unavailableAt !== null && item.unavailableNotifiedAt === null,
   )
   /** Só oferece o passo que a esteira permite: em pedido já separado ou entregue, o convite seria ruído. */
-  const nextStatuses = nextStatusesFor({ status: order.status, deliveryType: order.deliveryType })
+  // Vem do servidor: a tela não decide mais o que é transição válida, só desenha o que ele permite.
+  const nextStatuses = order.allowedNextStatuses
   const pickingState = resolvePickingState(order.status)
   const isPickingLocked = pickingState !== PICKING_STATE.UNLOCKED
   const startPickingStatus = nextStatuses.find((next) => next === ORDER_STATUS.CONFIRMED || next === ORDER_STATUS.PREPARING)

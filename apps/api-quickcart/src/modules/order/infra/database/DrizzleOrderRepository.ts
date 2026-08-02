@@ -319,8 +319,12 @@ export class DrizzleOrderRepository implements OrderRepositoryInterface {
     return this.findDetailById(params.orderId)
   }
 
-  async updateStatus(id: string, status: string): Promise<OrderRecord | undefined> {
-    const [order] = await db.update(orders).set({ status, updatedAt: new Date() }).where(eq(orders.id, id)).returning()
+  async updateStatus(id: string, status: string, expectedCurrentStatus?: string): Promise<OrderRecord | undefined> {
+    const where = expectedCurrentStatus
+      ? and(eq(orders.id, id), eq(orders.status, expectedCurrentStatus))
+      : eq(orders.id, id)
+
+    const [order] = await db.update(orders).set({ status, updatedAt: new Date() }).where(where).returning()
     return order ? toOrderRecord(order) : undefined
   }
 

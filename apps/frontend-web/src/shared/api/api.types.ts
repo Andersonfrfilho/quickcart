@@ -109,6 +109,14 @@ export type Order = {
   readonly deliveryType: DeliveryType
   readonly paymentMethod: PaymentMethod
   readonly createdAt: string
+  /**
+   * Próximos passos válidos, decididos pelo SERVIDOR.
+   *
+   * A tela desenhava botões a partir de um mapa próprio, que era a segunda cópia da esteira — e a rota
+   * aceitava qualquer status, então o mapa do front era o único guarda-corpo. Agora quem manda é a API, e a
+   * tela só desenha o que ela permite.
+   */
+  readonly allowedNextStatuses: readonly string[]
 }
 
 export type OrderItem = {
