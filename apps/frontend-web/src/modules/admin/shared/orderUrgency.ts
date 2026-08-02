@@ -60,3 +60,29 @@ export function formatWaitingFor(createdAt: string, now: number): string {
 
   return `há ${Math.floor(hours / 24)} d`
 }
+
+/**
+ * Horário do pedido, com a data só quando não é de hoje.
+ *
+ * O relativo responde "esperando há quanto tempo"; este responde "que horas chegou", que é o que vai
+ * para o caderno, para o telefonema com o cliente e para a conferência do turno. Os dois juntos porque
+ * são perguntas diferentes, e esconder o horário exato num `title` é o mesmo que não ter — ninguém
+ * descobre tooltip numa tela de trabalho.
+ *
+ * Repetir "01/08/2026" em toda linha de um dia movimentado só gasta a largura que o nome do produto
+ * precisa; a data aparece quando muda o dia, que é quando ela informa algo.
+ */
+export function formatReceivedAt(createdAt: string, now: number): string {
+  const date = new Date(createdAt)
+  const time = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+
+  const today = new Date(now)
+  const isSameDay =
+    date.getDate() === today.getDate() &&
+    date.getMonth() === today.getMonth() &&
+    date.getFullYear() === today.getFullYear()
+
+  if (isSameDay) return time
+
+  return `${date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} ${time}`
+}

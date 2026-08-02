@@ -2,6 +2,7 @@ import React from 'react'
 import { useAdminOrdersPage } from '@/modules/admin/hooks/useAdminOrdersPage.hook'
 import {
   ORDER_URGENCY,
+  formatReceivedAt,
   formatWaitingFor,
   resolveOrderUrgency,
   type OrderUrgency,
@@ -18,6 +19,7 @@ import {
   TableCell,
   SortableTableHead,
 } from '@/components/ui'
+import { formatPhone } from '@adatechnology/conversations-ui'
 import type { OrderSortableField } from '@/shared/api/api.types'
 
 const STATUS_LABELS: Record<string, string> = {
@@ -250,12 +252,21 @@ export function AdminOrdersPage() {
                     </TableCell>
                     <TableCell>
                       <span className="font-medium">{order.customerName ?? 'Sem nome'}</span>
-                      <span className="block text-xs text-muted-foreground">{order.customerPhone}</span>
+                      {/* Formatado pelo mesmo `formatPhone` da inbox: número cru obriga o operador a
+                          contar dígitos para achar o DDD, e duas formatações diferentes no mesmo painel
+                          fazem o mesmo cliente parecer dois. */}
+                      <span className="block text-xs tabular-nums text-muted-foreground">
+                        {formatPhone(order.customerPhone)}
+                      </span>
                     </TableCell>
                     <TableCell>
-                      {/* Relativo na célula, exato no title: a pergunta é "esperando há quanto tempo", e
-                          o horário cheio só importa na hora de registrar. */}
+                      {/* Os dois: o relativo responde "esperando há quanto tempo" e o horário responde
+                          "que horas chegou" — perguntas diferentes, e a segunda é a que vai para o
+                          caderno e para o telefonema. Data completa fica no title. */}
                       <span title={formatFullDateTime(order.createdAt)}>{formatWaitingFor(order.createdAt, now)}</span>
+                      <span className="block text-xs tabular-nums text-muted-foreground">
+                        {formatReceivedAt(order.createdAt, now)}
+                      </span>
                       {urgency === ORDER_URGENCY.LATE && (
                         <span className="block text-xs font-medium text-destructive">sem confirmação</span>
                       )}

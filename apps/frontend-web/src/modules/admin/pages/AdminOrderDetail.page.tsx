@@ -1,5 +1,6 @@
 import { useAdminOrderDetailPage } from '@/modules/admin/hooks/useAdminOrderDetailPage.hook'
 import { formatWaitingFor } from '@/modules/admin/shared/orderUrgency'
+import { formatPhone } from '@adatechnology/conversations-ui'
 import { Badge, Button, Card, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui'
 
 const STATUS_LABELS: Record<string, string> = {
@@ -106,10 +107,9 @@ export function AdminOrderDetailPage() {
               </Badge>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              {order.customerName ?? 'Sem nome'} · {order.customerPhone} · recebido{' '}
-              <span title={new Date(order.createdAt).toLocaleString('pt-BR')}>
-                {formatWaitingFor(order.createdAt, Date.now())}
-              </span>
+              {order.customerName ?? 'Sem nome'} · {formatPhone(order.customerPhone)} · recebido em{' '}
+              <span className="tabular-nums">{new Date(order.createdAt).toLocaleString('pt-BR')}</span>{' '}
+              <span className="text-xs">({formatWaitingFor(order.createdAt, Date.now())})</span>
             </p>
           </div>
 
