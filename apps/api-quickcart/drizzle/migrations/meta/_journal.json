@@ -71,6 +71,13 @@
       "when": 1784464061867,
       "tag": "0009_order_items_unavailable_notified",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784464062867,
+      "tag": "0010_structured_address",
+      "breakpoints": true
     }
   ]
 }

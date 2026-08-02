@@ -8,7 +8,7 @@
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  */
 
-import { pgTable, uuid, varchar, jsonb, timestamp } from 'drizzle-orm/pg-core'
+import { pgTable, uuid, varchar, jsonb, text, timestamp } from 'drizzle-orm/pg-core'
 
 export const customers = pgTable('customers', {
   id: uuid('id').primaryKey(),
@@ -16,6 +16,8 @@ export const customers = pgTable('customers', {
   name: varchar('name', { length: 120 }),
   email: varchar('email', { length: 160 }),
   defaultAddress: jsonb('default_address'),
+  /** Mesma razão de `orders.legacyAddressText`: nenhum endereço de cliente é reescrito por heurística. */
+  legacyAddressText: text('legacy_address_text'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })

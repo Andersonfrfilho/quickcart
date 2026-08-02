@@ -34,7 +34,16 @@ class FakeCustomerRepository implements CustomerRepositoryInterface {
   }
 
   async upsertByPhone(params: UpsertCustomerByPhoneParams): Promise<Customer> {
-    return { id: 'customer-1', phone: params.phone, name: params.name ?? null, email: null, defaultAddress: null, createdAt: new Date(), updatedAt: new Date() }
+    return {
+      id: 'customer-1',
+      phone: params.phone,
+      name: params.name ?? null,
+      email: null,
+      defaultAddress: null,
+      legacyAddressText: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
   }
 
   async updateContactInfo(params: UpdateContactInfoParams): Promise<Customer> {
@@ -44,6 +53,7 @@ class FakeCustomerRepository implements CustomerRepositoryInterface {
       name: null,
       email: params.email ?? null,
       defaultAddress: params.defaultAddress ?? null,
+      legacyAddressText: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -154,6 +164,7 @@ describe('GetOrderByShortCodeUseCase', () => {
       name: 'Maria',
       email: null,
       defaultAddress: null,
+      legacyAddressText: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -176,6 +187,7 @@ describe('GetOrderByShortCodeUseCase', () => {
       name: 'Maria',
       email: null,
       defaultAddress: null,
+      legacyAddressText: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
