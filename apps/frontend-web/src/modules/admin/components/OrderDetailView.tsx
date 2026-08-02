@@ -1,7 +1,7 @@
 import { formatPhone } from '@adatechnology/conversations-ui'
 import { ORDER_URGENCY, formatWaitingFor, resolveOrderUrgency } from '@/modules/admin/shared/orderUrgency'
 import { Badge, Button, Card, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui'
-import { nextStatusesFor } from '@/modules/admin/shared/orderTransitions'
+import { PICKING_STATE, nextStatusesFor, resolvePickingState } from '@/modules/admin/shared/orderTransitions'
 import { ORDER_STATUS, type OrderDetail, type OrderItem } from '@/shared/api/api.types'
 
 const STATUS_LABELS: Record<string, string> = {
@@ -117,6 +117,9 @@ export function OrderDetailView({
   const availableItems = items.filter((item) => item.unavailableAt === null)
   /** Só oferece o passo que a esteira permite: em pedido já separado ou entregue, o convite seria ruído. */
   const nextStatuses = nextStatusesFor({ status: order.status, deliveryType: order.deliveryType })
+  const pickingState = resolvePickingState(order.status)
+  const isPickingLocked = pickingState !== PICKING_STATE.UNLOCKED
+  const startPickingStatus = nextStatuses.find((next) => next === ORDER_STATUS.CONFIRMED || next === ORDER_STATUS.PREPARING)
   const canMarkSeparated = nextStatuses.includes(ORDER_STATUS.SEPARATED)
   const unavailableCount = items.length - availableItems.length
   const isPickingDone = availableItems.length > 0 && pickedCount >= availableItems.length
@@ -266,7 +269,7 @@ export function OrderDetailView({
         faria um toque errado no último item avisar o cliente de que a compra está pronta. Um toque a
         mais aqui é barato; desfazer um aviso não é.
       */}
-      {isPickingDone && canMarkSeparated && (
+      {isPickingDone && canMarkSeparated && !isPickingLocked && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/40 bg-primary/5 p-4 print:hidden">
           <div>
             <p className="font-semibold">Tudo separado ✅</p>
@@ -285,32 +288,43 @@ export function OrderDetailView({
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h2 className="text-lg font-semibold">Itens para separar</h2>
-            <p className="text-sm text-muted-foreground">
-              <span className="font-semibold tabular-nums text-foreground">
-                {pickedCount}/{availableItems.length}
-              </span>{' '}
-              separados · {progressPercent}%
-              {isPickingDone && ' — tudo pronto ✅'}
-            </p>
+            <h2 className="text-lg font-semibold">
+              {pickingState === PICKING_STATE.UNLOCKED ? 'Itens para separar' : 'Itens do pedido'}
+            </h2>
+            {isPickingLocked ? (
+              <p className="text-sm text-muted-foreground">
+                {availableItems.length} {availableItems.length === 1 ? 'item' : 'itens'}
+                {unavailableCount > 0 && ` · ${unavailableCount} em falta`}
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                <span className="font-semibold tabular-nums text-foreground">
+                  {pickedCount}/{availableItems.length}
+                </span>{' '}
+                separados · {progressPercent}%
+                {isPickingDone && ' — tudo pronto ✅'}
+              </p>
+            )}
           </div>
 
           <div className="flex flex-wrap gap-2 print:hidden">
-            {/* Só quando falta algo: com tudo marcado, o botão viraria enfeite. */}
-            {!isPickingDone && (
+            {/* Ferramentas de separação só existem quando há separação em andamento. */}
+            {!isPickingLocked && !isPickingDone && (
               <Button variant="outline" size="sm" onClick={onPickAll}>
                 Marcar todos
               </Button>
             )}
-            <Button
-              variant={hidePickedItems ? 'default' : 'outline'}
-              size="sm"
-              aria-pressed={hidePickedItems}
-              onClick={() => onToggleHidePicked(!hidePickedItems)}
-            >
-              Esconder separados
-            </Button>
-            {pickedCount > 0 && (
+            {!isPickingLocked && (
+              <Button
+                variant={hidePickedItems ? 'default' : 'outline'}
+                size="sm"
+                aria-pressed={hidePickedItems}
+                onClick={() => onToggleHidePicked(!hidePickedItems)}
+              >
+                Esconder separados
+              </Button>
+            )}
+            {!isPickingLocked && pickedCount > 0 && (
               <Button variant="ghost" size="sm" onClick={onClearPicked}>
                 Limpar marcações
               </Button>
@@ -322,6 +336,7 @@ export function OrderDetailView({
           `<progress>` nativo em vez de duas divs com largura calculada: já é anunciado como barra de
           progresso pelo leitor de tela e a proporção sai por atributo, sem estilo inline.
         */}
+        {!isPickingLocked && (
         <progress
           className="picking-progress print:hidden"
           value={pickedCount}
@@ -330,6 +345,7 @@ export function OrderDetailView({
         >
           {progressPercent}%
         </progress>
+        )}
 
         {/*
           Lista, e não tabela de planilha.
@@ -339,6 +355,31 @@ export function OrderDetailView({
           do toque: no corredor, com celular na mão, mirar um quadradinho de vinte pixels é o que faz
           a pessoa desistir de marcar.
         */}
+        {/*
+          Explica o bloqueio e oferece a saída no mesmo lugar.
+          Lista desabilitada sem explicação lê como tela quebrada — e o botão que destrava estava só no
+          cabeçalho, longe de onde a pessoa tentou tocar.
+        */}
+        {pickingState === PICKING_STATE.NOT_STARTED && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed bg-muted/40 p-4 print:hidden">
+            <p className="text-sm">
+              A separação ainda não começou, então os itens estão só para leitura.
+            </p>
+            {startPickingStatus && (
+              <Button size="sm" disabled={isUpdatingStatus} onClick={() => onUpdateStatus(startPickingStatus)}>
+                {STATUS_ACTION_LABELS[startPickingStatus] ?? STATUS_LABELS[startPickingStatus]}
+              </Button>
+            )}
+          </div>
+        )}
+
+        {pickingState === PICKING_STATE.CLOSED && (
+          <p className="text-sm text-muted-foreground print:hidden">
+            {/* Sem botão aqui de propósito: não há o que destravar depois que a sacola saiu. */}
+            Este pedido já saiu da loja, então a marcação de separação está encerrada.
+          </p>
+        )}
+
         <ul className="divide-y rounded-lg border bg-card">
           {visibleItems.length === 0 && (
             <li className="p-4 text-sm text-muted-foreground">
@@ -356,7 +397,7 @@ export function OrderDetailView({
                 key={item.id}
                 className={`flex items-center gap-3 px-3 py-2.5 transition-colors ${
                   isUnavailable ? 'bg-destructive/5' : 'hover:bg-accent/50'
-                } ${isPicked && !isUnavailable ? 'opacity-55' : ''}`}
+                } ${isPicked && !isUnavailable && !isPickingLocked ? 'opacity-55' : ''}`}
               >
                 {/*
                   O rótulo cobre só o que marca "separado" — o botão de falta fica fora dele, senão
@@ -364,16 +405,16 @@ export function OrderDetailView({
                 */}
                 <label
                   className={`flex min-w-0 flex-1 items-center gap-3 ${
-                    isUnavailable ? '' : 'cursor-pointer'
+                    isUnavailable || isPickingLocked ? '' : 'cursor-pointer'
                   }`}
                 >
                   <input
                     type="checkbox"
                     checked={isPicked && !isUnavailable}
-                    disabled={isUnavailable}
+                    disabled={isUnavailable || isPickingLocked}
                     onChange={() => onTogglePicked(item.id)}
                     aria-label={`Marcar ${item.productName} como separado`}
-                    className="h-6 w-6 shrink-0 print:hidden"
+                    className={`h-6 w-6 shrink-0 print:hidden ${isPickingLocked ? 'invisible' : ''}`}
                   />
 
                   {/* Quantidade em bloco fixo: com números alinhados, a coluna vira régua de conferência. */}
@@ -387,7 +428,11 @@ export function OrderDetailView({
                       Risco só no NOME, nunca no preço: item separado continua valendo o que vale, e
                       riscar valor sugere desconto ou remoção.
                     */}
-                    <span className={`font-medium ${isPicked || isUnavailable ? 'line-through' : ''}`}>
+                    <span
+                      className={`font-medium ${
+                        (isPicked && !isPickingLocked) || isUnavailable ? 'line-through' : ''
+                      }`}
+                    >
                       {item.productName}
                     </span>
                     {isUnavailable && (
@@ -414,15 +459,21 @@ export function OrderDetailView({
                   pedido e manda mensagem ao cliente. Fica discreta para não competir com o gesto que
                   se repete trinta vezes, e nomeada pelo que faz.
                 */}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={isPendingUnavailable}
-                  onClick={() => onSetUnavailable({ itemId: item.id, unavailable: !isUnavailable })}
-                  className={`shrink-0 print:hidden ${isUnavailable ? '' : 'text-destructive hover:bg-destructive/10 hover:text-destructive'}`}
-                >
-                  {isPendingUnavailable ? '…' : isUnavailable ? 'Tem sim' : 'Não tem'}
-                </Button>
+                {/*
+                  "Não tem" só durante a separação: antes dela, ninguém foi ao corredor conferir; depois
+                  que a sacola saiu, avisar o cliente de falta não muda mais o que ele recebeu.
+                */}
+                {!isPickingLocked && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={isPendingUnavailable}
+                    onClick={() => onSetUnavailable({ itemId: item.id, unavailable: !isUnavailable })}
+                    className={`shrink-0 print:hidden ${isUnavailable ? '' : 'text-destructive hover:bg-destructive/10 hover:text-destructive'}`}
+                  >
+                    {isPendingUnavailable ? '…' : isUnavailable ? 'Tem sim' : 'Não tem'}
+                  </Button>
+                )}
               </li>
             )
           })}

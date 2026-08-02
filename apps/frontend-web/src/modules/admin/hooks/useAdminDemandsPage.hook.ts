@@ -4,7 +4,7 @@ import { useUrlQueryState } from '@/shared/hooks/useUrlQueryState.hook'
 import { useAdminDemandsQuery } from '@/modules/admin/shared/queries/useAdminDemands.query'
 import { useAdminProductsQuery } from '@/modules/admin/shared/queries/useAdminProducts.query'
 import { useAddProductAliasMutation } from '@/modules/admin/shared/mutations/useAddProductAlias.mutation'
-import type { Product, UnmatchedDemand } from '@/shared/api/api.types'
+import type { Product, SortDirection, UnmatchedDemand, UnmatchedDemandSortableField } from '@/shared/api/api.types'
 
 const DEMANDS_LIMIT = 30
 const DEFAULT_WINDOW_DAYS = 90
@@ -18,6 +18,16 @@ const DEFAULT_WINDOW_DAYS = 90
  */
 const PRODUCTS_FOR_PICKER = 100
 
+/**
+ * Clientes distintos primeiro, do maior para o menor.
+ *
+ * É o número que decide passar a vender: dez pedidos de uma pessoa são um gosto pessoal, dez pessoas
+ * pedindo uma vez são prateleira vazia. Qualquer outra ordem de abertura enterraria a linha que mais
+ * importa no meio da lista.
+ */
+const DEFAULT_SORT_BY: UnmatchedDemandSortableField = 'customerCount'
+const DEFAULT_SORT_DIRECTION: SortDirection = 'desc'
+
 /** Quanto tempo a demanda olha para trás. Rótulos curtos porque viram botões. */
 export const DEMAND_WINDOWS = [
   { days: 30, label: '30 dias' },
@@ -25,13 +35,28 @@ export const DEMAND_WINDOWS = [
   { days: 365, label: '1 ano' },
 ] as const
 
+function parseCsvParam(value: string | null): string[] {
+  return value?.split(',').filter(Boolean) ?? []
+}
+
 export function useAdminDemandsPage() {
   const token = useRequireAdmin()
   const { searchParams, setQueryParams } = useUrlQueryState()
 
   const windowDays = Number(searchParams.get('windowDays') ?? String(DEFAULT_WINDOW_DAYS))
+  const sourceFilter = parseCsvParam(searchParams.get('source'))
+  const search = searchParams.get('search') ?? ''
+  const sortBy = (searchParams.get('sortBy') as UnmatchedDemandSortableField | null) ?? DEFAULT_SORT_BY
+  const sortDirection = (searchParams.get('sortDirection') as SortDirection | null) ?? DEFAULT_SORT_DIRECTION
 
-  const { data, isLoading } = useAdminDemandsQuery(token, { limit: DEMANDS_LIMIT, windowDays })
+  const { data, isLoading } = useAdminDemandsQuery(token, {
+    limit: DEMANDS_LIMIT,
+    windowDays,
+    source: sourceFilter,
+    search,
+    sortBy,
+    sortDirection,
+  })
   const { data: productsData } = useAdminProductsQuery(token, { page: 1, perPage: PRODUCTS_FOR_PICKER })
   const addAliasMutation = useAddProductAliasMutation(token)
 
@@ -50,6 +75,19 @@ export function useAdminDemandsPage() {
       .filter((product) => `${product.name} ${product.brand ?? ''}`.toLowerCase().includes(query))
       .slice(0, 8)
   }, [products, productSearch])
+
+  /**
+   * A janela conta como filtro aplicado.
+   *
+   * Ela recorta o mesmo relatório e é a causa mais comum de "sumiu uma linha" — deixá-la fora do
+   * "limpar" faria o lojista limpar tudo e continuar olhando 30 dias sem entender por quê.
+   */
+  const hasFiltersApplied =
+    sourceFilter.length > 0 ||
+    search.trim().length > 0 ||
+    sortBy !== DEFAULT_SORT_BY ||
+    sortDirection !== DEFAULT_SORT_DIRECTION ||
+    windowDays !== DEFAULT_WINDOW_DAYS
 
   function openAliasPicker(demand: UnmatchedDemand) {
     setAliasTargetTerm(demand.term)
@@ -77,6 +115,45 @@ export function useAdminDemandsPage() {
     setQueryParams({ windowDays: String(days) })
   }
 
+  function toggleSourceFilter(value: string) {
+    const next = sourceFilter.includes(value)
+      ? sourceFilter.filter((entry) => entry !== value)
+      : [...sourceFilter, value]
+    setQueryParams({ source: next.length > 0 ? next.join(',') : undefined })
+  }
+
+  function setSearch(nextSearch: string) {
+    setQueryParams({ search: nextSearch.trim().length > 0 ? nextSearch : undefined })
+  }
+
+  function clearFilters() {
+    setQueryParams({
+      source: undefined,
+      search: undefined,
+      sortBy: undefined,
+      sortDirection: undefined,
+      windowDays: undefined,
+    })
+  }
+
+  /**
+   * Terceiro clique volta ao padrão, em vez de alternar asc/desc para sempre.
+   *
+   * Sem o estado neutro não há como voltar à ordem por clientes depois de espiar por data — e é a ordem
+   * por clientes que responde à pergunta que trouxe o lojista até aqui.
+   */
+  function handleSort(field: UnmatchedDemandSortableField) {
+    if (sortBy !== field) {
+      setQueryParams({ sortBy: field, sortDirection: 'asc' })
+      return
+    }
+    if (sortDirection === 'asc') {
+      setQueryParams({ sortDirection: 'desc' })
+      return
+    }
+    setQueryParams({ sortBy: undefined, sortDirection: undefined })
+  }
+
   return {
     token,
     demands: data?.data ?? [],
@@ -84,6 +161,15 @@ export function useAdminDemandsPage() {
     isLoading,
     windowDays,
     setWindowDays,
+    sourceFilter,
+    toggleSourceFilter,
+    search,
+    setSearch,
+    sortBy,
+    sortDirection,
+    handleSort,
+    hasFiltersApplied,
+    clearFilters,
     aliasTargetTerm,
     openAliasPicker,
     closeAliasPicker,

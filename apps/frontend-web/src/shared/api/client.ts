@@ -130,19 +130,24 @@ export type UnmatchedDemandsResponse = {
   readonly meta: { readonly windowDays: number; readonly since: string }
 }
 
+/** Lista vazia vira `undefined`: mandar `status=` sem valor faria o servidor filtrar por nada. */
+function toCsvParam(values: string[] | undefined): string | undefined {
+  return values && values.length > 0 ? values.join(',') : undefined
+}
+
 export async function adminListUnmatchedDemands(
   token: string,
   params: ListUnmatchedDemandsParams = {},
 ): Promise<UnmatchedDemandsResponse> {
+  const { source, search, ...rest } = params
   return apiClient.get('/v1/admin/demands/unmatched', {
     headers: { Authorization: `Bearer ${token}` },
-    params,
+    params: {
+      ...rest,
+      source: toCsvParam(source),
+      search: search && search.trim().length > 0 ? search.trim() : undefined,
+    },
   })
-}
-
-/** Lista vazia vira `undefined`: mandar `status=` sem valor faria o servidor filtrar por nada. */
-function toCsvParam(values: string[] | undefined): string | undefined {
-  return values && values.length > 0 ? values.join(',') : undefined
 }
 
 export async function adminListOrders(token: string, params: ListAdminOrdersParams = {}): Promise<ApiListResponse<Order>> {
