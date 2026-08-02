@@ -12,6 +12,7 @@ import { AdminOrdersPage } from '@/modules/admin/pages/AdminOrders.page'
 import { AdminDemandsPage } from '@/modules/admin/pages/AdminDemands.page'
 import { AdminOrderDetailPage } from '@/modules/admin/pages/AdminOrderDetail.page'
 import { OrderDetailPreviewPage } from '@/modules/preview/pages/OrderDetailPreview.page'
+import { OrdersPreviewPage } from '@/modules/preview/pages/OrdersPreview.page'
 import { AdminConversationsPage } from '@/modules/conversations/pages/AdminConversations.page'
 import { AdminDocumentsPage } from '@/modules/conversations/pages/AdminDocuments.page'
 import { AdminMessagesPage } from '@/modules/messages/pages/AdminMessages.page'
@@ -53,6 +54,8 @@ const previewRoutes = IS_PREVIEW_ENABLED
       { path: '/preview/agent', component: standalone(AgentPreviewPage) },
       // Tela de pedido com dado de mentira: é onde o desenho é ajustado, com lista longa e sem sessão.
       { path: '/preview/order', component: standalone(OrderDetailPreviewPage) },
+      // A lista: urgência, cliente sem nome, nome comprido e os dois estados vazios, sem esperar a base.
+      { path: '/preview/orders', component: standalone(OrdersPreviewPage) },
     ]
   : []
 

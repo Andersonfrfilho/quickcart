@@ -1,51 +1,11 @@
 import React from 'react'
 import { useAdminOrdersPage } from '@/modules/admin/hooks/useAdminOrdersPage.hook'
-import {
-  ORDER_URGENCY,
-  formatReceivedAt,
-  formatWaitingFor,
-  resolveOrderUrgency,
-  type OrderUrgency,
-} from '@/modules/admin/shared/orderUrgency'
-import {
-  Button,
-  Badge,
-  Input,
-  Table,
-  TableHeader,
-  TableBody,
-  TableRow,
-  TableHead,
-  TableCell,
-  SortableTableHead,
-} from '@/components/ui'
+import { Button, Input } from '@/components/ui'
 import { FilterRow } from '@/modules/admin/components/FilterRow'
-import { formatPhone } from '@adatechnology/conversations-ui'
-import {
-  ORDER_STATUS_LABELS,
-  orderStatusBadgeClass,
-  orderStatusLabel,
-} from '@/modules/admin/shared/orderStatusStyle'
+import { OrdersTableView } from '@/modules/admin/components/OrdersTableView'
+import { DELIVERY_LABELS, PAYMENT_LABELS } from '@/modules/admin/shared/orderLabels'
+import { ORDER_STATUS_LABELS, orderStatusLabel } from '@/modules/admin/shared/orderStatusStyle'
 import { AppliedFilterPills, type AppliedFilter } from '@/modules/admin/components/AppliedFilterPills'
-import type { OrderSortableField } from '@/shared/api/api.types'
-
-
-
-
-const DELIVERY_LABELS: Record<string, string> = { delivery: '🚚 Entrega', pickup: '🏪 Retirada' }
-const PAYMENT_LABELS: Record<string, string> = {
-  pix: '💳 Pix',
-  card_on_delivery: '💳 Cartão na entrega',
-  cash: '💵 Dinheiro',
-}
-
-/** Só a linha que precisa chamar atenção carrega classe; as outras não ganham estilo à toa. */
-const URGENCY_ROW_CLASS: Record<OrderUrgency, string> = {
-  [ORDER_URGENCY.LATE]: 'order-row-late',
-  [ORDER_URGENCY.ATTENTION]: 'order-row-attention',
-  [ORDER_URGENCY.FRESH]: '',
-  [ORDER_URGENCY.HANDLED]: '',
-}
 
 /** Nome da coluna na pill de ordenação: "Ordem: Recebido ↑" lê melhor que "Ordem: createdAt ↑". */
 const SORT_LABELS: Record<string, string> = {
@@ -54,15 +14,6 @@ const SORT_LABELS: Record<string, string> = {
   status: 'Situação',
 }
 
-const COLUMN_COUNT = 8
-
-function formatMoney(totalInCents: number): string {
-  return (totalInCents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-}
-
-function formatFullDateTime(isoDate: string): string {
-  return new Date(isoDate).toLocaleString('pt-BR')
-}
 
 export function AdminOrdersPage() {
   const {
@@ -102,10 +53,6 @@ export function AdminOrdersPage() {
   React.useEffect(() => setSearchDraft(search), [search])
 
   if (!token) return null
-
-  function sortHeaderProps(field: OrderSortableField) {
-    return { active: sortBy === field, direction: sortDirection, onSort: () => handleSort(field) }
-  }
 
   const totalPages = pagination ? Math.max(1, Math.ceil(pagination.total / perPage)) : 1
 
@@ -209,133 +156,21 @@ export function AdminOrdersPage() {
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-lg border bg-card">
-        <Table className="table-zebra">
-          <TableHeader>
-            <TableRow>
-              <TableHead>
-                <input
-                  type="checkbox"
-                  checked={isAllOnPageSelected}
-                  onChange={toggleSelectAllOnPage}
-                  aria-label="Selecionar todos os pedidos desta página"
-                />
-              </TableHead>
-              <TableHead>Código</TableHead>
-              <TableHead>Cliente</TableHead>
-              <SortableTableHead {...sortHeaderProps('createdAt')}>Recebido</SortableTableHead>
-              <SortableTableHead {...sortHeaderProps('totalInCents')}>Total</SortableTableHead>
-              <TableHead>Entrega</TableHead>
-              <SortableTableHead {...sortHeaderProps('status')}>Situação</SortableTableHead>
-              <TableHead>Ações</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading && (
-              <TableRow>
-                <TableCell colSpan={COLUMN_COUNT}>Carregando…</TableCell>
-              </TableRow>
-            )}
-
-            {!isLoading && orders.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={COLUMN_COUNT}>
-                  {hasFiltersApplied
-                    ? 'Nenhum pedido com esses filtros.'
-                    : 'Nenhum pedido ainda. Quando um cliente fechar compra pelo WhatsApp, ele aparece aqui.'}
-                </TableCell>
-              </TableRow>
-            )}
-
-            {orders.map((order) => {
-              const urgency = resolveOrderUrgency({ status: order.status, createdAt: order.createdAt, now })
-
-              return (
-                <TableRow
-                  key={order.id}
-                  className={`cursor-pointer ${URGENCY_ROW_CLASS[urgency]}`}
-                  onClick={(event) => {
-                    /*
-                     * A linha abre o pedido, menos quando o clique nasceu num controle dela.
-                     * Sem essa checagem, marcar o checkbox ou mudar o status também navegaria — e a
-                     * pessoa perderia a lista no meio de uma ação em lote.
-                     */
-                    if ((event.target as HTMLElement).closest('button, input, a, label')) return
-                    openOrder(order.id)
-                  }}
-                >
-                    <TableCell>
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.includes(order.id)}
-                        onChange={() => toggleSelected(order.id)}
-                        aria-label={`Selecionar pedido ${order.shortCode}`}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      {/* Continua como botão além do clique na linha: é o alvo que o teclado alcança, e
-                          leitor de tela precisa de um comando nomeado, não de uma linha inteira clicável. */}
-                      <button
-                        type="button"
-                        className="font-mono font-medium underline-offset-2 hover:underline"
-                        onClick={() => openOrder(order.id)}
-                      >
-                        {order.shortCode}
-                      </button>
-                    </TableCell>
-                    <TableCell>
-                      <span className="font-medium">{order.customerName ?? 'Sem nome'}</span>
-                      {/* Formatado pelo mesmo `formatPhone` da inbox: número cru obriga o operador a
-                          contar dígitos para achar o DDD, e duas formatações diferentes no mesmo painel
-                          fazem o mesmo cliente parecer dois. */}
-                      <span className="block text-xs tabular-nums text-muted-foreground">
-                        {formatPhone(order.customerPhone)}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      {/* Os dois: o relativo responde "esperando há quanto tempo" e o horário responde
-                          "que horas chegou" — perguntas diferentes, e a segunda é a que vai para o
-                          caderno e para o telefonema. Data completa fica no title. */}
-                      <span title={formatFullDateTime(order.createdAt)}>{formatWaitingFor(order.createdAt, now)}</span>
-                      <span className="block text-xs tabular-nums text-muted-foreground">
-                        {formatReceivedAt(order.createdAt, now)}
-                      </span>
-                      {urgency === ORDER_URGENCY.LATE && (
-                        <span className="block text-xs font-medium text-destructive">sem confirmação</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="font-medium">{formatMoney(order.totalInCents)}</TableCell>
-                    <TableCell className="whitespace-nowrap">
-                      {DELIVERY_LABELS[order.deliveryType] ?? order.deliveryType}
-                    </TableCell>
-                    <TableCell>
-                      {/* Cor própria por situação: com quatro variantes, três estados diferentes ficavam
-                          idênticos justo onde é preciso distinguir de relance. */}
-                      <Badge className={orderStatusBadgeClass(order.status)}>
-                        {orderStatusLabel(order.status)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {/* A esteira vem do servidor, inclusive o filtro por tipo de entrega. */}
-                        {order.allowedNextStatuses.map((next) => (
-                          <Button
-                            key={next}
-                            variant={next === 'cancelled' ? 'destructive' : 'outline'}
-                            size="sm"
-                            onClick={() => updateStatus(order.id, next)}
-                          >
-                            {orderStatusLabel(next)}
-                          </Button>
-                        ))}
-                      </div>
-                    </TableCell>
-                </TableRow>
-              )
-            })}
-          </TableBody>
-        </Table>
-      </div>
+      <OrdersTableView
+        orders={orders}
+        isLoading={isLoading}
+        now={now}
+        hasFiltersApplied={hasFiltersApplied}
+        selectedIds={selectedIds}
+        isAllOnPageSelected={isAllOnPageSelected}
+        sortBy={sortBy}
+        sortDirection={sortDirection}
+        onSort={handleSort}
+        onToggleSelected={toggleSelected}
+        onToggleSelectAllOnPage={toggleSelectAllOnPage}
+        onOpenOrder={openOrder}
+        onUpdateStatus={updateStatus}
+      />
 
       {pagination && pagination.total > perPage && (
         <div className="flex items-center justify-between gap-2">

@@ -3,45 +3,17 @@ import { ORDER_URGENCY, formatWaitingFor, resolveOrderUrgency } from '@/modules/
 import { Badge, Button, Card, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui'
 import { PICKING_STATE, resolvePickingState } from '@/modules/admin/shared/orderTransitions'
 import { orderStatusBadgeClass, orderStatusLabel } from '@/modules/admin/shared/orderStatusStyle'
+import {
+  DELIVERY_LABELS,
+  ORDER_ACTION_ICONS,
+  ORDER_ACTION_LABELS,
+  PAYMENT_LABELS,
+} from '@/modules/admin/shared/orderLabels'
 import { OrderStatusSteps } from '@/modules/admin/components/OrderStatusSteps'
 import { ORDER_STATUS, type OrderDetail, type OrderItem } from '@/shared/api/api.types'
 
 
 
-/**
- * O que o botão FAZ, não o estado que ele representa.
- *
- * A tela mostrava "Confirmado" e "Cancelado" lado a lado, que são nomes de situação — lidos juntos,
- * pareciam dizer que o pedido já estava confirmado e cancelado ao mesmo tempo. Botão é verbo.
- */
-/** Ícone por transição. Mesmo símbolo dos cards de entrega e pagamento, para a tela falar uma língua só. */
-const STATUS_ACTION_ICONS: Record<string, string> = {
-  confirmed: '✅',
-  preparing: '▶️',
-  separated: '📦',
-  out_for_delivery: '🚚',
-  ready_for_pickup: '🏪',
-  completed: '🎉',
-  cancelled: '❌',
-}
-
-const STATUS_ACTION_LABELS: Record<string, string> = {
-  confirmed: 'Confirmar pedido',
-  preparing: 'Iniciar separação',
-  separated: 'Marcar como separado',
-  out_for_delivery: 'Saiu para entrega',
-  ready_for_pickup: 'Pronto para retirada',
-  completed: 'Concluir',
-  cancelled: 'Cancelar pedido',
-}
-
-
-const DELIVERY_LABELS: Record<string, string> = { delivery: '🚚 Entrega', pickup: '🏪 Retirada' }
-const PAYMENT_LABELS: Record<string, string> = {
-  pix: '💳 Pix',
-  card_on_delivery: '💳 Cartão na entrega',
-  cash: '💵 Dinheiro',
-}
 const RECEIPT_LABELS: Record<string, string> = { whatsapp: '📱 WhatsApp', email: '📧 E-mail', both: '📱📧 Ambos' }
 
 function formatMoney(totalInCents: number): string {
@@ -214,8 +186,8 @@ export function OrderDetailView({
             .filter((next) => next !== 'cancelled')
             .map((next) => (
               <Button key={next} size="sm" disabled={isUpdatingStatus} onClick={() => onUpdateStatus(next)}>
-                <Icon>{STATUS_ACTION_ICONS[next] ?? '➡️'}</Icon>
-                {STATUS_ACTION_LABELS[next] ?? orderStatusLabel(next)}
+                <Icon>{ORDER_ACTION_ICONS[next] ?? '➡️'}</Icon>
+                {ORDER_ACTION_LABELS[next] ?? orderStatusLabel(next)}
               </Button>
             ))}
         </div>
@@ -248,7 +220,7 @@ export function OrderDetailView({
             className="text-destructive underline-offset-2 hover:underline print:hidden"
           >
             <Icon>❌</Icon>
-            {STATUS_ACTION_LABELS.cancelled}
+            {ORDER_ACTION_LABELS.cancelled}
           </button>
         )}
       </p>
@@ -338,7 +310,7 @@ export function OrderDetailView({
             </p>
           </div>
           <Button disabled={isUpdatingStatus} onClick={() => onUpdateStatus(ORDER_STATUS.SEPARATED)}>
-            {STATUS_ACTION_LABELS[ORDER_STATUS.SEPARATED]}
+            {ORDER_ACTION_LABELS[ORDER_STATUS.SEPARATED]}
           </Button>
         </div>
       )}
@@ -438,7 +410,7 @@ export function OrderDetailView({
             </p>
             {startPickingStatus && (
               <Button size="sm" disabled={isUpdatingStatus} onClick={() => onUpdateStatus(startPickingStatus)}>
-                {STATUS_ACTION_LABELS[startPickingStatus] ?? orderStatusLabel(startPickingStatus)}
+                {ORDER_ACTION_LABELS[startPickingStatus] ?? orderStatusLabel(startPickingStatus)}
               </Button>
             )}
           </div>
