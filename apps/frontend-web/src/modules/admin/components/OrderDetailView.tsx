@@ -3,6 +3,7 @@ import { ORDER_URGENCY, formatWaitingFor, resolveOrderUrgency } from '@/modules/
 import { Badge, Button, Card, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui'
 import { PICKING_STATE, resolvePickingState } from '@/modules/admin/shared/orderTransitions'
 import { orderStatusBadgeClass, orderStatusLabel } from '@/modules/admin/shared/orderStatusStyle'
+import { OrderStatusSteps } from '@/modules/admin/components/OrderStatusSteps'
 import { ORDER_STATUS, type OrderDetail, type OrderItem } from '@/shared/api/api.types'
 
 
@@ -130,6 +131,13 @@ export function OrderDetailView({
    * não existe — a barra passaria a mentir justamente no fim, que é quando ela é olhada.
    */
   const availableItems = items.filter((item) => item.unavailableAt === null)
+  /**
+   * Todos os itens faltaram: não há o que separar, e a barra travava em 0%.
+   *
+   * Trabalho nenhum a fazer aparecia como nada feito, e o painel de "tudo separado" nunca surgia — a tela
+   * ficava sem próximo passo justamente no caso em que alguém precisa decidir algo (avisar e cancelar).
+   */
+  const hasNothingToPick = items.length > 0 && availableItems.length === 0
   const unnotifiedUnavailable = items.filter(
     (item) => item.unavailableAt !== null && item.unavailableNotifiedAt === null,
   )
@@ -142,8 +150,12 @@ export function OrderDetailView({
   const canMarkSeparated = nextStatuses.includes(ORDER_STATUS.SEPARATED)
   const unavailableCount = items.length - availableItems.length
   const isPickingDone = availableItems.length > 0 && pickedCount >= availableItems.length
-  const progressPercent =
-    availableItems.length > 0 ? Math.round((pickedCount / availableItems.length) * 100) : 0
+  // Sem nada para separar, a etapa está encerrada: 100% é a verdade, não 0%.
+  const progressPercent = hasNothingToPick
+    ? 100
+    : availableItems.length > 0
+      ? Math.round((pickedCount / availableItems.length) * 100)
+      : 0
 
   /*
    * Largura máxima: em monitor largo a linha esticava até o nome do produto e o preço ficarem em
@@ -236,6 +248,9 @@ export function OrderDetailView({
         Entrega primeiro, e o endereço com destaque: é a informação que decide o que fazer com a
         sacola depois de separada, e é onde um erro custa a compra inteira.
       */}
+      {/* A jornada do pedido inteiro. A barra de baixo é só da separação, que é uma etapa entre seis. */}
+      <OrderStatusSteps status={order.status} deliveryType={order.deliveryType} />
+
       {/*
         Duas colunas no celular, três no monitor. Empilhados, os três cards gastavam 700 dos 812 pixels
         antes do primeiro item — informação de conferência ocupando a tela de quem veio trabalhar.
@@ -295,7 +310,11 @@ export function OrderDetailView({
         faria um toque errado no último item avisar o cliente de que a compra está pronta. Um toque a
         mais aqui é barato; desfazer um aviso não é.
       */}
-      {isPickingDone && canMarkSeparated && !isPickingLocked && (
+      {/*
+        Pedido sem nada para separar não recebe o convite de "marcar como separado": não há sacola. O que
+        precisa acontecer ali é avisar o cliente e decidir com ele, e esse painel já está logo abaixo.
+      */}
+      {isPickingDone && canMarkSeparated && !isPickingLocked && !hasNothingToPick && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/40 bg-primary/5 p-4 print:hidden">
           <div>
             <p className="font-semibold">Tudo separado ✅</p>
@@ -324,18 +343,26 @@ export function OrderDetailView({
               </p>
             ) : (
               <p className="text-sm text-muted-foreground">
-                <span className="font-semibold tabular-nums text-foreground">
-                  {pickedCount}/{availableItems.length}
-                </span>{' '}
-                separados · {progressPercent}%
-                {isPickingDone && ' — tudo pronto ✅'}
+                {hasNothingToPick ? (
+                  <span className="font-semibold text-destructive">
+                    Nada para separar — todos os itens faltaram
+                  </span>
+                ) : (
+                  <>
+                    <span className="font-semibold tabular-nums text-foreground">
+                      {pickedCount}/{availableItems.length}
+                    </span>{' '}
+                    separados · {progressPercent}%
+                    {isPickingDone && ' — tudo pronto ✅'}
+                  </>
+                )}
               </p>
             )}
           </div>
 
           <div className="flex flex-wrap gap-2 print:hidden">
             {/* Ferramentas de separação só existem quando há separação em andamento. */}
-            {!isPickingLocked && !isPickingDone && (
+            {!isPickingLocked && !isPickingDone && !hasNothingToPick && (
               <Button variant="outline" size="sm" onClick={onPickAll}>
                 <Icon>☑️</Icon>Marcar todos
               </Button>
@@ -362,11 +389,16 @@ export function OrderDetailView({
           `<progress>` nativo em vez de duas divs com largura calculada: já é anunciado como barra de
           progresso pelo leitor de tela e a proporção sai por atributo, sem estilo inline.
         */}
+        {/*
+          A barra vem da PORCENTAGEM, não das contagens cruas: com contagem, o caso "todos os itens
+          faltaram" mandava `max` para 1 e a barra não avançava — o texto ao lado dizia que a etapa estava
+          encerrada e a barra dizia o contrário.
+        */}
         {!isPickingLocked && (
         <progress
           className="picking-progress print:hidden"
-          value={pickedCount}
-          max={Math.max(1, availableItems.length)}
+          value={progressPercent}
+          max={100}
           aria-label="Progresso da separação"
         >
           {progressPercent}%
