@@ -22,6 +22,7 @@ import {
 import { FilterRow } from '@/modules/admin/components/FilterRow'
 import { formatPhone } from '@adatechnology/conversations-ui'
 import { nextStatusesFor } from '@/modules/admin/shared/orderTransitions'
+import { AppliedFilterPills, type AppliedFilter } from '@/modules/admin/components/AppliedFilterPills'
 import type { OrderSortableField } from '@/shared/api/api.types'
 
 const STATUS_LABELS: Record<string, string> = {
@@ -62,6 +63,13 @@ const URGENCY_ROW_CLASS: Record<OrderUrgency, string> = {
   [ORDER_URGENCY.HANDLED]: '',
 }
 
+/** Nome da coluna na pill de ordenação: "Ordem: Recebido ↑" lê melhor que "Ordem: createdAt ↑". */
+const SORT_LABELS: Record<string, string> = {
+  createdAt: 'Recebido',
+  totalInCents: 'Total',
+  status: 'Situação',
+}
+
 const COLUMN_COUNT = 8
 
 function formatMoney(totalInCents: number): string {
@@ -88,6 +96,8 @@ export function AdminOrdersPage() {
     search,
     setSearch,
     toggleFilterValue,
+    removeFilterValue,
+    clearSort,
     hasFiltersApplied,
     clearFilters,
     sortBy,
@@ -114,6 +124,36 @@ export function AdminOrdersPage() {
   }
 
   const totalPages = pagination ? Math.max(1, Math.ceil(pagination.total / perPage)) : 1
+
+  const appliedFilters: AppliedFilter[] = [
+    ...statusFilter.map((value) => ({
+      key: `status:${value}`,
+      label: `Situação: ${STATUS_LABELS[value] ?? value}`,
+      onRemove: () => removeFilterValue('status', value),
+    })),
+    ...deliveryFilter.map((value) => ({
+      key: `delivery:${value}`,
+      label: `Entrega: ${DELIVERY_LABELS[value] ?? value}`,
+      onRemove: () => removeFilterValue('deliveryType', value),
+    })),
+    ...paymentFilter.map((value) => ({
+      key: `payment:${value}`,
+      label: `Pagamento: ${PAYMENT_LABELS[value] ?? value}`,
+      onRemove: () => removeFilterValue('paymentMethod', value),
+    })),
+    ...(search.trim().length > 0
+      ? [{ key: 'search', label: `Busca: ${search.trim()}`, onRemove: () => setSearch('') }]
+      : []),
+    ...(sortBy !== 'createdAt' || sortDirection !== 'asc'
+      ? [
+          {
+            key: 'sort',
+            label: `Ordem: ${SORT_LABELS[sortBy] ?? sortBy} ${sortDirection === 'asc' ? '↑' : '↓'}`,
+            onRemove: clearSort,
+          },
+        ]
+      : []),
+  ]
 
   return (
     <div className="space-y-6 p-4 lg:p-6">
@@ -164,12 +204,12 @@ export function AdminOrdersPage() {
           onToggle={(value) => toggleFilterValue('paymentMethod', value)}
         />
 
-        {/* Só quando há filtro ou ordenação aplicados: botão morto ensina a ignorar a barra inteira. */}
-        {hasFiltersApplied && (
-          <Button variant="ghost" size="sm" onClick={clearFilters}>
-            Limpar filtros e ordenação
-          </Button>
-        )}
+        {/*
+          Pills do que está filtrando agora, com a busca incluída.
+          Os botões acima mostram o próprio estado, mas busca e ordenação não têm botão: quem digitava no
+          campo via a lista encurtar sem nada dizendo por quê.
+        */}
+        <AppliedFilterPills filters={appliedFilters} onClearAll={clearFilters} />
       </div>
 
       {/* Barra de lote só existe quando há seleção — espaço ocupado prometendo ação é ruído. */}
@@ -227,7 +267,19 @@ export function AdminOrdersPage() {
               const urgency = resolveOrderUrgency({ status: order.status, createdAt: order.createdAt, now })
 
               return (
-                <TableRow key={order.id} className={URGENCY_ROW_CLASS[urgency]}>
+                <TableRow
+                  key={order.id}
+                  className={`cursor-pointer ${URGENCY_ROW_CLASS[urgency]}`}
+                  onClick={(event) => {
+                    /*
+                     * A linha abre o pedido, menos quando o clique nasceu num controle dela.
+                     * Sem essa checagem, marcar o checkbox ou mudar o status também navegaria — e a
+                     * pessoa perderia a lista no meio de uma ação em lote.
+                     */
+                    if ((event.target as HTMLElement).closest('button, input, a, label')) return
+                    openOrder(order.id)
+                  }}
+                >
                     <TableCell>
                       <input
                         type="checkbox"
@@ -237,8 +289,8 @@ export function AdminOrdersPage() {
                       />
                     </TableCell>
                     <TableCell>
-                      {/* A linha inteira não abre ao clique de propósito: ela tem checkbox e botões de
-                          transição, e clique solto viraria expansão acidental no meio da operação. */}
+                      {/* Continua como botão além do clique na linha: é o alvo que o teclado alcança, e
+                          leitor de tela precisa de um comando nomeado, não de uma linha inteira clicável. */}
                       <button
                         type="button"
                         className="font-mono font-medium underline-offset-2 hover:underline"
@@ -279,9 +331,6 @@ export function AdminOrdersPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => openOrder(order.id)}>
-                          Abrir
-                        </Button>
                         {/* Filtrado pelo tipo de entrega: "saiu para entrega" não existe em retirada. */}
                         {nextStatusesFor({ status: order.status, deliveryType: order.deliveryType }).map((next) => (
                           <Button

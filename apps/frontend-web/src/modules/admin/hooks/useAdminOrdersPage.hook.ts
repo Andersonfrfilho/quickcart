@@ -106,6 +106,17 @@ export function useAdminOrdersPage() {
     setQueryParams({ search: nextSearch.trim().length > 0 ? nextSearch : undefined, page: '1' })
   }
 
+  /** Tira UM valor de um filtro múltiplo — é o que a pill de cada filtro chama. */
+  function removeFilterValue(key: 'status' | 'deliveryType' | 'paymentMethod', value: string) {
+    const next = parseCsvParam(searchParams.get(key)).filter((entry) => entry !== value)
+    setQueryParams({ [key]: next.length > 0 ? next.join(',') : undefined, page: '1' })
+  }
+
+  /** Volta a ordenação ao padrão sem tocar nos filtros. */
+  function clearSort() {
+    setQueryParams({ sortBy: undefined, sortDirection: undefined })
+  }
+
   function clearFilters() {
     setQueryParams({
       status: undefined,
@@ -189,6 +200,8 @@ export function useAdminOrdersPage() {
     search,
     setSearch,
     toggleFilterValue,
+    removeFilterValue,
+    clearSort,
     hasFiltersApplied,
     clearFilters,
     sortBy,
