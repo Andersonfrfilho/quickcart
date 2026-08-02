@@ -1,10 +1,9 @@
 import React from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { useRequireAdmin } from '@/modules/admin/shared/useAdminAuth.hook'
 import { useUrlQueryState } from '@/shared/hooks/useUrlQueryState.hook'
+import { useRouter } from '@/app/router'
 import { useAdminOrdersQuery } from '@/modules/admin/shared/queries/useAdminOrders.query'
 import { useUpdateOrderStatusMutation } from '@/modules/admin/shared/mutations/useUpdateOrderStatus.mutation'
-import { adminGetOrderDetail } from '@/shared/api/client'
 import { ORDER_STATUS, type OrderSortableField, type SortDirection } from '@/shared/api/api.types'
 
 const ORDERS_PER_PAGE = 15
@@ -40,6 +39,7 @@ function parseCsvParam(value: string | null): string[] {
 export function useAdminOrdersPage() {
   const token = useRequireAdmin()
   const { searchParams, setQueryParams } = useUrlQueryState()
+  const { navigate } = useRouter()
 
   const page = Number(searchParams.get('page') ?? '1')
   const statusFilter = parseCsvParam(searchParams.get('status'))
@@ -78,16 +78,7 @@ export function useAdminOrdersPage() {
     return () => window.clearInterval(interval)
   }, [])
 
-  const [expandedOrderId, setExpandedOrderId] = React.useState<string | undefined>(undefined)
   const [selectedIds, setSelectedIds] = React.useState<readonly string[]>([])
-
-  // Detalhe só é buscado quando a linha abre: quinze pedidos na tela não devem custar quinze consultas
-  // de itens para mostrar o que ninguém pediu para ver.
-  const { data: detail, isLoading: isLoadingDetail } = useQuery({
-    queryKey: ['admin-order-detail', expandedOrderId],
-    queryFn: () => adminGetOrderDetail(token as string, expandedOrderId as string),
-    enabled: !!token && !!expandedOrderId,
-  })
 
   const orders = data?.data ?? []
 
@@ -145,8 +136,15 @@ export function useAdminOrdersPage() {
     setQueryParams({ sortBy: undefined, sortDirection: undefined })
   }
 
-  function toggleExpanded(orderId: string) {
-    setExpandedOrderId((current) => (current === orderId ? undefined : orderId))
+  /**
+   * Detalhe é TELA, não linha expandida.
+   *
+   * Compra de supermercado tem lista longa, e abrir cinquenta itens dentro de uma linha empurra o resto
+   * da fila para fora do monitor — quem separa perde a lista de pedidos justamente quando precisa dela.
+   * Tela própria ainda ganha URL: dá para mandar o link do pedido para quem está no depósito.
+   */
+  function openOrder(orderId: string) {
+    navigate(`/admin/orders/${orderId}`)
   }
 
   function toggleSelected(orderId: string) {
@@ -197,10 +195,7 @@ export function useAdminOrdersPage() {
     sortDirection,
     handleSort,
     updateStatus,
-    expandedOrderId,
-    toggleExpanded,
-    detail: detail?.data,
-    isLoadingDetail,
+    openOrder,
     selectedIds,
     isAllOnPageSelected,
     toggleSelected,

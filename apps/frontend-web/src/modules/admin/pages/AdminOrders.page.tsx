@@ -54,7 +54,6 @@ const PAYMENT_LABELS: Record<string, string> = {
   card_on_delivery: '💳 Cartão na entrega',
   cash: '💵 Dinheiro',
 }
-const RECEIPT_LABELS: Record<string, string> = { whatsapp: '📱 WhatsApp', email: '📧 E-mail', both: '📱📧 Ambos' }
 
 /** Só a linha que precisa chamar atenção carrega classe; as outras não ganham estilo à toa. */
 const URGENCY_ROW_CLASS: Record<OrderUrgency, string> = {
@@ -72,13 +71,6 @@ function formatMoney(totalInCents: number): string {
 
 function formatFullDateTime(isoDate: string): string {
   return new Date(isoDate).toLocaleString('pt-BR')
-}
-
-function formatAddress(address: unknown): string | undefined {
-  if (typeof address === 'string' && address.trim().length > 0) return address.trim()
-  // Endereço estruturado: mostra o que houver, sem inventar um formato que o cadastro não garante.
-  if (address && typeof address === 'object') return Object.values(address).filter(Boolean).join(', ')
-  return undefined
 }
 
 export function AdminOrdersPage() {
@@ -103,10 +95,7 @@ export function AdminOrdersPage() {
     sortDirection,
     handleSort,
     updateStatus,
-    expandedOrderId,
-    toggleExpanded,
-    detail,
-    isLoadingDetail,
+    openOrder,
     selectedIds,
     isAllOnPageSelected,
     toggleSelected,
@@ -237,11 +226,9 @@ export function AdminOrdersPage() {
 
             {orders.map((order) => {
               const urgency = resolveOrderUrgency({ status: order.status, createdAt: order.createdAt, now })
-              const isExpanded = expandedOrderId === order.id
 
               return (
-                <React.Fragment key={order.id}>
-                  <TableRow className={URGENCY_ROW_CLASS[urgency]}>
+                <TableRow key={order.id} className={URGENCY_ROW_CLASS[urgency]}>
                     <TableCell>
                       <input
                         type="checkbox"
@@ -256,8 +243,7 @@ export function AdminOrdersPage() {
                       <button
                         type="button"
                         className="font-mono font-medium underline-offset-2 hover:underline"
-                        onClick={() => toggleExpanded(order.id)}
-                        aria-expanded={isExpanded}
+                        onClick={() => openOrder(order.id)}
                       >
                         {order.shortCode}
                       </button>
@@ -285,8 +271,8 @@ export function AdminOrdersPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => toggleExpanded(order.id)}>
-                          {isExpanded ? 'Fechar' : 'Detalhes'}
+                        <Button variant="ghost" size="sm" onClick={() => openOrder(order.id)}>
+                          Abrir
                         </Button>
                         {(NEXT_STATUS[order.status] ?? []).map((next) => (
                           <Button
@@ -300,78 +286,7 @@ export function AdminOrdersPage() {
                         ))}
                       </div>
                     </TableCell>
-                  </TableRow>
-
-                  {isExpanded && (
-                    <TableRow>
-                      <TableCell colSpan={COLUMN_COUNT}>
-                        {isLoadingDetail || detail?.id !== order.id ? (
-                          <p className="text-sm text-muted-foreground">Carregando detalhes…</p>
-                        ) : (
-                          <div className="grid gap-4 md:grid-cols-2">
-                            <div>
-                              <h3 className="font-semibold">Itens</h3>
-                              <ul className="mt-1 space-y-1 text-sm">
-                                {detail.items.map((item) => (
-                                  <li key={item.id} className="flex justify-between gap-4">
-                                    <span>
-                                      {Number(item.quantity)}x {item.productName}
-                                    </span>
-                                    <span className="text-muted-foreground">{formatMoney(item.totalInCents)}</span>
-                                  </li>
-                                ))}
-                              </ul>
-                              <p className="mt-2 text-sm font-semibold">Total: {formatMoney(detail.totalInCents)}</p>
-                            </div>
-
-                            <dl className="space-y-1 text-sm">
-                              <div>
-                                <dt className="inline font-medium">Recebido em: </dt>
-                                <dd className="inline">{formatFullDateTime(detail.createdAt)}</dd>
-                              </div>
-                              <div>
-                                <dt className="inline font-medium">Entrega: </dt>
-                                <dd className="inline">
-                                  {DELIVERY_LABELS[detail.deliveryType] ?? detail.deliveryType}
-                                </dd>
-                              </div>
-                              {formatAddress(detail.address) && (
-                                <div>
-                                  <dt className="inline font-medium">Endereço: </dt>
-                                  <dd className="inline">{formatAddress(detail.address)}</dd>
-                                </div>
-                              )}
-                              <div>
-                                <dt className="inline font-medium">Pagamento: </dt>
-                                <dd className="inline">
-                                  {PAYMENT_LABELS[detail.paymentMethod] ?? detail.paymentMethod}
-                                </dd>
-                              </div>
-                              <div>
-                                <dt className="inline font-medium">Recibo: </dt>
-                                <dd className="inline">
-                                  {RECEIPT_LABELS[detail.receiptPreference] ?? detail.receiptPreference}
-                                </dd>
-                              </div>
-                              <div>
-                                <dt className="inline font-medium">Contato: </dt>
-                                <dd className="inline">
-                                  {detail.customerName ?? 'Sem nome'} · {detail.customerPhone}
-                                </dd>
-                              </div>
-                              {detail.notes && (
-                                <div>
-                                  <dt className="inline font-medium">Observações: </dt>
-                                  <dd className="inline">{detail.notes}</dd>
-                                </div>
-                              )}
-                            </dl>
-                          </div>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </React.Fragment>
+                </TableRow>
               )
             })}
           </TableBody>

@@ -190,3 +190,28 @@
 .table-zebra tbody tr:nth-child(even):not(:hover) {
   background-color: hsl(var(--muted) / 0.35);
 }
+
+/* Barra de separação. `appearance: none` porque o desenho nativo muda a cada navegador, e aqui ela
+   precisa ler como parte do painel — não como um controle de sistema operacional. */
+.picking-progress {
+  appearance: none;
+  block-size: 0.5rem;
+  inline-size: 100%;
+  border: none;
+  border-radius: 9999px;
+  overflow: hidden;
+  background-color: hsl(var(--muted));
+}
+
+.picking-progress::-webkit-progress-bar {
+  background-color: hsl(var(--muted));
+}
+
+.picking-progress::-webkit-progress-value {
+  background-color: hsl(var(--primary));
+  transition: inline-size 200ms ease;
+}
+
+.picking-progress::-moz-progress-bar {
+  background-color: hsl(var(--primary));
+}
