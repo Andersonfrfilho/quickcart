@@ -14,7 +14,7 @@
  * o pedido/itens serem persistidos — nenhuma escrita parcial sobrevive.
  */
 
-import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql, type SQL } from 'drizzle-orm'
 import { db } from '@/infra/database/connection'
 import { orders, orderItems, products, customers, type Order, type OrderItem } from '@/infra/database/schema'
 import { generateId } from '@/shared/id'
@@ -73,6 +73,7 @@ function toOrderItemRecord(item: OrderItem): OrderItemRecord {
     quantity: Number(item.quantity),
     totalInCents: item.totalInCents,
     unavailableAt: item.unavailableAt,
+    unavailableNotifiedAt: item.unavailableNotifiedAt,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   }
@@ -261,6 +262,22 @@ export class DrizzleOrderRepository implements OrderRepositoryInterface {
     }
   }
 
+  async markUnavailableItemsNotified(orderId: string): Promise<OrderItemRecord[]> {
+    const notifiedNow = await db
+      .update(orderItems)
+      .set({ unavailableNotifiedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(orderItems.orderId, orderId),
+          isNotNull(orderItems.unavailableAt),
+          isNull(orderItems.unavailableNotifiedAt),
+        ),
+      )
+      .returning()
+
+    return notifiedNow.map(toOrderItemRecord)
+  }
+
   async setItemUnavailable(params: {
     orderId: string
     itemId: string
@@ -276,7 +293,13 @@ export class DrizzleOrderRepository implements OrderRepositoryInterface {
     await db.transaction(async (tx) => {
       await tx
         .update(orderItems)
-        .set({ unavailableAt: params.unavailable ? new Date() : null, updatedAt: new Date() })
+        .set({
+          unavailableAt: params.unavailable ? new Date() : null,
+          // Desmarcar limpa o aviso junto: item que voltou a existir não tem falta a ter sido avisada, e
+          // manter o registro faria a tela dizer "cliente avisado" sobre algo que não aconteceu mais.
+          ...(params.unavailable ? {} : { unavailableNotifiedAt: null }),
+          updatedAt: new Date(),
+        })
         .where(and(eq(orderItems.id, params.itemId), eq(orderItems.orderId, params.orderId)))
 
       // Soma só o que segue de pé. `filter` em SQL para o total nunca depender de quem chama somar certo.

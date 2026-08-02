@@ -25,6 +25,9 @@ export function AdminOrderDetailPage() {
     isUpdatingStatus,
     setUnavailable,
     pendingUnavailableItemId,
+    notifyUnavailable,
+    isNotifyingUnavailable,
+    openConversation,
     goBackToList,
   } = useAdminOrderDetailPage()
 
@@ -59,6 +62,9 @@ export function AdminOrderDetailPage() {
       onUpdateStatus={updateStatus}
       onSetUnavailable={setUnavailable}
       pendingUnavailableItemId={pendingUnavailableItemId}
+      onNotifyUnavailable={notifyUnavailable}
+      isNotifyingUnavailable={isNotifyingUnavailable}
+      onOpenConversation={openConversation}
       onBack={goBackToList}
     />
   )

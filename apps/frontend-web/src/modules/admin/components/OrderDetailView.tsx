@@ -32,6 +32,17 @@ const STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive' | 
  * A tela mostrava "Confirmado" e "Cancelado" lado a lado, que são nomes de situação — lidos juntos,
  * pareciam dizer que o pedido já estava confirmado e cancelado ao mesmo tempo. Botão é verbo.
  */
+/** Ícone por transição. Mesmo símbolo dos cards de entrega e pagamento, para a tela falar uma língua só. */
+const STATUS_ACTION_ICONS: Record<string, string> = {
+  confirmed: '✅',
+  preparing: '▶️',
+  separated: '📦',
+  out_for_delivery: '🚚',
+  ready_for_pickup: '🏪',
+  completed: '🎉',
+  cancelled: '❌',
+}
+
 const STATUS_ACTION_LABELS: Record<string, string> = {
   confirmed: 'Confirmar pedido',
   preparing: 'Iniciar separação',
@@ -72,6 +83,11 @@ export type OrderDetailViewProps = {
   /** Marca/desmarca item que acabou. Vai ao servidor: muda o total e avisa o cliente. */
   readonly onSetUnavailable: (params: { readonly itemId: string; readonly unavailable: boolean }) => void
   readonly pendingUnavailableItemId?: string | undefined
+  /** Manda UM recado com todas as faltas ainda não avisadas. */
+  readonly onNotifyUnavailable: () => void
+  readonly isNotifyingUnavailable: boolean
+  /** Abre a conversa do cliente na inbox. */
+  readonly onOpenConversation: () => void
   readonly onTogglePicked: (itemId: string) => void
   readonly onClearPicked: () => void
   /** Marca de uma vez tudo o que está disponível — para quem separou a compra inteira antes de abrir a tela. */
@@ -88,6 +104,21 @@ export type OrderDetailViewProps = {
  * prático: desenho só se ajusta olhando. Como componente puro, ela também renderiza numa rota de
  * preview com pedido de mentira e lista longa — que é o caso difícil e o que ninguém reproduz à mão.
  */
+/**
+ * Ícone de botão: espaço garantido e invisível para leitor de tela.
+ *
+ * Emoji colado no rótulo depende da largura do glifo, que varia por sistema — em alguns aparecia
+ * "☑️Marcar todos". E `aria-hidden` porque o leitor de tela anunciaria "caixa marcada" antes do texto,
+ * repetindo em som o que o ícone só reforça em imagem.
+ */
+function Icon({ children }: { children: string }) {
+  return (
+    <span aria-hidden="true" className="mr-1.5">
+      {children}
+    </span>
+  )
+}
+
 export function OrderDetailView({
   order,
   items,
@@ -103,6 +134,9 @@ export function OrderDetailView({
   onUpdateStatus,
   onSetUnavailable,
   pendingUnavailableItemId,
+  onNotifyUnavailable,
+  isNotifyingUnavailable,
+  onOpenConversation,
   onBack,
 }: OrderDetailViewProps) {
   const address = formatAddress(order.address)
@@ -115,6 +149,9 @@ export function OrderDetailView({
    * não existe — a barra passaria a mentir justamente no fim, que é quando ela é olhada.
    */
   const availableItems = items.filter((item) => item.unavailableAt === null)
+  const unnotifiedUnavailable = items.filter(
+    (item) => item.unavailableAt !== null && item.unavailableNotifiedAt === null,
+  )
   /** Só oferece o passo que a esteira permite: em pedido já separado ou entregue, o convite seria ruído. */
   const nextStatuses = nextStatusesFor({ status: order.status, deliveryType: order.deliveryType })
   const pickingState = resolvePickingState(order.status)
@@ -162,13 +199,19 @@ export function OrderDetailView({
 
         <div className="ml-auto flex items-center gap-2 print:hidden">
           {/* Imprimir é de balcão, não de corredor: só aparece de tablet para cima. */}
+          {/* Ícone antes do rótulo: numa barra de cinco botões, a forma é reconhecida antes da leitura. */}
+          <Button variant="outline" size="sm" onClick={onOpenConversation}>
+            <Icon>💬</Icon>
+            <span className="hidden sm:inline">Conversa</span>
+          </Button>
           <Button variant="outline" size="sm" onClick={() => window.print()} className="hidden sm:inline-flex">
-            Imprimir
+            <Icon>🖨️</Icon>Imprimir
           </Button>
           {nextStatuses
             .filter((next) => next !== 'cancelled')
             .map((next) => (
               <Button key={next} size="sm" disabled={isUpdatingStatus} onClick={() => onUpdateStatus(next)}>
+                <Icon>{STATUS_ACTION_ICONS[next] ?? '➡️'}</Icon>
                 {STATUS_ACTION_LABELS[next] ?? STATUS_LABELS[next]}
               </Button>
             ))}
@@ -201,6 +244,7 @@ export function OrderDetailView({
             onClick={() => onUpdateStatus('cancelled')}
             className="text-destructive underline-offset-2 hover:underline print:hidden"
           >
+            <Icon>❌</Icon>
             {STATUS_ACTION_LABELS.cancelled}
           </button>
         )}
@@ -311,7 +355,7 @@ export function OrderDetailView({
             {/* Ferramentas de separação só existem quando há separação em andamento. */}
             {!isPickingLocked && !isPickingDone && (
               <Button variant="outline" size="sm" onClick={onPickAll}>
-                Marcar todos
+                <Icon>☑️</Icon>Marcar todos
               </Button>
             )}
             {!isPickingLocked && (
@@ -321,12 +365,12 @@ export function OrderDetailView({
                 aria-pressed={hidePickedItems}
                 onClick={() => onToggleHidePicked(!hidePickedItems)}
               >
-                Esconder separados
+                <Icon>🙈</Icon>Esconder separados
               </Button>
             )}
             {!isPickingLocked && pickedCount > 0 && (
               <Button variant="ghost" size="sm" onClick={onClearPicked}>
-                Limpar marcações
+                <Icon>🧹</Icon>Limpar marcações
               </Button>
             )}
           </div>
@@ -378,6 +422,47 @@ export function OrderDetailView({
             {/* Sem botão aqui de propósito: não há o que destravar depois que a sacola saiu. */}
             Este pedido já saiu da loja, então a marcação de separação está encerrada.
           </p>
+        )}
+
+        {/*
+          Faltas registradas e ainda não avisadas: mostra O QUE vai ser dito antes de dizer.
+          Marcar item deixou de mandar mensagem na hora — quem separa marca três itens andando pelo
+          corredor, e o cliente recebia três recados, cada um com um total que o próximo já desatualizava.
+          Aqui a loja relê e decide.
+        */}
+        {unnotifiedUnavailable.length > 0 && (
+          <div className="space-y-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4 print:hidden">
+            <div>
+              <p className="font-semibold text-destructive">
+                ⚠️ {unnotifiedUnavailable.length}{' '}
+                {unnotifiedUnavailable.length === 1 ? 'item em falta' : 'itens em falta'} — cliente ainda não
+                avisado
+              </p>
+              <ul className="mt-1 text-sm">
+                {unnotifiedUnavailable.map((item) => (
+                  <li key={item.id}>
+                    • {Number(item.quantity)}x {item.productName}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {availableItems.length === 0
+                  ? 'Nada sobrou no pedido: o recado vai perguntar se ele quer montar outra lista ou cancelar.'
+                  : `O recado sai numa mensagem só, com o novo total de ${formatMoney(order.totalInCents)}.`}
+              </p>
+            </div>
+
+            <Button disabled={isNotifyingUnavailable} onClick={onNotifyUnavailable}>
+              {isNotifyingUnavailable ? (
+                'Enviando…'
+              ) : (
+                <>
+                  <Icon>📣</Icon>
+                  Avisar o cliente
+                </>
+              )}
+            </Button>
+          </div>
         )}
 
         <ul className="divide-y rounded-lg border bg-card">

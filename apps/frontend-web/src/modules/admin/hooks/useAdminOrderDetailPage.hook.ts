@@ -4,6 +4,7 @@ import { useRouter } from '@/app/router'
 import { useRequireAdmin } from '@/modules/admin/shared/useAdminAuth.hook'
 import { useUpdateOrderStatusMutation } from '@/modules/admin/shared/mutations/useUpdateOrderStatus.mutation'
 import { useSetOrderItemUnavailableMutation } from '@/modules/admin/shared/mutations/useSetOrderItemUnavailable.mutation'
+import { useNotifyUnavailableItemsMutation } from '@/modules/admin/shared/mutations/useNotifyUnavailableItems.mutation'
 import { adminGetOrderDetail } from '@/shared/api/client'
 
 /**
@@ -48,6 +49,7 @@ export function useAdminOrderDetailPage() {
 
   const updateStatusMutation = useUpdateOrderStatusMutation(token)
   const setUnavailableMutation = useSetOrderItemUnavailableMutation(token)
+  const notifyUnavailableMutation = useNotifyUnavailableItemsMutation(token)
 
   const [pickedItemIds, setPickedItemIds] = React.useState<readonly string[]>([])
   const [hidePickedItems, setHidePickedItems] = React.useState(false)
@@ -107,6 +109,16 @@ export function useAdminOrderDetailPage() {
 
   return {
     token,
+    notifyUnavailable: () => notifyUnavailableMutation.mutate(orderId),
+    isNotifyingUnavailable: notifyUnavailableMutation.isPending,
+    /**
+     * Abre a conversa daquele cliente na inbox.
+     *
+     * A inbox seleciona por `?number=`, então basta o telefone do pedido — sem isso, quem quer explicar a
+     * falta por escrito precisa copiar o número e procurar na lista de conversas.
+     */
+    openConversation: () =>
+      order ? navigate(`/admin/conversations?number=${encodeURIComponent(order.customerPhone)}`) : undefined,
     order,
     items,
     visibleItems,

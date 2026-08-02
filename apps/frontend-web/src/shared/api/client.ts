@@ -179,6 +179,20 @@ export async function adminSetOrderItemUnavailable(
   )
 }
 
+export type NotifyUnavailableItemsResponse = {
+  readonly data: OrderDetail
+  readonly meta: { readonly notifiedCount: number }
+}
+
+export async function adminNotifyUnavailableItems(
+  token: string,
+  orderId: string,
+): Promise<NotifyUnavailableItemsResponse> {
+  return apiClient.post(`/v1/admin/orders/${orderId}/unavailable-items/notify`, undefined, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
 export async function adminUpdateOrderStatus(token: string, id: string, status: string): Promise<ApiItemResponse<Order>> {
   return apiClient.patch(`/v1/admin/orders/${id}/status`, { status }, {
     headers: { Authorization: `Bearer ${token}` },

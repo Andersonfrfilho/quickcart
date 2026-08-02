@@ -126,6 +126,8 @@ export type OrderItem = {
    * marca que muda dinheiro não pode viver só no aparelho de quem separou.
    */
   readonly unavailableAt: string | null
+  /** `null` com `unavailableAt` preenchido = falta registrada e cliente ainda não avisado. */
+  readonly unavailableNotifiedAt: string | null
 }
 
 /**

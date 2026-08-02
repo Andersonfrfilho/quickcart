@@ -85,6 +85,11 @@ class FakeOrderRepository implements OrderRepositoryInterface {
     return this.findDetailById(params.orderId)
   }
 
+  async markUnavailableItemsNotified(_orderId: string) {
+    // O fake não guarda item: os testes deste caso de uso não passam por aviso de falta.
+    return []
+  }
+
   async listItems(orderId: string): Promise<OrderItemRecord[]> {
     return this.itemsByOrder.get(orderId) ?? []
   }

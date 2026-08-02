@@ -175,8 +175,20 @@ export const MESSAGES = {
    * Não pergunta "quer cancelar?" de propósito: a maioria segue com o resto da compra, e oferecer o
    * cancelamento primeiro sugere que a loja preferiria desfazer tudo. Quem quiser cancelar pede.
    */
-  ORDER_ITEM_UNAVAILABLE:
-    '😕 Infelizmente o item "{produto}" acabou no estoque e não vai no seu pedido.\n\nO novo total é {total}. Se quiser trocar por outra coisa ou cancelar, me diz por aqui.',
+  /**
+   * Aviso ÚNICO com todas as faltas. Enviado quando a loja decide avisar, não a cada marcação.
+   *
+   * Não abre oferecendo cancelamento de propósito: a maioria segue com o resto da compra, e começar por
+   * "quer cancelar?" sugere que a loja preferiria desfazer tudo.
+   */
+  /**
+   * Quando NADA sobrou. Pedido de total zero não é pedido, e tratá-lo como os outros faria o cliente
+   * receber "o novo total é R$ 0,00" e ficar esperando uma entrega vazia.
+   */
+  ORDER_ALL_ITEMS_UNAVAILABLE:
+    '😕 Infelizmente todos os itens do seu pedido acabaram no estoque:\n\n{itens}\n\nNão vai dar para entregar nada assim. Quer montar outra lista ou prefere cancelar? Me diz por aqui.',
+  ORDER_ITEMS_UNAVAILABLE:
+    '😕 Alguns itens do seu pedido acabaram no estoque e não vão na entrega:\n\n{itens}\n\nO novo total é {total}. Se quiser trocar por outra coisa ou cancelar, me diz por aqui.',
   ORDER_HISTORY_EMPTY: 'Você ainda não tem compra fechada por aqui. Quando tiver, ela aparece nesta opção.',
   ORDER_HISTORY_HEADER: '📜 Suas últimas compras:',
   LIST_INTENT_DETECTED: '📝 Entendi que é uma lista! Já vou montar seu carrinho…',

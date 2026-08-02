@@ -29,4 +29,6 @@ export function registerOrderRoutes(params: RegisterOrderRoutesParams): void {
   router.patch('/v1/admin/orders/:id/status', orderController.handleUpdateStatus)
   // Item em falta: descoberto na separação, muda o total e avisa o cliente.
   router.patch('/v1/admin/orders/:id/items/:itemId/unavailable', orderController.handleSetItemUnavailable)
+  // Aviso das faltas: uma mensagem com todas, quando quem separa termina de conferir.
+  router.post('/v1/admin/orders/:id/unavailable-items/notify', orderController.handleNotifyUnavailableItems)
 }

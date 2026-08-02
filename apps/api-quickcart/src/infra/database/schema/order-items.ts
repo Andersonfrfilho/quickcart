@@ -41,6 +41,15 @@ export const orderItems = pgTable('order_items', {
    * pediu aquilo — que é justamente o dado mais valioso desse acontecimento.
    */
   unavailableAt: timestamp('unavailable_at', { withTimezone: true }),
+  /**
+   * Quando o CLIENTE foi avisado desta falta.
+   *
+   * Separado de `unavailableAt` porque marcar e avisar são momentos diferentes: quem separa marca três
+   * itens andando pelo corredor, e o cliente deve receber UM recado com os três — não três mensagens.
+   * `null` com `unavailableAt` preenchido é exatamente o estado "falta registrada, cliente ainda não
+   * sabe", que é o que a tela precisa mostrar para alguém decidir avisar.
+   */
+  unavailableNotifiedAt: timestamp('unavailable_notified_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })

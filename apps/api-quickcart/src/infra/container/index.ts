@@ -90,6 +90,7 @@ import { GetOrderByShortCodeUseCase } from '@/modules/order/application/use-case
 import { UpdateOrderStatusUseCase } from '@/modules/order/application/use-cases/UpdateOrderStatus.use-case'
 import { GetAdminOrderDetailUseCase } from '@/modules/order/application/use-cases/GetAdminOrderDetail.use-case'
 import { SetOrderItemUnavailableUseCase } from '@/modules/order/application/use-cases/SetOrderItemUnavailable.use-case'
+import { NotifyUnavailableItemsUseCase } from '@/modules/order/application/use-cases/NotifyUnavailableItems.use-case'
 import { RepeatLastOrderUseCase } from '@/modules/order/application/use-cases/RepeatLastOrder.use-case'
 import { ListOrdersUseCase } from '@/modules/order/application/use-cases/ListOrders.use-case'
 import { OrderController } from '@/modules/order/infra/http/Order.controller'
@@ -208,10 +209,13 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
   const getAdminOrderDetailUseCase = new GetAdminOrderDetailUseCase({ orderRepository })
   const setOrderItemUnavailableUseCase = new SetOrderItemUnavailableUseCase({
     orderRepository,
-    // Mesmo remetente do resto do produto: a mensagem entra no transcript da conversa, então o
-    // atendente vê que o cliente já foi avisado e não avisa de novo.
-    notifyCustomer: ({ whatsappNumber, body }) => dependencies.whatsAppSender.sendText(whatsappNumber, body),
     unmatchedDemandRepository: new DrizzleUnmatchedDemandRepository(),
+  })
+  const notifyUnavailableItemsUseCase = new NotifyUnavailableItemsUseCase({
+    orderRepository,
+    // Mesmo remetente do resto do produto: o recado entra no transcript da conversa, então o atendente vê
+    // o que o cliente já ouviu e não repete.
+    notifyCustomer: ({ whatsappNumber, body }) => dependencies.whatsAppSender.sendText(whatsappNumber, body),
   })
   const repeatLastOrderUseCase = new RepeatLastOrderUseCase({
     orderRepository,
@@ -227,6 +231,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     updateOrderStatusUseCase,
     getAdminOrderDetailUseCase,
     setOrderItemUnavailableUseCase,
+    notifyUnavailableItemsUseCase,
   })
 
   return {

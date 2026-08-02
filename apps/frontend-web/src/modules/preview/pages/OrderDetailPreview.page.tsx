@@ -59,6 +59,7 @@ function buildPreviewItems(): OrderItem[] {
     // Um item em falta no meio da lista: é o estado que precisa ser conferido no desenho, e o preview
     // existe para mostrar o caso difícil, não o feliz.
     unavailableAt: null,
+    unavailableNotifiedAt: null,
   }))
 }
 
@@ -102,14 +103,16 @@ export function OrderDetailPreviewPage() {
   const [hidePickedItems, setHidePickedItems] = React.useState(false)
   // No preview a falta é local: serve para ver o estado na tela, sem pedido nem cliente de verdade.
   const [unavailableItemIds, setUnavailableItemIds] = React.useState<readonly string[]>(['preview-item-4'])
+  const [notifiedItemIds, setNotifiedItemIds] = React.useState<readonly string[]>([])
 
   const items = React.useMemo(
     () =>
       PREVIEW_ITEMS.map((item) => ({
         ...item,
         unavailableAt: unavailableItemIds.includes(item.id) ? new Date().toISOString() : null,
+        unavailableNotifiedAt: notifiedItemIds.includes(item.id) ? new Date().toISOString() : null,
       })),
-    [unavailableItemIds],
+    [unavailableItemIds, notifiedItemIds],
   )
 
   const visibleItems = hidePickedItems ? items.filter((item) => !pickedItemIds.includes(item.id)) : items
@@ -152,11 +155,16 @@ export function OrderDetailPreviewPage() {
       }
       onToggleHidePicked={setHidePickedItems}
       onUpdateStatus={() => undefined}
-      onSetUnavailable={({ itemId, unavailable }) =>
+      onSetUnavailable={({ itemId, unavailable }) => {
         setUnavailableItemIds((current) =>
           unavailable ? [...current, itemId] : current.filter((id) => id !== itemId),
         )
-      }
+        // Desmarcar limpa o aviso, como o servidor faz: item que voltou não teve falta avisada.
+        if (!unavailable) setNotifiedItemIds((current) => current.filter((id) => id !== itemId))
+      }}
+      onNotifyUnavailable={() => setNotifiedItemIds(unavailableItemIds)}
+      isNotifyingUnavailable={false}
+      onOpenConversation={() => undefined}
       onBack={() => undefined}
     />
   )

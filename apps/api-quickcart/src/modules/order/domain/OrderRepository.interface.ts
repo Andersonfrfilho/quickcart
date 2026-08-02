@@ -36,6 +36,8 @@ export type OrderItemRecord = {
   readonly totalInCents: number
   /** `null` = nada de anormal. Preenchido quando a loja não achou o item na hora de separar. */
   readonly unavailableAt: Date | null
+  /** `null` com `unavailableAt` preenchido = falta registrada e cliente ainda não avisado. */
+  readonly unavailableNotifiedAt: Date | null
   readonly createdAt: Date
   readonly updatedAt: Date
 }
@@ -130,6 +132,13 @@ export interface OrderRepositoryInterface {
    * pagar pelo que não recebeu, e um instante com a conta errada gravada é um instante em que alguém
    * pode ler, cobrar ou fechar o caixa.
    */
+  /**
+   * Marca como avisados os itens em falta que ainda não foram, e devolve quais eram.
+   *
+   * Devolve a lista porque quem chama precisa montar a mensagem com exatamente esses itens — reler depois
+   * de marcar traria zero, e reler antes abriria janela para marcar um item que não entrou no recado.
+   */
+  markUnavailableItemsNotified(orderId: string): Promise<OrderItemRecord[]>
   setItemUnavailable(params: {
     readonly orderId: string
     readonly itemId: string

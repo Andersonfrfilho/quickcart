@@ -12,6 +12,7 @@ import type { RouteHandler } from '@/infra/http/router'
 import { requireAdminToken } from '@/infra/http/middlewares/requireAdminToken'
 import type { GetAdminOrderDetailUseCase } from '@/modules/order/application/use-cases/GetAdminOrderDetail.use-case'
 import type { SetOrderItemUnavailableUseCase } from '@/modules/order/application/use-cases/SetOrderItemUnavailable.use-case'
+import type { NotifyUnavailableItemsUseCase } from '@/modules/order/application/use-cases/NotifyUnavailableItems.use-case'
 import { setOrderItemUnavailableBodySchema } from '@/modules/order/infra/http/schemas/SetOrderItemUnavailable.schema'
 import { validateBody } from '@/infra/http/middlewares/validateBody'
 import { validateQuery } from '@/infra/http/middlewares/validateQuery'
@@ -33,6 +34,7 @@ type OrderControllerDependencies = {
   readonly updateOrderStatusUseCase: UpdateOrderStatusUseCase
   readonly getAdminOrderDetailUseCase: GetAdminOrderDetailUseCase
   readonly setOrderItemUnavailableUseCase: SetOrderItemUnavailableUseCase
+  readonly notifyUnavailableItemsUseCase: NotifyUnavailableItemsUseCase
 }
 
 export class OrderController {
@@ -79,6 +81,19 @@ export class OrderController {
 
     const detail = await this.dependencies.setOrderItemUnavailableUseCase.execute({ orderId, itemId, unavailable })
     response.json(200, { data: { ...detail.order, items: detail.items } })
+  }
+
+  handleNotifyUnavailableItems: RouteHandler = async (request, response) => {
+    requireAdminToken(request)
+    const orderId = request.params[0] ?? ''
+    const result = await this.dependencies.notifyUnavailableItemsUseCase.execute({ orderId })
+
+    // `notifiedCount` no corpo para a tela dizer o que aconteceu: zero significa que não havia nada novo,
+    // e um "avisado!" nesse caso seria mentira.
+    response.json(200, {
+      data: { ...result.detail.order, items: result.detail.items },
+      meta: { notifiedCount: result.notifiedCount },
+    })
   }
 
   handleUpdateStatus: RouteHandler = async (request, response) => {

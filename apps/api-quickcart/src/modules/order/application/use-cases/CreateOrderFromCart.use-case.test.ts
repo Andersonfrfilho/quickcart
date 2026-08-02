@@ -199,6 +199,7 @@ class FakeOrderRepository implements OrderRepositoryInterface {
       quantity: item.quantity,
       totalInCents: item.totalInCents,
       unavailableAt: null,
+      unavailableNotifiedAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }))
@@ -234,6 +235,11 @@ class FakeOrderRepository implements OrderRepositoryInterface {
   async setItemUnavailable(params: { orderId: string; itemId: string; unavailable: boolean }) {
     // O fake não guarda item: os testes deste caso de uso não passam por falta de produto.
     return this.findDetailById(params.orderId)
+  }
+
+  async markUnavailableItemsNotified(_orderId: string) {
+    // O fake não guarda item: os testes deste caso de uso não passam por aviso de falta.
+    return []
   }
 
   async listItems(orderId: string): Promise<OrderItemRecord[]> {
