@@ -16,7 +16,7 @@
 
 import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import { db } from '@/infra/database/connection'
-import { orders, orderItems, products, type Order, type OrderItem } from '@/infra/database/schema'
+import { orders, orderItems, products, customers, type Order, type OrderItem } from '@/infra/database/schema'
 import { generateId } from '@/shared/id'
 import { ORDER_STATUS } from '@/modules/order/shared/Order.constant'
 import type {
@@ -28,6 +28,7 @@ import type {
   OrderItemRecord,
   OrderRecord,
   OrderRepositoryInterface,
+  OrderDetail,
 } from '@/modules/order/domain/OrderRepository.interface'
 
 const SORTABLE_COLUMNS = {
@@ -184,18 +185,79 @@ export class DrizzleOrderRepository implements OrderRepositoryInterface {
   async list(params: ListOrdersRepositoryParams): Promise<ListOrdersRepositoryResult> {
     const conditions: SQL[] = []
     if (params.status && params.status.length > 0) conditions.push(inArray(orders.status, [...params.status]))
+    if (params.deliveryType && params.deliveryType.length > 0) {
+      conditions.push(inArray(orders.deliveryType, [...params.deliveryType]))
+    }
+    if (params.paymentMethod && params.paymentMethod.length > 0) {
+      conditions.push(inArray(orders.paymentMethod, [...params.paymentMethod]))
+    }
+
+    /**
+     * Uma busca, três campos: o operador tem na mão o que o cliente falou ao telefone — o nome, o
+     * número ou o código do pedido —, e não deveria ter de escolher em qual caixa digitar.
+     *
+     * `ilike` para não diferenciar maiúscula, e o telefone é comparado com os dígitos crus porque
+     * ninguém dita "+55".
+     */
+    if (params.search) {
+      const pattern = `%${params.search.replace(/[%_]/g, '')}%`
+      conditions.push(
+        sql`(${customers.name} ilike ${pattern} or ${customers.phone} ilike ${pattern} or ${orders.shortCode} ilike ${pattern})`,
+      )
+    }
+
     const where = conditions.length > 0 ? and(...conditions) : undefined
 
     const sortColumn = SORTABLE_COLUMNS[params.sortBy]
     const orderBy = params.sortDirection === 'desc' ? desc(sortColumn) : asc(sortColumn)
     const offset = (params.page - 1) * params.perPage
 
-    const [items, countRows] = await Promise.all([
-      db.select().from(orders).where(where).orderBy(orderBy).limit(params.perPage).offset(offset),
-      db.select({ total: sql<number>`count(*)::int` }).from(orders).where(where),
+    const [rows, countRows] = await Promise.all([
+      // `innerJoin` e não `leftJoin`: pedido sem cliente não existe (a FK é obrigatória), e um left
+      // aqui só criaria um caminho de nome nulo que nunca acontece.
+      db
+        .select({ order: orders, customerName: customers.name, customerPhone: customers.phone })
+        .from(orders)
+        .innerJoin(customers, eq(orders.customerId, customers.id))
+        .where(where)
+        .orderBy(orderBy)
+        .limit(params.perPage)
+        .offset(offset),
+      // O mesmo join na contagem: filtrar por nome e contar sem o join daria total maior que a lista,
+      // e paginação com total errado manda o operador para páginas vazias.
+      db
+        .select({ total: sql<number>`count(*)::int` })
+        .from(orders)
+        .innerJoin(customers, eq(orders.customerId, customers.id))
+        .where(where),
     ])
 
-    return { items: items.map(toOrderRecord), total: countRows[0]?.total ?? 0 }
+    return {
+      items: rows.map((row) => ({
+        ...toOrderRecord(row.order),
+        customerName: row.customerName,
+        customerPhone: row.customerPhone,
+      })),
+      total: countRows[0]?.total ?? 0,
+    }
+  }
+
+  async findDetailById(id: string): Promise<OrderDetail | undefined> {
+    const [row] = await db
+      .select({ order: orders, customerName: customers.name, customerPhone: customers.phone })
+      .from(orders)
+      .innerJoin(customers, eq(orders.customerId, customers.id))
+      .where(eq(orders.id, id))
+      .limit(1)
+
+    if (!row) return undefined
+
+    const items = await db.select().from(orderItems).where(eq(orderItems.orderId, id))
+
+    return {
+      order: { ...toOrderRecord(row.order), customerName: row.customerName, customerPhone: row.customerPhone },
+      items: items.map(toOrderItemRecord),
+    }
   }
 
   async updateStatus(id: string, status: string): Promise<OrderRecord | undefined> {

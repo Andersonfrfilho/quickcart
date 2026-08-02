@@ -74,6 +74,12 @@ class FakeOrderRepository implements OrderRepositoryInterface {
     return [...this.orders.values()].filter((order) => order.customerId === customerId).slice(0, limit)
   }
 
+  async findDetailById(id: string) {
+    const order = this.orders.get(id)
+    // O fake não guarda cliente: os testes deste caso de uso não passam pelo detalhe.
+    return order ? { order: { ...order, customerName: null, customerPhone: '' }, items: [] } : undefined
+  }
+
   async listItems(orderId: string): Promise<OrderItemRecord[]> {
     return this.itemsByOrder.get(orderId) ?? []
   }

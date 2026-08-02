@@ -84,6 +84,29 @@ export type Order = {
   readonly createdAt: string
 }
 
+export type OrderItem = {
+  readonly id: string
+  readonly productId: string
+  readonly productName: string
+  readonly unitPriceInCents: number
+  /** Decimal para peso ("1.5 kg"), então chega como string do banco em alguns drivers. */
+  readonly quantity: number | string
+  readonly totalInCents: number
+}
+
+/**
+ * O pedido aberto para a loja: o que separar, para quem e como entregar.
+ *
+ * Endereço e recibo só existem aqui, e não na listagem: a lista precisa caber na tela e ninguém escolhe
+ * pedido pelo endereço — mas quem vai entregar não pode ter de adivinhar.
+ */
+export type OrderDetail = Order & {
+  readonly address: unknown
+  readonly receiptPreference: ReceiptPreference
+  readonly notes: string | null
+  readonly items: readonly OrderItem[]
+}
+
 export const PRODUCT_SORTABLE_FIELDS = ['name', 'priceInCents', 'stockQuantity', 'createdAt'] as const
 export type ProductSortableField = (typeof PRODUCT_SORTABLE_FIELDS)[number]
 

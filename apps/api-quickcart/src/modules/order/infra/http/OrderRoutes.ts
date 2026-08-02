@@ -23,5 +23,8 @@ export function registerOrderRoutes(params: RegisterOrderRoutesParams): void {
   router.get('/v1/orders/:shortCode', orderController.handleGetByShortCode)
 
   router.get('/v1/admin/orders', orderController.handleListAdmin)
+  // Antes do `:id/status` não faz diferença aqui (métodos diferentes), mas mantém os dois juntos para
+  // quem lê a lista de rotas ver que o detalhe e a transição são da mesma tela.
+  router.get('/v1/admin/orders/:id', orderController.handleGetAdminDetail)
   router.patch('/v1/admin/orders/:id/status', orderController.handleUpdateStatus)
 }

@@ -8,10 +8,13 @@
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  */
 
-import type { OrderRecord } from '@/modules/order/domain/OrderRepository.interface'
+import type { OrderWithCustomer } from '@/modules/order/domain/OrderRepository.interface'
 
 export type ListOrdersParams = {
   readonly status?: readonly string[] | undefined
+  readonly search?: string | undefined
+  readonly deliveryType?: readonly string[] | undefined
+  readonly paymentMethod?: readonly string[] | undefined
   readonly page: number
   readonly perPage: number
   readonly sortBy: 'createdAt' | 'totalInCents' | 'status'
@@ -19,7 +22,7 @@ export type ListOrdersParams = {
 }
 
 export type ListOrdersResult = {
-  readonly items: readonly OrderRecord[]
+  readonly items: readonly OrderWithCustomer[]
   readonly total: number
   readonly page: number
   readonly perPage: number

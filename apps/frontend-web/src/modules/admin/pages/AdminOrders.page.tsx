@@ -1,8 +1,15 @@
 import React from 'react'
 import { useAdminOrdersPage } from '@/modules/admin/hooks/useAdminOrdersPage.hook'
 import {
+  ORDER_URGENCY,
+  formatWaitingFor,
+  resolveOrderUrgency,
+  type OrderUrgency,
+} from '@/modules/admin/shared/orderUrgency'
+import {
   Button,
   Badge,
+  Input,
   Table,
   TableHeader,
   TableBody,
@@ -41,23 +48,76 @@ const NEXT_STATUS: Record<string, string[]> = {
   ready_for_pickup: ['completed'],
 }
 
+const DELIVERY_LABELS: Record<string, string> = { delivery: '🚚 Entrega', pickup: '🏪 Retirada' }
+const PAYMENT_LABELS: Record<string, string> = {
+  pix: '💳 Pix',
+  card_on_delivery: '💳 Cartão na entrega',
+  cash: '💵 Dinheiro',
+}
+const RECEIPT_LABELS: Record<string, string> = { whatsapp: '📱 WhatsApp', email: '📧 E-mail', both: '📱📧 Ambos' }
+
+/** Só a linha que precisa chamar atenção carrega classe; as outras não ganham estilo à toa. */
+const URGENCY_ROW_CLASS: Record<OrderUrgency, string> = {
+  [ORDER_URGENCY.LATE]: 'order-row-late',
+  [ORDER_URGENCY.ATTENTION]: 'order-row-attention',
+  [ORDER_URGENCY.FRESH]: '',
+  [ORDER_URGENCY.HANDLED]: '',
+}
+
+const COLUMN_COUNT = 8
+
+function formatMoney(totalInCents: number): string {
+  return (totalInCents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
+function formatFullDateTime(isoDate: string): string {
+  return new Date(isoDate).toLocaleString('pt-BR')
+}
+
+function formatAddress(address: unknown): string | undefined {
+  if (typeof address === 'string' && address.trim().length > 0) return address.trim()
+  // Endereço estruturado: mostra o que houver, sem inventar um formato que o cadastro não garante.
+  if (address && typeof address === 'object') return Object.values(address).filter(Boolean).join(', ')
+  return undefined
+}
+
 export function AdminOrdersPage() {
   const {
     token,
     orders,
     pagination,
     isLoading,
+    now,
     page,
     perPage,
     setPage,
     statusFilter,
-    toggleStatusFilter,
-    clearStatusFilter,
+    deliveryFilter,
+    paymentFilter,
+    search,
+    setSearch,
+    toggleFilterValue,
+    hasFiltersApplied,
+    clearFilters,
     sortBy,
     sortDirection,
     handleSort,
     updateStatus,
+    expandedOrderId,
+    toggleExpanded,
+    detail,
+    isLoadingDetail,
+    selectedIds,
+    isAllOnPageSelected,
+    toggleSelected,
+    toggleSelectAllOnPage,
+    confirmSelected,
+    isBulkRunning,
   } = useAdminOrdersPage()
+
+  // Campo local para digitar sem refazer a consulta a cada letra; a URL recebe no enter ou ao sair.
+  const [searchDraft, setSearchDraft] = React.useState(search)
+  React.useEffect(() => setSearchDraft(search), [search])
 
   if (!token) return null
 
@@ -65,103 +125,306 @@ export function AdminOrdersPage() {
     return { active: sortBy === field, direction: sortDirection, onSort: () => handleSort(field) }
   }
 
+  const totalPages = pagination ? Math.max(1, Math.ceil(pagination.total / perPage)) : 1
+
   return (
     <div className="space-y-6 p-4 lg:p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Pedidos</h1>
-          <p className="text-muted-foreground">Gerencie os pedidos dos clientes</p>
-        </div>
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Pedidos</h1>
+        <p className="text-muted-foreground">
+          Do mais antigo para o mais novo — quem pediu primeiro é quem está esperando há mais tempo.
+        </p>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {Object.entries(STATUS_LABELS).map(([value, label]) => (
-          <Button
-            key={value}
-            variant={statusFilter.includes(value) ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => toggleStatusFilter(value)}
-          >
-            {label}
-          </Button>
-        ))}
-        {statusFilter.length > 0 && (
-          <Button variant="ghost" size="sm" onClick={clearStatusFilter}>
-            Limpar filtros
+      <form
+        className="flex flex-wrap items-center gap-2"
+        onSubmit={(event) => {
+          event.preventDefault()
+          setSearch(searchDraft)
+        }}
+      >
+        <Input
+          value={searchDraft}
+          onChange={(event) => setSearchDraft(event.target.value)}
+          onBlur={() => setSearch(searchDraft)}
+          placeholder="Buscar por nome, telefone ou código…"
+          className="max-w-xs"
+          aria-label="Buscar pedidos"
+        />
+        <Button type="submit" variant="secondary" size="sm">
+          Buscar
+        </Button>
+      </form>
+
+      <div className="space-y-2">
+        <FilterRow
+          label="Situação"
+          options={Object.entries(STATUS_LABELS)}
+          selected={statusFilter}
+          onToggle={(value) => toggleFilterValue('status', value)}
+        />
+        <FilterRow
+          label="Entrega"
+          options={Object.entries(DELIVERY_LABELS)}
+          selected={deliveryFilter}
+          onToggle={(value) => toggleFilterValue('deliveryType', value)}
+        />
+        <FilterRow
+          label="Pagamento"
+          options={Object.entries(PAYMENT_LABELS)}
+          selected={paymentFilter}
+          onToggle={(value) => toggleFilterValue('paymentMethod', value)}
+        />
+
+        {/* Só quando há filtro ou ordenação aplicados: botão morto ensina a ignorar a barra inteira. */}
+        {hasFiltersApplied && (
+          <Button variant="ghost" size="sm" onClick={clearFilters}>
+            Limpar filtros e ordenação
           </Button>
         )}
       </div>
 
-      <div className="rounded-lg border bg-card">
-        <Table>
+      {/* Barra de lote só existe quando há seleção — espaço ocupado prometendo ação é ruído. */}
+      {selectedIds.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-card p-3">
+          <p className="text-sm">
+            {selectedIds.length} pedido{selectedIds.length > 1 ? 's' : ''} selecionado
+            {selectedIds.length > 1 ? 's' : ''}
+          </p>
+          <Button size="sm" disabled={isBulkRunning} onClick={() => void confirmSelected()}>
+            {isBulkRunning ? 'Confirmando…' : 'Confirmar selecionados'}
+          </Button>
+        </div>
+      )}
+
+      <div className="overflow-x-auto rounded-lg border bg-card">
+        <Table className="table-zebra">
           <TableHeader>
             <TableRow>
-              <TableHead>Pedido</TableHead>
+              <TableHead>
+                <input
+                  type="checkbox"
+                  checked={isAllOnPageSelected}
+                  onChange={toggleSelectAllOnPage}
+                  aria-label="Selecionar todos os pedidos desta página"
+                />
+              </TableHead>
+              <TableHead>Código</TableHead>
               <TableHead>Cliente</TableHead>
+              <SortableTableHead {...sortHeaderProps('createdAt')}>Recebido</SortableTableHead>
               <SortableTableHead {...sortHeaderProps('totalInCents')}>Total</SortableTableHead>
-              <SortableTableHead {...sortHeaderProps('status')}>Status</SortableTableHead>
-              <TableHead className="text-right">Ações</TableHead>
+              <TableHead>Entrega</TableHead>
+              <SortableTableHead {...sortHeaderProps('status')}>Situação</SortableTableHead>
+              <TableHead>Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading ? (
+            {isLoading && (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                  Carregando...
+                <TableCell colSpan={COLUMN_COUNT}>Carregando…</TableCell>
+              </TableRow>
+            )}
+
+            {!isLoading && orders.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={COLUMN_COUNT}>
+                  {hasFiltersApplied
+                    ? 'Nenhum pedido com esses filtros.'
+                    : 'Nenhum pedido ainda. Quando um cliente fechar compra pelo WhatsApp, ele aparece aqui.'}
                 </TableCell>
               </TableRow>
-            ) : orders.map((order) => (
-              <TableRow key={order.id}>
-                <TableCell className="font-mono font-medium">{order.shortCode}</TableCell>
-                <TableCell>{order.customerName ?? order.customerPhone}</TableCell>
-                <TableCell className="font-medium">
-                  {(order.totalInCents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                </TableCell>
-                <TableCell>
-                  <Badge variant={STATUS_VARIANTS[order.status] ?? 'outline'}>
-                    {STATUS_LABELS[order.status] ?? order.status}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="flex gap-1 justify-end">
-                    {NEXT_STATUS[order.status]?.map((next) => (
-                      <Button
-                        key={next}
-                        variant="outline"
-                        size="sm"
-                        onClick={() => updateStatus(order.id, next)}
+            )}
+
+            {orders.map((order) => {
+              const urgency = resolveOrderUrgency({ status: order.status, createdAt: order.createdAt, now })
+              const isExpanded = expandedOrderId === order.id
+
+              return (
+                <React.Fragment key={order.id}>
+                  <TableRow className={URGENCY_ROW_CLASS[urgency]}>
+                    <TableCell>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(order.id)}
+                        onChange={() => toggleSelected(order.id)}
+                        aria-label={`Selecionar pedido ${order.shortCode}`}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      {/* A linha inteira não abre ao clique de propósito: ela tem checkbox e botões de
+                          transição, e clique solto viraria expansão acidental no meio da operação. */}
+                      <button
+                        type="button"
+                        className="font-mono font-medium underline-offset-2 hover:underline"
+                        onClick={() => toggleExpanded(order.id)}
+                        aria-expanded={isExpanded}
                       >
-                        → {STATUS_LABELS[next]}
-                      </Button>
-                    ))}
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
+                        {order.shortCode}
+                      </button>
+                    </TableCell>
+                    <TableCell>
+                      <span className="font-medium">{order.customerName ?? 'Sem nome'}</span>
+                      <span className="block text-xs text-muted-foreground">{order.customerPhone}</span>
+                    </TableCell>
+                    <TableCell>
+                      {/* Relativo na célula, exato no title: a pergunta é "esperando há quanto tempo", e
+                          o horário cheio só importa na hora de registrar. */}
+                      <span title={formatFullDateTime(order.createdAt)}>{formatWaitingFor(order.createdAt, now)}</span>
+                      {urgency === ORDER_URGENCY.LATE && (
+                        <span className="block text-xs font-medium text-destructive">sem confirmação</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="font-medium">{formatMoney(order.totalInCents)}</TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      {DELIVERY_LABELS[order.deliveryType] ?? order.deliveryType}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={STATUS_VARIANTS[order.status] ?? 'outline'}>
+                        {STATUS_LABELS[order.status] ?? order.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        <Button variant="ghost" size="sm" onClick={() => toggleExpanded(order.id)}>
+                          {isExpanded ? 'Fechar' : 'Detalhes'}
+                        </Button>
+                        {(NEXT_STATUS[order.status] ?? []).map((next) => (
+                          <Button
+                            key={next}
+                            variant={next === 'cancelled' ? 'destructive' : 'outline'}
+                            size="sm"
+                            onClick={() => updateStatus(order.id, next)}
+                          >
+                            {STATUS_LABELS[next]}
+                          </Button>
+                        ))}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+
+                  {isExpanded && (
+                    <TableRow>
+                      <TableCell colSpan={COLUMN_COUNT}>
+                        {isLoadingDetail || detail?.id !== order.id ? (
+                          <p className="text-sm text-muted-foreground">Carregando detalhes…</p>
+                        ) : (
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <div>
+                              <h3 className="font-semibold">Itens</h3>
+                              <ul className="mt-1 space-y-1 text-sm">
+                                {detail.items.map((item) => (
+                                  <li key={item.id} className="flex justify-between gap-4">
+                                    <span>
+                                      {Number(item.quantity)}x {item.productName}
+                                    </span>
+                                    <span className="text-muted-foreground">{formatMoney(item.totalInCents)}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                              <p className="mt-2 text-sm font-semibold">Total: {formatMoney(detail.totalInCents)}</p>
+                            </div>
+
+                            <dl className="space-y-1 text-sm">
+                              <div>
+                                <dt className="inline font-medium">Recebido em: </dt>
+                                <dd className="inline">{formatFullDateTime(detail.createdAt)}</dd>
+                              </div>
+                              <div>
+                                <dt className="inline font-medium">Entrega: </dt>
+                                <dd className="inline">
+                                  {DELIVERY_LABELS[detail.deliveryType] ?? detail.deliveryType}
+                                </dd>
+                              </div>
+                              {formatAddress(detail.address) && (
+                                <div>
+                                  <dt className="inline font-medium">Endereço: </dt>
+                                  <dd className="inline">{formatAddress(detail.address)}</dd>
+                                </div>
+                              )}
+                              <div>
+                                <dt className="inline font-medium">Pagamento: </dt>
+                                <dd className="inline">
+                                  {PAYMENT_LABELS[detail.paymentMethod] ?? detail.paymentMethod}
+                                </dd>
+                              </div>
+                              <div>
+                                <dt className="inline font-medium">Recibo: </dt>
+                                <dd className="inline">
+                                  {RECEIPT_LABELS[detail.receiptPreference] ?? detail.receiptPreference}
+                                </dd>
+                              </div>
+                              <div>
+                                <dt className="inline font-medium">Contato: </dt>
+                                <dd className="inline">
+                                  {detail.customerName ?? 'Sem nome'} · {detail.customerPhone}
+                                </dd>
+                              </div>
+                              {detail.notes && (
+                                <div>
+                                  <dt className="inline font-medium">Observações: </dt>
+                                  <dd className="inline">{detail.notes}</dd>
+                                </div>
+                              )}
+                            </dl>
+                          </div>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </React.Fragment>
+              )
+            })}
           </TableBody>
         </Table>
       </div>
 
-      {pagination && (
-        <div className="flex items-center justify-between">
+      {pagination && pagination.total > perPage && (
+        <div className="flex items-center justify-between gap-2">
           <p className="text-sm text-muted-foreground">
-            Página {page} de {Math.ceil(pagination.total / perPage)} ({pagination.total} pedidos)
+            {pagination.total} pedido{pagination.total > 1 ? 's' : ''} · página {page} de {totalPages}
           </p>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
               Anterior
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page * perPage >= pagination.total}
-              onClick={() => setPage(page + 1)}
-            >
+            <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
               Próxima
             </Button>
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+type FilterRowProps = {
+  label: string
+  options: readonly (readonly [string, string])[]
+  selected: readonly string[]
+  onToggle: (value: string) => void
+}
+
+/**
+ * Uma linha de filtro com seleção múltipla.
+ *
+ * Múltipla, e não valor único, porque o trabalho é olhar "aguardando E preparando" ao mesmo tempo —
+ * filtro exclusivo obrigaria o operador a escolher qual metade do próprio trabalho enxergar.
+ */
+function FilterRow({ label, options, selected, onToggle }: FilterRowProps) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="w-24 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
+      {options.map(([value, optionLabel]) => (
+        <Button
+          key={value}
+          variant={selected.includes(value) ? 'default' : 'outline'}
+          size="sm"
+          aria-pressed={selected.includes(value)}
+          onClick={() => onToggle(value)}
+        >
+          {optionLabel}
+        </Button>
+      ))}
     </div>
   )
 }

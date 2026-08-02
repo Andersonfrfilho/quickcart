@@ -11,6 +11,7 @@ import type {
   Product,
   ProductSortableField,
   ReceiptPreference,
+  OrderDetail,
   SortDirection,
   UnmatchedDemand,
 } from '@/shared/api/api.types'
@@ -51,6 +52,10 @@ export type ListAdminOrdersParams = {
   page?: number
   perPage?: number
   status?: string[]
+  /** Nome, telefone ou código — o servidor procura nos três. */
+  search?: string
+  deliveryType?: string[]
+  paymentMethod?: string[]
   sortBy?: OrderSortableField
   sortDirection?: SortDirection
 }
@@ -129,12 +134,27 @@ export async function adminListUnmatchedDemands(
   })
 }
 
+/** Lista vazia vira `undefined`: mandar `status=` sem valor faria o servidor filtrar por nada. */
+function toCsvParam(values: string[] | undefined): string | undefined {
+  return values && values.length > 0 ? values.join(',') : undefined
+}
+
 export async function adminListOrders(token: string, params: ListAdminOrdersParams = {}): Promise<ApiListResponse<Order>> {
-  const { status, ...rest } = params
+  const { status, deliveryType, paymentMethod, search, ...rest } = params
   return apiClient.get('/v1/admin/orders', {
     headers: { Authorization: `Bearer ${token}` },
-    params: { ...rest, status: status && status.length > 0 ? status.join(',') : undefined },
+    params: {
+      ...rest,
+      status: toCsvParam(status),
+      deliveryType: toCsvParam(deliveryType),
+      paymentMethod: toCsvParam(paymentMethod),
+      search: search && search.trim().length > 0 ? search.trim() : undefined,
+    },
   })
+}
+
+export async function adminGetOrderDetail(token: string, id: string): Promise<ApiItemResponse<OrderDetail>> {
+  return apiClient.get(`/v1/admin/orders/${id}`, { headers: { Authorization: `Bearer ${token}` } })
 }
 
 export async function adminUpdateOrderStatus(token: string, id: string, status: string): Promise<ApiItemResponse<Order>> {

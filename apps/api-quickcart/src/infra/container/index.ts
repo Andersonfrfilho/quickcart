@@ -88,6 +88,7 @@ import { CreateOrderFromCartUseCase } from '@/modules/order/application/use-case
 import { CreateWebOrderUseCase } from '@/modules/order/application/use-cases/CreateWebOrder.use-case'
 import { GetOrderByShortCodeUseCase } from '@/modules/order/application/use-cases/GetOrderByShortCode.use-case'
 import { UpdateOrderStatusUseCase } from '@/modules/order/application/use-cases/UpdateOrderStatus.use-case'
+import { GetAdminOrderDetailUseCase } from '@/modules/order/application/use-cases/GetAdminOrderDetail.use-case'
 import { RepeatLastOrderUseCase } from '@/modules/order/application/use-cases/RepeatLastOrder.use-case'
 import { ListOrdersUseCase } from '@/modules/order/application/use-cases/ListOrders.use-case'
 import { OrderController } from '@/modules/order/infra/http/Order.controller'
@@ -201,6 +202,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     customerRepository: dependencies.customerRepository,
   })
   const updateOrderStatusUseCase = new UpdateOrderStatusUseCase({ orderRepository, notificationQueue })
+  const getAdminOrderDetailUseCase = new GetAdminOrderDetailUseCase({ orderRepository })
   const repeatLastOrderUseCase = new RepeatLastOrderUseCase({
     orderRepository,
     cartRepository: dependencies.cartRepository,
@@ -213,6 +215,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     getOrderByShortCodeUseCase,
     listOrdersUseCase,
     updateOrderStatusUseCase,
+    getAdminOrderDetailUseCase,
   })
 
   return {

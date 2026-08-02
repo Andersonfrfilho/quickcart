@@ -71,15 +71,38 @@ export type CreateOrderWithItemsResult =
 
 export type ListOrdersRepositoryParams = {
   readonly status?: readonly string[] | undefined
+  /** Nome, telefone ou código do pedido. Casa parcialmente e sem diferenciar maiúscula. */
+  readonly search?: string | undefined
+  readonly deliveryType?: readonly string[] | undefined
+  readonly paymentMethod?: readonly string[] | undefined
   readonly page: number
   readonly perPage: number
   readonly sortBy: 'createdAt' | 'totalInCents' | 'status'
   readonly sortDirection: 'asc' | 'desc'
 }
 
+/**
+ * Pedido com quem pediu, para a listagem da loja.
+ *
+ * O nome vem junto na mesma consulta, e não numa busca por pedido: uma tela de quinze pedidos faria
+ * quinze idas ao banco para escrever quinze nomes. E sem nome a lista obriga o operador a decorar
+ * telefone — o pedido é de uma pessoa, não de um número.
+ */
+export type OrderWithCustomer = OrderRecord & {
+  /** `null` quando o cliente ainda não se apresentou ao bot; a tela cai para o telefone. */
+  readonly customerName: string | null
+  readonly customerPhone: string
+}
+
 export type ListOrdersRepositoryResult = {
-  readonly items: OrderRecord[]
+  readonly items: OrderWithCustomer[]
   readonly total: number
+}
+
+/** Pedido aberto: itens e quem pediu, para a loja saber o que separar e para quem. */
+export type OrderDetail = {
+  readonly order: OrderWithCustomer
+  readonly items: OrderItemRecord[]
 }
 
 export interface OrderRepositoryInterface {
@@ -97,6 +120,7 @@ export interface OrderRepositoryInterface {
   listRecentByCustomer(customerId: string, limit: number): Promise<OrderRecord[]>
   listItems(orderId: string): Promise<OrderItemRecord[]>
   list(params: ListOrdersRepositoryParams): Promise<ListOrdersRepositoryResult>
+  findDetailById(id: string): Promise<OrderDetail | undefined>
   updateStatus(id: string, status: string): Promise<OrderRecord | undefined>
   cancelAndRestoreStock(id: string): Promise<OrderRecord | undefined>
 }

@@ -10,6 +10,7 @@
 
 import type { RouteHandler } from '@/infra/http/router'
 import { requireAdminToken } from '@/infra/http/middlewares/requireAdminToken'
+import type { GetAdminOrderDetailUseCase } from '@/modules/order/application/use-cases/GetAdminOrderDetail.use-case'
 import { validateBody } from '@/infra/http/middlewares/validateBody'
 import { validateQuery } from '@/infra/http/middlewares/validateQuery'
 import { ValidationError } from '@/shared/errors/AppError.error'
@@ -28,6 +29,7 @@ type OrderControllerDependencies = {
   readonly getOrderByShortCodeUseCase: GetOrderByShortCodeUseCase
   readonly listOrdersUseCase: ListOrdersUseCase
   readonly updateOrderStatusUseCase: UpdateOrderStatusUseCase
+  readonly getAdminOrderDetailUseCase: GetAdminOrderDetailUseCase
 }
 
 export class OrderController {
@@ -56,6 +58,13 @@ export class OrderController {
     const query = validateQuery(listOrdersQuerySchema, request.query)
     const result = await this.dependencies.listOrdersUseCase.execute(query)
     response.json(200, { data: result.items, pagination: { total: result.total, page: result.page, perPage: result.perPage } })
+  }
+
+  handleGetAdminDetail: RouteHandler = async (request, response) => {
+    requireAdminToken(request)
+    const id = request.params[0] ?? ''
+    const detail = await this.dependencies.getAdminOrderDetailUseCase.execute({ orderId: id })
+    response.json(200, { data: { ...detail.order, items: detail.items } })
   }
 
   handleUpdateStatus: RouteHandler = async (request, response) => {
