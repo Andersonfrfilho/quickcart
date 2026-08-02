@@ -51,6 +51,11 @@ class FakeOrderRepository implements OrderRepositoryInterface {
     return order ? { order: { ...order, customerName: null, customerPhone: '' }, items: [] } : undefined
   }
 
+  async setItemUnavailable(params: { orderId: string; itemId: string; unavailable: boolean }) {
+    // O fake não guarda item: os testes deste caso de uso não passam por falta de produto.
+    return this.findDetailById(params.orderId)
+  }
+
   async listItems(orderId: string): Promise<OrderItemRecord[]> {
     return this.itemsByOrder.get(orderId) ?? []
   }
@@ -144,6 +149,7 @@ describe('UpdateOrderStatusUseCase', () => {
         unitPriceInCents: 2500,
         quantity: 2,
         totalInCents: 5000,
+        unavailableAt: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       },

@@ -72,6 +72,9 @@ export type OrderDetailViewProps = {
   readonly pickedCount: number
   readonly hidePickedItems: boolean
   readonly isUpdatingStatus: boolean
+  /** Marca/desmarca item que acabou. Vai ao servidor: muda o total e avisa o cliente. */
+  readonly onSetUnavailable: (params: { readonly itemId: string; readonly unavailable: boolean }) => void
+  readonly pendingUnavailableItemId?: string | undefined
   readonly onTogglePicked: (itemId: string) => void
   readonly onClearPicked: () => void
   readonly onToggleHidePicked: (hide: boolean) => void
@@ -98,13 +101,24 @@ export function OrderDetailView({
   onClearPicked,
   onToggleHidePicked,
   onUpdateStatus,
+  onSetUnavailable,
+  pendingUnavailableItemId,
   onBack,
 }: OrderDetailViewProps) {
   const address = formatAddress(order.address)
   const urgency = resolveOrderUrgency({ status: order.status, createdAt: order.createdAt, now: Date.now() })
   const isLate = urgency === ORDER_URGENCY.LATE
-  const isPickingDone = items.length > 0 && pickedCount === items.length
-  const progressPercent = items.length > 0 ? Math.round((pickedCount / items.length) * 100) : 0
+  /**
+   * Item em falta sai da conta da separação.
+   *
+   * Com ele dentro, o progresso nunca chega a 100% e quem separa fica procurando o que já se sabe que
+   * não existe — a barra passaria a mentir justamente no fim, que é quando ela é olhada.
+   */
+  const availableItems = items.filter((item) => item.unavailableAt === null)
+  const unavailableCount = items.length - availableItems.length
+  const isPickingDone = availableItems.length > 0 && pickedCount >= availableItems.length
+  const progressPercent =
+    availableItems.length > 0 ? Math.round((pickedCount / availableItems.length) * 100) : 0
 
   /*
    * Largura máxima: em monitor largo a linha esticava até o nome do produto e o preço ficarem em
@@ -207,7 +221,9 @@ export function OrderDetailView({
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pagamento</p>
           <p className="mt-0.5 font-medium">{PAYMENT_LABELS[order.paymentMethod] ?? order.paymentMethod}</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Recibo: {RECEIPT_LABELS[order.receiptPreference] ?? order.receiptPreference}
+            {/* Valor fora da lista vira travessão: "Recibo: none" na tela é código vazando para o
+                lojista, e ele não tem como saber que 'none' significa "não escolheu". */}
+            Recibo: {RECEIPT_LABELS[order.receiptPreference] ?? '—'}
           </p>
         </Card>
 
@@ -215,7 +231,11 @@ export function OrderDetailView({
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Total</p>
           <p className="mt-0.5 text-xl font-bold md:text-2xl">{formatMoney(order.totalInCents)}</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            {items.length} {items.length === 1 ? 'item' : 'itens'}
+            {availableItems.length} {availableItems.length === 1 ? 'item' : 'itens'}
+            {/* O que faltou fica dito aqui: o total menor sem explicação parece erro de conta. */}
+            {unavailableCount > 0 && (
+              <span className="text-destructive"> · {unavailableCount} em falta</span>
+            )}
           </p>
         </Card>
       </div>
@@ -240,7 +260,7 @@ export function OrderDetailView({
             <h2 className="text-lg font-semibold">Itens para separar</h2>
             <p className="text-sm text-muted-foreground">
               <span className="font-semibold tabular-nums text-foreground">
-                {pickedCount}/{items.length}
+                {pickedCount}/{availableItems.length}
               </span>{' '}
               separados · {progressPercent}%
               {isPickingDone && ' — tudo pronto ✅'}
@@ -271,7 +291,7 @@ export function OrderDetailView({
         <progress
           className="picking-progress print:hidden"
           value={pickedCount}
-          max={Math.max(1, items.length)}
+          max={Math.max(1, availableItems.length)}
           aria-label="Progresso da separação"
         >
           {progressPercent}%
@@ -294,41 +314,81 @@ export function OrderDetailView({
 
           {visibleItems.map((item) => {
             const isPicked = pickedItemIds.includes(item.id)
+            const isUnavailable = item.unavailableAt !== null
+            const isPendingUnavailable = pendingUnavailableItemId === item.id
 
             return (
-              <li key={item.id}>
+              <li
+                key={item.id}
+                className={`flex items-center gap-3 px-3 py-2.5 transition-colors ${
+                  isUnavailable ? 'bg-destructive/5' : 'hover:bg-accent/50'
+                } ${isPicked && !isUnavailable ? 'opacity-55' : ''}`}
+              >
+                {/*
+                  O rótulo cobre só o que marca "separado" — o botão de falta fica fora dele, senão
+                  clicar em "não tem" também marcaria como separado, que é o oposto do que aconteceu.
+                */}
                 <label
-                  className={`flex cursor-pointer items-center gap-3 px-3 py-2.5 transition-colors hover:bg-accent/50 ${
-                    isPicked ? 'opacity-55' : ''
+                  className={`flex min-w-0 flex-1 items-center gap-3 ${
+                    isUnavailable ? '' : 'cursor-pointer'
                   }`}
                 >
                   <input
                     type="checkbox"
-                    checked={isPicked}
+                    checked={isPicked && !isUnavailable}
+                    disabled={isUnavailable}
                     onChange={() => onTogglePicked(item.id)}
                     aria-label={`Marcar ${item.productName} como separado`}
                     className="h-6 w-6 shrink-0 print:hidden"
                   />
 
-                  {/* Quantidade em bloco fixo: com números alinhados, a coluna vira uma régua de conferência. */}
+                  {/* Quantidade em bloco fixo: com números alinhados, a coluna vira régua de conferência. */}
                   <span className="w-14 shrink-0 text-right text-xl font-bold tabular-nums">
                     {Number(item.quantity)}
                     <span className="text-sm font-normal text-muted-foreground">x</span>
                   </span>
 
-                  {/*
-                    Risco só no NOME, nunca no preço: item separado continua valendo o que vale, e
-                    riscar o valor sugere desconto ou remoção.
-                  */}
-                  <span className={`min-w-0 flex-1 font-medium ${isPicked ? 'line-through' : ''}`}>
-                    {item.productName}
+                  <span className="min-w-0 flex-1">
+                    {/*
+                      Risco só no NOME, nunca no preço: item separado continua valendo o que vale, e
+                      riscar valor sugere desconto ou remoção.
+                    */}
+                    <span className={`font-medium ${isPicked || isUnavailable ? 'line-through' : ''}`}>
+                      {item.productName}
+                    </span>
+                    {isUnavailable && (
+                      <span className="ml-2 whitespace-nowrap rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-semibold text-destructive">
+                        acabou · cliente avisado
+                      </span>
+                    )}
                   </span>
-
-                  <span className="hidden shrink-0 text-right text-xs tabular-nums text-muted-foreground sm:block">
-                    {formatMoney(item.unitPriceInCents)} un
-                  </span>
-                  <span className="w-24 shrink-0 text-right tabular-nums">{formatMoney(item.totalInCents)}</span>
                 </label>
+
+                <span className="hidden shrink-0 text-right text-xs tabular-nums text-muted-foreground sm:block">
+                  {formatMoney(item.unitPriceInCents)} un
+                </span>
+                <span
+                  className={`w-24 shrink-0 text-right tabular-nums ${
+                    isUnavailable ? 'text-muted-foreground line-through' : ''
+                  }`}
+                >
+                  {formatMoney(item.totalInCents)}
+                </span>
+
+                {/*
+                  Ação separada do "separado" porque a consequência é outra: isto refaz o total do
+                  pedido e manda mensagem ao cliente. Fica discreta para não competir com o gesto que
+                  se repete trinta vezes, e nomeada pelo que faz.
+                */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={isPendingUnavailable}
+                  onClick={() => onSetUnavailable({ itemId: item.id, unavailable: !isUnavailable })}
+                  className={`shrink-0 print:hidden ${isUnavailable ? '' : 'text-destructive hover:bg-destructive/10 hover:text-destructive'}`}
+                >
+                  {isPendingUnavailable ? '…' : isUnavailable ? 'Tem sim' : 'Não tem'}
+                </Button>
               </li>
             )
           })}

@@ -55,6 +55,9 @@ function buildPreviewItems(): OrderItem[] {
     unitPriceInCents,
     quantity,
     totalInCents: unitPriceInCents * quantity,
+    // Um item em falta no meio da lista: é o estado que precisa ser conferido no desenho, e o preview
+    // existe para mostrar o caso difícil, não o feliz.
+    unavailableAt: null,
   }))
 }
 
@@ -84,15 +87,38 @@ export function OrderDetailPreviewPage() {
     'preview-item-2',
   ])
   const [hidePickedItems, setHidePickedItems] = React.useState(false)
+  // No preview a falta é local: serve para ver o estado na tela, sem pedido nem cliente de verdade.
+  const [unavailableItemIds, setUnavailableItemIds] = React.useState<readonly string[]>(['preview-item-4'])
 
-  const visibleItems = hidePickedItems
-    ? PREVIEW_ITEMS.filter((item) => !pickedItemIds.includes(item.id))
-    : PREVIEW_ITEMS
+  const items = React.useMemo(
+    () =>
+      PREVIEW_ITEMS.map((item) => ({
+        ...item,
+        unavailableAt: unavailableItemIds.includes(item.id) ? new Date().toISOString() : null,
+      })),
+    [unavailableItemIds],
+  )
+
+  const visibleItems = hidePickedItems ? items.filter((item) => !pickedItemIds.includes(item.id)) : items
+
+  /**
+   * Total recalculado também aqui.
+   *
+   * No produto quem recalcula é o servidor; no preview, deixar o total parado enquanto um item sai da
+   * lista faria a tela ensinar errado — e é justamente o número que eu preciso conferir olhando.
+   */
+  const order: OrderDetail = {
+    ...PREVIEW_ORDER,
+    items,
+    totalInCents: items
+      .filter((item) => item.unavailableAt === null)
+      .reduce((total, item) => total + item.totalInCents, 0),
+  }
 
   return (
     <OrderDetailView
-      order={PREVIEW_ORDER}
-      items={PREVIEW_ITEMS}
+      order={order}
+      items={items}
       visibleItems={visibleItems}
       pickedItemIds={pickedItemIds}
       pickedCount={pickedItemIds.length}
@@ -106,6 +132,11 @@ export function OrderDetailPreviewPage() {
       onClearPicked={() => setPickedItemIds([])}
       onToggleHidePicked={setHidePickedItems}
       onUpdateStatus={() => undefined}
+      onSetUnavailable={({ itemId, unavailable }) =>
+        setUnavailableItemIds((current) =>
+          unavailable ? [...current, itemId] : current.filter((id) => id !== itemId),
+        )
+      }
       onBack={() => undefined}
     />
   )

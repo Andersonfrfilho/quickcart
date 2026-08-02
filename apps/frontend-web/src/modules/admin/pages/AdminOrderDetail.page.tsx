@@ -22,6 +22,8 @@ export function AdminOrderDetailPage() {
     setHidePickedItems,
     updateStatus,
     isUpdatingStatus,
+    setUnavailable,
+    pendingUnavailableItemId,
     goBackToList,
   } = useAdminOrderDetailPage()
 
@@ -53,6 +55,8 @@ export function AdminOrderDetailPage() {
       onClearPicked={clearPicked}
       onToggleHidePicked={setHidePickedItems}
       onUpdateStatus={updateStatus}
+      onSetUnavailable={setUnavailable}
+      pendingUnavailableItemId={pendingUnavailableItemId}
       onBack={goBackToList}
     />
   )

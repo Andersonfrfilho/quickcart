@@ -1,0 +1,12 @@
+-- Item que acabou na hora de separar.
+--
+-- O cliente pede pelo WhatsApp e a loja descobre no corredor que não tem. Até aqui não havia como
+-- registrar isso: o item ficava no pedido como se fosse entregue, o total continuava cobrando por ele,
+-- e a única saída era cancelar o pedido inteiro ou combinar por fora.
+--
+-- Timestamp e não booleano: a pergunta que sempre vem depois é "quando faltou" — para explicar ao
+-- cliente e para o lojista ver se falta sempre no mesmo horário. `null` é o normal.
+--
+-- A linha do item PERMANECE. Apagá-la esconderia do histórico que o cliente pediu aquilo, que é o dado
+-- mais valioso do acontecimento — é o que alimenta o relatório de demanda não atendida.
+ALTER TABLE "order_items" ADD COLUMN IF NOT EXISTS "unavailable_at" timestamp with time zone;

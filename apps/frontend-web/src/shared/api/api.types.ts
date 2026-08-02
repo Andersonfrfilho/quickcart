@@ -92,6 +92,13 @@ export type OrderItem = {
   /** Decimal para peso ("1.5 kg"), então chega como string do banco em alguns drivers. */
   readonly quantity: number | string
   readonly totalInCents: number
+  /**
+   * Quando a loja descobriu, separando, que o item acabou. `null` é o normal.
+   *
+   * Vem do servidor, ao contrário da marca de "separado": item em falta muda o que o cliente paga, e
+   * marca que muda dinheiro não pode viver só no aparelho de quem separou.
+   */
+  readonly unavailableAt: string | null
 }
 
 /**

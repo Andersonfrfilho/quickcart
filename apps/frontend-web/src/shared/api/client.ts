@@ -157,6 +157,17 @@ export async function adminGetOrderDetail(token: string, id: string): Promise<Ap
   return apiClient.get(`/v1/admin/orders/${id}`, { headers: { Authorization: `Bearer ${token}` } })
 }
 
+export async function adminSetOrderItemUnavailable(
+  token: string,
+  params: { readonly orderId: string; readonly itemId: string; readonly unavailable: boolean },
+): Promise<ApiItemResponse<OrderDetail>> {
+  return apiClient.patch(
+    `/v1/admin/orders/${params.orderId}/items/${params.itemId}/unavailable`,
+    { unavailable: params.unavailable },
+    { headers: { Authorization: `Bearer ${token}` } },
+  )
+}
+
 export async function adminUpdateOrderStatus(token: string, id: string, status: string): Promise<ApiItemResponse<Order>> {
   return apiClient.patch(`/v1/admin/orders/${id}/status`, { status }, {
     headers: { Authorization: `Bearer ${token}` },

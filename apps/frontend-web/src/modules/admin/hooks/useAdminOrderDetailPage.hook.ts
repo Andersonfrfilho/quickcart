@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useRouter } from '@/app/router'
 import { useRequireAdmin } from '@/modules/admin/shared/useAdminAuth.hook'
 import { useUpdateOrderStatusMutation } from '@/modules/admin/shared/mutations/useUpdateOrderStatus.mutation'
+import { useSetOrderItemUnavailableMutation } from '@/modules/admin/shared/mutations/useSetOrderItemUnavailable.mutation'
 import { adminGetOrderDetail } from '@/shared/api/client'
 
 /**
@@ -46,6 +47,7 @@ export function useAdminOrderDetailPage() {
   })
 
   const updateStatusMutation = useUpdateOrderStatusMutation(token)
+  const setUnavailableMutation = useSetOrderItemUnavailableMutation(token)
 
   const [pickedItemIds, setPickedItemIds] = React.useState<readonly string[]>([])
   const [hidePickedItems, setHidePickedItems] = React.useState(false)
@@ -79,6 +81,23 @@ export function useAdminOrderDetailPage() {
     updateStatusMutation.mutate({ id: orderId, status })
   }
 
+  function setUnavailable({ itemId, unavailable }: { itemId: string; unavailable: boolean }) {
+    setUnavailableMutation.mutate({ orderId, itemId, unavailable })
+
+    // Item que acabou não fica marcado como separado: são estados que se excluem, e deixar as duas
+    // marcas juntas faria o progresso contar como pronto algo que não vai na sacola.
+    if (unavailable) togglePickedOff(itemId)
+  }
+
+  function togglePickedOff(itemId: string) {
+    setPickedItemIds((current) => {
+      if (!current.includes(itemId)) return current
+      const next = current.filter((id) => id !== itemId)
+      writePickedItems(orderId, next)
+      return next
+    })
+  }
+
   return {
     token,
     order,
@@ -94,6 +113,10 @@ export function useAdminOrderDetailPage() {
     setHidePickedItems,
     updateStatus,
     isUpdatingStatus: updateStatusMutation.isPending,
+    setUnavailable,
+    pendingUnavailableItemId: setUnavailableMutation.isPending
+      ? setUnavailableMutation.variables?.itemId
+      : undefined,
     goBackToList: () => navigate('/admin/orders'),
   }
 }

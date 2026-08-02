@@ -11,6 +11,8 @@
 import type { RouteHandler } from '@/infra/http/router'
 import { requireAdminToken } from '@/infra/http/middlewares/requireAdminToken'
 import type { GetAdminOrderDetailUseCase } from '@/modules/order/application/use-cases/GetAdminOrderDetail.use-case'
+import type { SetOrderItemUnavailableUseCase } from '@/modules/order/application/use-cases/SetOrderItemUnavailable.use-case'
+import { setOrderItemUnavailableBodySchema } from '@/modules/order/infra/http/schemas/SetOrderItemUnavailable.schema'
 import { validateBody } from '@/infra/http/middlewares/validateBody'
 import { validateQuery } from '@/infra/http/middlewares/validateQuery'
 import { ValidationError } from '@/shared/errors/AppError.error'
@@ -30,6 +32,7 @@ type OrderControllerDependencies = {
   readonly listOrdersUseCase: ListOrdersUseCase
   readonly updateOrderStatusUseCase: UpdateOrderStatusUseCase
   readonly getAdminOrderDetailUseCase: GetAdminOrderDetailUseCase
+  readonly setOrderItemUnavailableUseCase: SetOrderItemUnavailableUseCase
 }
 
 export class OrderController {
@@ -64,6 +67,17 @@ export class OrderController {
     requireAdminToken(request)
     const id = request.params[0] ?? ''
     const detail = await this.dependencies.getAdminOrderDetailUseCase.execute({ orderId: id })
+    response.json(200, { data: { ...detail.order, items: detail.items } })
+  }
+
+  handleSetItemUnavailable: RouteHandler = async (request, response) => {
+    requireAdminToken(request)
+    // Dois parâmetros na ordem em que aparecem na rota: pedido, depois item.
+    const orderId = request.params[0] ?? ''
+    const itemId = request.params[1] ?? ''
+    const { unavailable } = validateBody(setOrderItemUnavailableBodySchema, request.body)
+
+    const detail = await this.dependencies.setOrderItemUnavailableUseCase.execute({ orderId, itemId, unavailable })
     response.json(200, { data: { ...detail.order, items: detail.items } })
   }
 

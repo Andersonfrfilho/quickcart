@@ -89,6 +89,7 @@ import { CreateWebOrderUseCase } from '@/modules/order/application/use-cases/Cre
 import { GetOrderByShortCodeUseCase } from '@/modules/order/application/use-cases/GetOrderByShortCode.use-case'
 import { UpdateOrderStatusUseCase } from '@/modules/order/application/use-cases/UpdateOrderStatus.use-case'
 import { GetAdminOrderDetailUseCase } from '@/modules/order/application/use-cases/GetAdminOrderDetail.use-case'
+import { SetOrderItemUnavailableUseCase } from '@/modules/order/application/use-cases/SetOrderItemUnavailable.use-case'
 import { RepeatLastOrderUseCase } from '@/modules/order/application/use-cases/RepeatLastOrder.use-case'
 import { ListOrdersUseCase } from '@/modules/order/application/use-cases/ListOrders.use-case'
 import { OrderController } from '@/modules/order/infra/http/Order.controller'
@@ -168,6 +169,8 @@ type OrderModuleDependencies = {
   readonly productRepository: ProductRepositoryInterface
   readonly customerRepository: CustomerRepositoryInterface
   readonly cacheProvider: CacheProvider
+  /** Para avisar o cliente quando um item do pedido acabar na separação. */
+  readonly whatsAppSender: WhatsAppSender
 }
 
 type OrderModule = {
@@ -203,6 +206,13 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
   })
   const updateOrderStatusUseCase = new UpdateOrderStatusUseCase({ orderRepository, notificationQueue })
   const getAdminOrderDetailUseCase = new GetAdminOrderDetailUseCase({ orderRepository })
+  const setOrderItemUnavailableUseCase = new SetOrderItemUnavailableUseCase({
+    orderRepository,
+    // Mesmo remetente do resto do produto: a mensagem entra no transcript da conversa, então o
+    // atendente vê que o cliente já foi avisado e não avisa de novo.
+    notifyCustomer: ({ whatsappNumber, body }) => dependencies.whatsAppSender.sendText(whatsappNumber, body),
+    unmatchedDemandRepository: new DrizzleUnmatchedDemandRepository(),
+  })
   const repeatLastOrderUseCase = new RepeatLastOrderUseCase({
     orderRepository,
     cartRepository: dependencies.cartRepository,
@@ -216,6 +226,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     listOrdersUseCase,
     updateOrderStatusUseCase,
     getAdminOrderDetailUseCase,
+    setOrderItemUnavailableUseCase,
   })
 
   return {
@@ -538,6 +549,7 @@ const orderModule = buildOrderModule({
   productRepository: catalogModule.productRepository,
   customerRepository: webhookRepositories.customerRepository,
   cacheProvider: webhookRepositories.cacheProvider,
+  whatsAppSender: webhookRepositories.whatsAppSender,
 })
 const conversationModule = buildConversationModule({
   productRepository: catalogModule.productRepository,

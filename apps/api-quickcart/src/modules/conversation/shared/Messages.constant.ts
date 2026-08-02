@@ -169,6 +169,14 @@ export const MESSAGES = {
    * aparecer, e com a loja fechada isso é a madrugada inteira. Fila marcada, atendimento seguindo.
    */
   AGENT_REQUESTED: '💬 Já avisei a equipe — alguém vai te responder por aqui. Enquanto isso posso seguir te ajudando.',
+  /**
+   * Aviso de item que acabou. Diz o produto, o total novo e devolve a decisão ao cliente.
+   *
+   * Não pergunta "quer cancelar?" de propósito: a maioria segue com o resto da compra, e oferecer o
+   * cancelamento primeiro sugere que a loja preferiria desfazer tudo. Quem quiser cancelar pede.
+   */
+  ORDER_ITEM_UNAVAILABLE:
+    '😕 Infelizmente o item "{produto}" acabou no estoque e não vai no seu pedido.\n\nO novo total é {total}. Se quiser trocar por outra coisa ou cancelar, me diz por aqui.',
   ORDER_HISTORY_EMPTY: 'Você ainda não tem compra fechada por aqui. Quando tiver, ela aparece nesta opção.',
   ORDER_HISTORY_HEADER: '📜 Suas últimas compras:',
   LIST_INTENT_DETECTED: '📝 Entendi que é uma lista! Já vou montar seu carrinho…',

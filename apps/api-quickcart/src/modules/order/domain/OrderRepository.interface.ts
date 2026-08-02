@@ -34,6 +34,8 @@ export type OrderItemRecord = {
   readonly unitPriceInCents: number
   readonly quantity: number
   readonly totalInCents: number
+  /** `null` = nada de anormal. Preenchido quando a loja não achou o item na hora de separar. */
+  readonly unavailableAt: Date | null
   readonly createdAt: Date
   readonly updatedAt: Date
 }
@@ -121,6 +123,18 @@ export interface OrderRepositoryInterface {
   listItems(orderId: string): Promise<OrderItemRecord[]>
   list(params: ListOrdersRepositoryParams): Promise<ListOrdersRepositoryResult>
   findDetailById(id: string): Promise<OrderDetail | undefined>
+  /**
+   * Marca (ou desmarca) um item como em falta e devolve o pedido com o total recalculado.
+   *
+   * Total no mesmo passo, e não em duas chamadas: item em falta que não sai da conta faz o cliente
+   * pagar pelo que não recebeu, e um instante com a conta errada gravada é um instante em que alguém
+   * pode ler, cobrar ou fechar o caixa.
+   */
+  setItemUnavailable(params: {
+    readonly orderId: string
+    readonly itemId: string
+    readonly unavailable: boolean
+  }): Promise<OrderDetail | undefined>
   updateStatus(id: string, status: string): Promise<OrderRecord | undefined>
   cancelAndRestoreStock(id: string): Promise<OrderRecord | undefined>
 }

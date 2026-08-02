@@ -181,6 +181,7 @@ class FakeOrderRepository implements OrderRepositoryInterface {
       unitPriceInCents: item.unitPriceInCents,
       quantity: item.quantity,
       totalInCents: item.totalInCents,
+      unavailableAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }))
@@ -211,6 +212,11 @@ class FakeOrderRepository implements OrderRepositoryInterface {
     const order = this.orders.get(id)
     // O fake não guarda cliente: os testes deste caso de uso não passam pelo detalhe.
     return order ? { order: { ...order, customerName: null, customerPhone: '' }, items: [] } : undefined
+  }
+
+  async setItemUnavailable(params: { orderId: string; itemId: string; unavailable: boolean }) {
+    // O fake não guarda item: os testes deste caso de uso não passam por falta de produto.
+    return this.findDetailById(params.orderId)
   }
 
   async listItems(orderId: string): Promise<OrderItemRecord[]> {

@@ -14,6 +14,14 @@ export const UNMATCHED_DEMAND_SOURCE = {
   LIST: 'list',
   /** Havia candidatos e o cliente respondeu "nenhum desses". Falta do produto CERTO. */
   RESOLUTION_SKIPPED: 'resolution_skipped',
+  /**
+   * A loja VENDE, o cliente pediu, e acabou na hora de separar.
+   *
+   * Motivo próprio porque a decisão é outra: aqui não falta produto no catálogo, falta reposição — e
+   * misturar com "não temos isso" faria o lojista comprar novidade quando o problema é o giro do que
+   * ele já vende.
+   */
+  OUT_OF_STOCK: 'out_of_stock',
 } as const
 
 export type UnmatchedDemandSource = (typeof UNMATCHED_DEMAND_SOURCE)[keyof typeof UNMATCHED_DEMAND_SOURCE]

@@ -27,4 +27,6 @@ export function registerOrderRoutes(params: RegisterOrderRoutesParams): void {
   // quem lê a lista de rotas ver que o detalhe e a transição são da mesma tela.
   router.get('/v1/admin/orders/:id', orderController.handleGetAdminDetail)
   router.patch('/v1/admin/orders/:id/status', orderController.handleUpdateStatus)
+  // Item em falta: descoberto na separação, muda o total e avisa o cliente.
+  router.patch('/v1/admin/orders/:id/items/:itemId/unavailable', orderController.handleSetItemUnavailable)
 }

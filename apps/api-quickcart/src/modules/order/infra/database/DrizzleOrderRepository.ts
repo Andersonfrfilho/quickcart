@@ -72,6 +72,7 @@ function toOrderItemRecord(item: OrderItem): OrderItemRecord {
     unitPriceInCents: item.unitPriceInCents,
     quantity: Number(item.quantity),
     totalInCents: item.totalInCents,
+    unavailableAt: item.unavailableAt,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   }
@@ -258,6 +259,41 @@ export class DrizzleOrderRepository implements OrderRepositoryInterface {
       order: { ...toOrderRecord(row.order), customerName: row.customerName, customerPhone: row.customerPhone },
       items: items.map(toOrderItemRecord),
     }
+  }
+
+  async setItemUnavailable(params: {
+    orderId: string
+    itemId: string
+    unavailable: boolean
+  }): Promise<OrderDetail | undefined> {
+    /**
+     * Marca e recalcula na MESMA transação.
+     *
+     * Entre marcar o item e recalcular o total existe um instante em que a conta está errada no banco;
+     * numa transação esse instante não é visível para mais ninguém — e é uma conta que pode ser lida,
+     * cobrada ou fechada em caixa.
+     */
+    await db.transaction(async (tx) => {
+      await tx
+        .update(orderItems)
+        .set({ unavailableAt: params.unavailable ? new Date() : null, updatedAt: new Date() })
+        .where(and(eq(orderItems.id, params.itemId), eq(orderItems.orderId, params.orderId)))
+
+      // Soma só o que segue de pé. `filter` em SQL para o total nunca depender de quem chama somar certo.
+      const [totals] = await tx
+        .select({
+          total: sql<number>`coalesce(sum(${orderItems.totalInCents}) filter (where ${orderItems.unavailableAt} is null), 0)::int`,
+        })
+        .from(orderItems)
+        .where(eq(orderItems.orderId, params.orderId))
+
+      await tx
+        .update(orders)
+        .set({ totalInCents: totals?.total ?? 0, updatedAt: new Date() })
+        .where(eq(orders.id, params.orderId))
+    })
+
+    return this.findDetailById(params.orderId)
   }
 
   async updateStatus(id: string, status: string): Promise<OrderRecord | undefined> {
