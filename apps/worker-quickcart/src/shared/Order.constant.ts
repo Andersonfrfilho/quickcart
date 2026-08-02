@@ -16,6 +16,8 @@ export const ORDER_STATUS = {
   PENDING_CONFIRMATION: 'pending_confirmation',
   CONFIRMED: 'confirmed',
   PREPARING: 'preparing',
+  /** Itens já separados, esperando entregador ou cliente. Ver api-quickcart/Order.constant.ts. */
+  SEPARATED: 'separated',
   OUT_FOR_DELIVERY: 'out_for_delivery',
   READY_FOR_PICKUP: 'ready_for_pickup',
   COMPLETED: 'completed',

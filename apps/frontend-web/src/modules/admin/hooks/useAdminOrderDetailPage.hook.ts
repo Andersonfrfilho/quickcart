@@ -67,6 +67,13 @@ export function useAdminOrderDetailPage() {
     })
   }
 
+  /** Item em falta fica fora: ele não vai na sacola, e marcá-lo como separado seria registrar mentira. */
+  function pickAll() {
+    const availableIds = items.filter((item) => item.unavailableAt === null).map((item) => item.id)
+    setPickedItemIds(availableIds)
+    writePickedItems(orderId, availableIds)
+  }
+
   function clearPicked() {
     setPickedItemIds([])
     writePickedItems(orderId, [])
@@ -109,6 +116,7 @@ export function useAdminOrderDetailPage() {
     pickedCount,
     togglePicked,
     clearPicked,
+    pickAll,
     hidePickedItems,
     setHidePickedItems,
     updateStatus,

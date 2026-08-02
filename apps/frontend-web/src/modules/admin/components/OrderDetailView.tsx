@@ -1,12 +1,13 @@
 import { formatPhone } from '@adatechnology/conversations-ui'
 import { ORDER_URGENCY, formatWaitingFor, resolveOrderUrgency } from '@/modules/admin/shared/orderUrgency'
 import { Badge, Button, Card, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui'
-import type { OrderDetail, OrderItem } from '@/shared/api/api.types'
+import { ORDER_STATUS, type OrderDetail, type OrderItem } from '@/shared/api/api.types'
 
 const STATUS_LABELS: Record<string, string> = {
   pending_confirmation: 'Aguardando confirmação',
   confirmed: 'Confirmado',
   preparing: 'Preparando',
+  separated: 'Separado',
   out_for_delivery: 'Saiu para entrega',
   ready_for_pickup: 'Pronto para retirada',
   completed: 'Concluído',
@@ -17,6 +18,7 @@ const STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive' | 
   pending_confirmation: 'outline',
   confirmed: 'default',
   preparing: 'secondary',
+  separated: 'default',
   out_for_delivery: 'secondary',
   ready_for_pickup: 'secondary',
   completed: 'default',
@@ -32,6 +34,7 @@ const STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive' | 
 const STATUS_ACTION_LABELS: Record<string, string> = {
   confirmed: 'Confirmar pedido',
   preparing: 'Iniciar separação',
+  separated: 'Marcar como separado',
   out_for_delivery: 'Saiu para entrega',
   ready_for_pickup: 'Pronto para retirada',
   completed: 'Concluir',
@@ -41,7 +44,9 @@ const STATUS_ACTION_LABELS: Record<string, string> = {
 const NEXT_STATUS: Record<string, string[]> = {
   pending_confirmation: ['confirmed', 'cancelled'],
   confirmed: ['preparing', 'cancelled'],
-  preparing: ['out_for_delivery', 'ready_for_pickup', 'cancelled'],
+  preparing: ['separated', 'cancelled'],
+  // De separado sai para a rua ou para o balcão — o caminho depende do que o cliente escolheu.
+  separated: ['out_for_delivery', 'ready_for_pickup', 'cancelled'],
   out_for_delivery: ['completed'],
   ready_for_pickup: ['completed'],
 }
@@ -77,6 +82,8 @@ export type OrderDetailViewProps = {
   readonly pendingUnavailableItemId?: string | undefined
   readonly onTogglePicked: (itemId: string) => void
   readonly onClearPicked: () => void
+  /** Marca de uma vez tudo o que está disponível — para quem separou a compra inteira antes de abrir a tela. */
+  readonly onPickAll: () => void
   readonly onToggleHidePicked: (hide: boolean) => void
   readonly onUpdateStatus: (status: string) => void
   readonly onBack: () => void
@@ -99,6 +106,7 @@ export function OrderDetailView({
   isUpdatingStatus,
   onTogglePicked,
   onClearPicked,
+  onPickAll,
   onToggleHidePicked,
   onUpdateStatus,
   onSetUnavailable,
@@ -115,6 +123,8 @@ export function OrderDetailView({
    * não existe — a barra passaria a mentir justamente no fim, que é quando ela é olhada.
    */
   const availableItems = items.filter((item) => item.unavailableAt === null)
+  /** Só oferece o passo que a esteira permite: em pedido já separado ou entregue, o convite seria ruído. */
+  const canMarkSeparated = (NEXT_STATUS[order.status] ?? []).includes(ORDER_STATUS.SEPARATED)
   const unavailableCount = items.length - availableItems.length
   const isPickingDone = availableItems.length > 0 && pickedCount >= availableItems.length
   const progressPercent =
@@ -254,6 +264,31 @@ export function OrderDetailView({
         </Card>
       )}
 
+      {/*
+        Terminou de separar? A ação aparece aqui, grande, onde a pessoa acabou de tocar no último item —
+        e não lá no cabeçalho, que exige subir a tela depois de trinta itens.
+
+        NÃO muda o status sozinho, de propósito. A marcação de separado vive no aparelho de quem separa
+        (ver `useAdminOrderDetailPage`), e deixar uma marca local disparar mudança de estado no servidor
+        faria um toque errado no último item avisar o cliente de que a compra está pronta. Um toque a
+        mais aqui é barato; desfazer um aviso não é.
+      */}
+      {isPickingDone && canMarkSeparated && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/40 bg-primary/5 p-4 print:hidden">
+          <div>
+            <p className="font-semibold">Tudo separado ✅</p>
+            <p className="text-sm text-muted-foreground">
+              {unavailableCount > 0
+                ? `${availableItems.length} itens na sacola, ${unavailableCount} em falta.`
+                : `${availableItems.length} itens na sacola.`}
+            </p>
+          </div>
+          <Button disabled={isUpdatingStatus} onClick={() => onUpdateStatus(ORDER_STATUS.SEPARATED)}>
+            {STATUS_ACTION_LABELS[ORDER_STATUS.SEPARATED]}
+          </Button>
+        </div>
+      )}
+
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
@@ -268,6 +303,12 @@ export function OrderDetailView({
           </div>
 
           <div className="flex flex-wrap gap-2 print:hidden">
+            {/* Só quando falta algo: com tudo marcado, o botão viraria enfeite. */}
+            {!isPickingDone && (
+              <Button variant="outline" size="sm" onClick={onPickAll}>
+                Marcar todos
+              </Button>
+            )}
             <Button
               variant={hidePickedItems ? 'default' : 'outline'}
               size="sm"

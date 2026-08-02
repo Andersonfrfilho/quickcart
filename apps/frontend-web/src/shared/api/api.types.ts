@@ -61,6 +61,8 @@ export const ORDER_STATUS = {
   PENDING_CONFIRMATION: 'pending_confirmation',
   CONFIRMED: 'confirmed',
   PREPARING: 'preparing',
+  /** Itens na sacola, esperando entregador ou cliente. */
+  SEPARATED: 'separated',
   OUT_FOR_DELIVERY: 'out_for_delivery',
   READY_FOR_PICKUP: 'ready_for_pickup',
   COMPLETED: 'completed',

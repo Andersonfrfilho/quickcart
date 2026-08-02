@@ -26,6 +26,7 @@ const STATUS_LABELS: Record<string, string> = {
   pending_confirmation: 'Aguardando',
   confirmed: 'Confirmado',
   preparing: 'Preparando',
+  separated: 'Separado',
   out_for_delivery: 'Saiu para entrega',
   ready_for_pickup: 'Pronto para retirada',
   completed: 'Concluído',
@@ -36,6 +37,7 @@ const STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive' | 
   pending_confirmation: 'outline',
   confirmed: 'default',
   preparing: 'secondary',
+  separated: 'default',
   out_for_delivery: 'secondary',
   ready_for_pickup: 'secondary',
   completed: 'default',
@@ -45,7 +47,9 @@ const STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive' | 
 const NEXT_STATUS: Record<string, string[]> = {
   pending_confirmation: ['confirmed', 'cancelled'],
   confirmed: ['preparing', 'cancelled'],
-  preparing: ['out_for_delivery', 'ready_for_pickup', 'cancelled'],
+  preparing: ['separated', 'cancelled'],
+  // De separado sai para a rua ou para o balcão — o caminho depende do que o cliente escolheu.
+  separated: ['out_for_delivery', 'ready_for_pickup', 'cancelled'],
   out_for_delivery: ['completed'],
   ready_for_pickup: ['completed'],
 }

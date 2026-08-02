@@ -68,7 +68,8 @@ const PREVIEW_ORDER: OrderDetail = {
   shortCode: 'QC-1042',
   customerName: 'Maria Aparecida da Silva',
   customerPhone: '5511988887777',
-  status: 'pending_confirmation',
+  // `preparing` porque é o estado em que esta tela é usada: o pedido está sendo separado.
+  status: 'preparing',
   deliveryType: 'delivery',
   paymentMethod: 'pix',
   receiptPreference: 'whatsapp',
@@ -130,6 +131,9 @@ export function OrderDetailPreviewPage() {
         )
       }
       onClearPicked={() => setPickedItemIds([])}
+      onPickAll={() =>
+        setPickedItemIds(items.filter((item) => item.unavailableAt === null).map((item) => item.id))
+      }
       onToggleHidePicked={setHidePickedItems}
       onUpdateStatus={() => undefined}
       onSetUnavailable={({ itemId, unavailable }) =>

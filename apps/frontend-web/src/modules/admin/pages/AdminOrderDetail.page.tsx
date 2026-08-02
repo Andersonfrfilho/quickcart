@@ -18,6 +18,7 @@ export function AdminOrderDetailPage() {
     pickedCount,
     togglePicked,
     clearPicked,
+    pickAll,
     hidePickedItems,
     setHidePickedItems,
     updateStatus,
@@ -53,6 +54,7 @@ export function AdminOrderDetailPage() {
       isUpdatingStatus={isUpdatingStatus}
       onTogglePicked={togglePicked}
       onClearPicked={clearPicked}
+      onPickAll={pickAll}
       onToggleHidePicked={setHidePickedItems}
       onUpdateStatus={updateStatus}
       onSetUnavailable={setUnavailable}
