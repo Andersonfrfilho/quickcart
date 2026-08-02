@@ -1,5 +1,11 @@
 import React from 'react'
 import { useRouter } from '@/app/router'
+import { Badge } from '@/components/ui'
+import {
+  ORDER_STATUS_LABELS,
+  orderStatusBadgeClass,
+  orderStatusLabel,
+} from '@/modules/admin/shared/orderStatusStyle'
 import { OrderDetailView } from '@/modules/admin/components/OrderDetailView'
 import type { OrderDetail, OrderItem } from '@/shared/api/api.types'
 
@@ -136,6 +142,19 @@ export function OrderDetailPreviewPage() {
   }
 
   return (
+    <>
+      {/*
+        Amostra das cores de situação, só no preview: cor por status se julga vendo as oito juntas, não uma
+        por vez em pedidos diferentes. Se duas ficarem parecidas, é aqui que aparece.
+      */}
+      <div className="flex flex-wrap items-center gap-2 border-b p-4">
+        {Object.keys(ORDER_STATUS_LABELS).map((status) => (
+          <Badge key={status} className={orderStatusBadgeClass(status)}>
+            {orderStatusLabel(status)}
+          </Badge>
+        ))}
+      </div>
+
     <OrderDetailView
       order={order}
       items={items}
@@ -167,5 +186,6 @@ export function OrderDetailPreviewPage() {
       onOpenConversation={() => undefined}
       onBack={() => undefined}
     />
+    </>
   )
 }

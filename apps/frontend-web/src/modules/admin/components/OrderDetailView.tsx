@@ -2,29 +2,10 @@ import { formatPhone } from '@adatechnology/conversations-ui'
 import { ORDER_URGENCY, formatWaitingFor, resolveOrderUrgency } from '@/modules/admin/shared/orderUrgency'
 import { Badge, Button, Card, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui'
 import { PICKING_STATE, nextStatusesFor, resolvePickingState } from '@/modules/admin/shared/orderTransitions'
+import { orderStatusBadgeClass, orderStatusLabel } from '@/modules/admin/shared/orderStatusStyle'
 import { ORDER_STATUS, type OrderDetail, type OrderItem } from '@/shared/api/api.types'
 
-const STATUS_LABELS: Record<string, string> = {
-  pending_confirmation: 'Aguardando confirmação',
-  confirmed: 'Confirmado',
-  preparing: 'Preparando',
-  separated: 'Separado',
-  out_for_delivery: 'Saiu para entrega',
-  ready_for_pickup: 'Pronto para retirada',
-  completed: 'Concluído',
-  cancelled: 'Cancelado',
-}
 
-const STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
-  pending_confirmation: 'outline',
-  confirmed: 'default',
-  preparing: 'secondary',
-  separated: 'default',
-  out_for_delivery: 'secondary',
-  ready_for_pickup: 'secondary',
-  completed: 'default',
-  cancelled: 'destructive',
-}
 
 /**
  * O que o botão FAZ, não o estado que ele representa.
@@ -193,8 +174,8 @@ export function OrderDetailView({
         </Badge>
 
         {/* Situação some no celular: o botão de ação já diz onde o pedido está na esteira. */}
-        <Badge variant={STATUS_VARIANTS[order.status] ?? 'outline'} className="hidden sm:inline-flex">
-          {STATUS_LABELS[order.status] ?? order.status}
+        <Badge className={`hidden sm:inline-flex ${orderStatusBadgeClass(order.status)}`}>
+          {orderStatusLabel(order.status)}
         </Badge>
 
         <div className="ml-auto flex items-center gap-2 print:hidden">
@@ -212,7 +193,7 @@ export function OrderDetailView({
             .map((next) => (
               <Button key={next} size="sm" disabled={isUpdatingStatus} onClick={() => onUpdateStatus(next)}>
                 <Icon>{STATUS_ACTION_ICONS[next] ?? '➡️'}</Icon>
-                {STATUS_ACTION_LABELS[next] ?? STATUS_LABELS[next]}
+                {STATUS_ACTION_LABELS[next] ?? orderStatusLabel(next)}
               </Button>
             ))}
         </div>
@@ -411,7 +392,7 @@ export function OrderDetailView({
             </p>
             {startPickingStatus && (
               <Button size="sm" disabled={isUpdatingStatus} onClick={() => onUpdateStatus(startPickingStatus)}>
-                {STATUS_ACTION_LABELS[startPickingStatus] ?? STATUS_LABELS[startPickingStatus]}
+                {STATUS_ACTION_LABELS[startPickingStatus] ?? orderStatusLabel(startPickingStatus)}
               </Button>
             )}
           </div>

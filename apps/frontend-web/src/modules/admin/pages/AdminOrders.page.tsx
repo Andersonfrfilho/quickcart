@@ -22,30 +22,15 @@ import {
 import { FilterRow } from '@/modules/admin/components/FilterRow'
 import { formatPhone } from '@adatechnology/conversations-ui'
 import { nextStatusesFor } from '@/modules/admin/shared/orderTransitions'
+import {
+  ORDER_STATUS_LABELS,
+  orderStatusBadgeClass,
+  orderStatusLabel,
+} from '@/modules/admin/shared/orderStatusStyle'
 import { AppliedFilterPills, type AppliedFilter } from '@/modules/admin/components/AppliedFilterPills'
 import type { OrderSortableField } from '@/shared/api/api.types'
 
-const STATUS_LABELS: Record<string, string> = {
-  pending_confirmation: 'Aguardando',
-  confirmed: 'Confirmado',
-  preparing: 'Preparando',
-  separated: 'Separado',
-  out_for_delivery: 'Saiu para entrega',
-  ready_for_pickup: 'Pronto para retirada',
-  completed: 'Concluído',
-  cancelled: 'Cancelado',
-}
 
-const STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
-  pending_confirmation: 'outline',
-  confirmed: 'default',
-  preparing: 'secondary',
-  separated: 'default',
-  out_for_delivery: 'secondary',
-  ready_for_pickup: 'secondary',
-  completed: 'default',
-  cancelled: 'destructive',
-}
 
 
 const DELIVERY_LABELS: Record<string, string> = { delivery: '🚚 Entrega', pickup: '🏪 Retirada' }
@@ -128,7 +113,7 @@ export function AdminOrdersPage() {
   const appliedFilters: AppliedFilter[] = [
     ...statusFilter.map((value) => ({
       key: `status:${value}`,
-      label: `Situação: ${STATUS_LABELS[value] ?? value}`,
+      label: `Situação: ${orderStatusLabel(value)}`,
       onRemove: () => removeFilterValue('status', value),
     })),
     ...deliveryFilter.map((value) => ({
@@ -187,7 +172,7 @@ export function AdminOrdersPage() {
       <div className="space-y-2">
         <FilterRow
           label="Situação"
-          options={Object.entries(STATUS_LABELS)}
+          options={Object.entries(ORDER_STATUS_LABELS)}
           selected={statusFilter}
           onToggle={(value) => toggleFilterValue('status', value)}
         />
@@ -325,8 +310,10 @@ export function AdminOrdersPage() {
                       {DELIVERY_LABELS[order.deliveryType] ?? order.deliveryType}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={STATUS_VARIANTS[order.status] ?? 'outline'}>
-                        {STATUS_LABELS[order.status] ?? order.status}
+                      {/* Cor própria por situação: com quatro variantes, três estados diferentes ficavam
+                          idênticos justo onde é preciso distinguir de relance. */}
+                      <Badge className={orderStatusBadgeClass(order.status)}>
+                        {orderStatusLabel(order.status)}
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -339,7 +326,7 @@ export function AdminOrdersPage() {
                             size="sm"
                             onClick={() => updateStatus(order.id, next)}
                           >
-                            {STATUS_LABELS[next]}
+                            {orderStatusLabel(next)}
                           </Button>
                         ))}
                       </div>
