@@ -18,6 +18,12 @@ export type OrderRecord = {
   readonly totalInCents: number
   readonly deliveryType: string
   readonly address: unknown
+  /**
+   * O texto original de pedidos antigos, preservado quando o backfill (Fase 4) não conseguiu
+   * extrair CEP do texto livre. `null` em todo pedido criado antes da migração ou depois que o
+   * endereço já nasce estruturado — não é "backfill ainda não rodou", é "não havia nada a preservar".
+   */
+  readonly legacyAddressText: string | null
   readonly paymentMethod: string
   readonly receiptPreference: string
   readonly fiscalDocumentId: string | null

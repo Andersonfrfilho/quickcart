@@ -54,6 +54,7 @@ function toOrderRecord(order: Order): OrderRecord {
     totalInCents: order.totalInCents,
     deliveryType: order.deliveryType,
     address: order.address,
+    legacyAddressText: order.legacyAddressText,
     paymentMethod: order.paymentMethod,
     receiptPreference: order.receiptPreference,
     fiscalDocumentId: order.fiscalDocumentId,

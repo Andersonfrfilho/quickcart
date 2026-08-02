@@ -128,6 +128,7 @@ function buildOrder(overrides: Partial<OrderRecord> = {}): OrderRecord {
     totalInCents: 5000,
     deliveryType: 'delivery',
     address: null,
+    legacyAddressText: null,
     paymentMethod: 'pix',
     receiptPreference: 'email',
     fiscalDocumentId: null,

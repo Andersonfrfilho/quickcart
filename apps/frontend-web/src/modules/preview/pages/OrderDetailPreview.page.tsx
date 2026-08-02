@@ -89,6 +89,47 @@ function previewAllowedNextStatuses(status: string, deliveryType: string): reado
   return byStatus[status] ?? []
 }
 
+/**
+ * Os três casos que `formatAddress` (OrderDetailView.tsx) precisa distinguir — nenhuma base real
+ * tem os três ao mesmo tempo, e é exatamente por isso que o preview existe.
+ *
+ * `?address=structured` — pedido novo (pós T2.1), com os campos que `isStructuredAddress` exige.
+ * `?address=legacy` — backfill (Fase 4) não achou CEP no texto livre; preservou o original.
+ * `?address=raw` — pedido de antes da migração, nunca tocado pelo backfill: string crua do
+ * checkout antigo, sem `legacyAddressText`.
+ */
+type PreviewAddressCase = { readonly address: unknown; readonly legacyAddressText: string | null }
+
+/**
+ * Uma função, não `Record<string, ...>` indexado por chave livre — com `noUncheckedIndexedAccess`,
+ * o índice sempre carrega `| undefined`, e o fallback também vinha de um índice, então o TypeScript
+ * não conseguia provar que o resultado final era sempre definido.
+ */
+function resolvePreviewAddressCase(addressCase: string): PreviewAddressCase {
+  if (addressCase === 'legacy') {
+    return { address: null, legacyAddressText: 'manda na rua de trás do posto, portão verde' }
+  }
+  if (addressCase === 'raw') {
+    return {
+      address: 'Rua das Acácias, 412, apto 71, Bloco B — Jardim Paulista, São Paulo/SP, 01415-000',
+      legacyAddressText: null,
+    }
+  }
+  return {
+    address: {
+      cep: '01415-000',
+      street: 'Rua das Acácias',
+      number: '412',
+      complement: 'apto 71, Bloco B',
+      neighborhood: 'Jardim Paulista',
+      city: 'São Paulo',
+      state: 'SP',
+      reference: 'portão azul ao lado da padaria',
+    },
+    legacyAddressText: null,
+  }
+}
+
 const PREVIEW_ORDER: OrderDetail = {
   id: 'preview-order',
   shortCode: 'QC-1042',
@@ -99,7 +140,7 @@ const PREVIEW_ORDER: OrderDetail = {
   deliveryType: 'delivery',
   paymentMethod: 'pix',
   receiptPreference: 'whatsapp',
-  address: 'Rua das Acácias, 412, apto 71, Bloco B — Jardim Paulista, São Paulo/SP, 01415-000',
+  ...resolvePreviewAddressCase('structured'),
   notes: 'Se não tiver banana prata, pode trocar por nanica. Interfone quebrado, ligar ao chegar.',
   // Uma hora atrás: cai na faixa de atraso, que é o estado em que a tela mais precisa funcionar.
   createdAt: new Date(Date.now() - 62 * 60 * 1000).toISOString(),
@@ -119,6 +160,7 @@ export function OrderDetailPreviewPage() {
   const { searchParams } = useRouter()
   const status = searchParams.get('status') ?? 'preparing'
   const deliveryType = searchParams.get('deliveryType') ?? 'delivery'
+  const addressCase = searchParams.get('address') ?? 'structured'
 
   const [pickedItemIds, setPickedItemIds] = React.useState<readonly string[]>([
     'preview-item-0',
@@ -153,8 +195,11 @@ export function OrderDetailPreviewPage() {
     status: status as OrderDetail['status'],
     deliveryType: deliveryType as OrderDetail['deliveryType'],
     allowedNextStatuses: previewAllowedNextStatuses(status, deliveryType),
-    // Retirada não tem endereço: mostrar um faria a tela ensinar errado.
-    address: deliveryType === 'pickup' ? null : PREVIEW_ORDER.address,
+    /*
+     * Retirada não tem endereço: mostrar um faria a tela ensinar errado. Fora disso, o caso vem de
+     * `?address=`, para testar estruturado, legado e cru sem precisar editar a fixture.
+     */
+    ...(deliveryType === 'pickup' ? { address: null, legacyAddressText: null } : resolvePreviewAddressCase(addressCase)),
     items,
     totalInCents: items
       .filter((item) => item.unavailableAt === null)

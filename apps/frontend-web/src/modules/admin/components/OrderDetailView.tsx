@@ -20,7 +20,51 @@ function formatMoney(totalInCents: number): string {
   return (totalInCents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
-function formatAddress(address: unknown): string | undefined {
+/**
+ * O endereço estruturado (`Address.schema.ts` no backend) reconhecido pela FORMA, não por uma
+ * versão ou flag: `street`, `number`, `neighborhood`, `city` e `state` são os campos obrigatórios
+ * do schema, e nenhum formato antigo (string crua, `{ street: "..." }` do checkout velho) tem os
+ * cinco juntos.
+ */
+type StructuredAddress = {
+  readonly street: string
+  readonly number: string
+  readonly complement?: string
+  readonly neighborhood: string
+  readonly city: string
+  readonly state: string
+  readonly reference?: string
+}
+
+function isStructuredAddress(address: unknown): address is StructuredAddress {
+  if (!address || typeof address !== 'object') return false
+  const candidate = address as Record<string, unknown>
+  return (
+    typeof candidate.street === 'string' &&
+    typeof candidate.number === 'string' &&
+    typeof candidate.neighborhood === 'string' &&
+    typeof candidate.city === 'string' &&
+    typeof candidate.state === 'string'
+  )
+}
+
+/**
+ * Estruturado quando existe, texto legado quando não existe — nunca os dois nem nenhum inventado.
+ *
+ * A ordem importa: `legacyAddressText` só é preenchido pelo backfill (Fase 4) quando ele NÃO
+ * conseguiu extrair um endereço estruturado do texto livre — os dois nunca coexistem com sentido
+ * de "escolha o melhor". Endereço antigo em formato solto (o `{ street: "..." }` do checkout velho,
+ * ou a string crua do WhatsApp antes da migração) cai no `Object.values` só como último recurso,
+ * porque é o único caso em que a forma exata dos campos não é conhecida.
+ */
+function formatAddress(address: unknown, legacyAddressText: string | null): string | undefined {
+  if (isStructuredAddress(address)) {
+    const line1 = `${address.street}, ${address.number}${address.complement ? ` - ${address.complement}` : ''}`
+    const line2 = `${address.neighborhood}, ${address.city}/${address.state}`
+    const reference = address.reference ? ` (${address.reference})` : ''
+    return `${line1} — ${line2}${reference}`
+  }
+  if (legacyAddressText && legacyAddressText.trim().length > 0) return legacyAddressText.trim()
   if (typeof address === 'string' && address.trim().length > 0) return address.trim()
   if (address && typeof address === 'object') return Object.values(address).filter(Boolean).join(', ')
   return undefined
@@ -93,7 +137,7 @@ export function OrderDetailView({
   onOpenConversation,
   onBack,
 }: OrderDetailViewProps) {
-  const address = formatAddress(order.address)
+  const address = formatAddress(order.address, order.legacyAddressText)
   const urgency = resolveOrderUrgency({ status: order.status, createdAt: order.createdAt, now: Date.now() })
   const isLate = urgency === ORDER_URGENCY.LATE
   /**

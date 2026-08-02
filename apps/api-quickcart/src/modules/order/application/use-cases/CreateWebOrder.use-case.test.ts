@@ -166,6 +166,7 @@ class FakeOrderRepository implements OrderRepositoryInterface {
       totalInCents: params.items.reduce((sum, item) => sum + item.totalInCents, 0),
       deliveryType: params.deliveryType,
       address: params.address ?? null,
+      legacyAddressText: null,
       paymentMethod: params.paymentMethod,
       receiptPreference: params.receiptPreference,
       fiscalDocumentId: null,

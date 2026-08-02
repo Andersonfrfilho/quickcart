@@ -146,6 +146,8 @@ export type OrderItem = {
  */
 export type OrderDetail = Order & {
   readonly address: unknown
+  /** `null` quando não há texto original a preservar — todo pedido, exceto o que o backfill (Fase 4) tocou. */
+  readonly legacyAddressText: string | null
   readonly receiptPreference: ReceiptPreference
   readonly notes: string | null
   readonly items: readonly OrderItem[]
