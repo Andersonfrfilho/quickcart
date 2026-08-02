@@ -1,4 +1,5 @@
 import React from 'react'
+import { useRouter } from '@/app/router'
 import { OrderDetailView } from '@/modules/admin/components/OrderDetailView'
 import type { OrderDetail, OrderItem } from '@/shared/api/api.types'
 
@@ -82,6 +83,17 @@ const PREVIEW_ORDER: OrderDetail = {
 }
 
 export function OrderDetailPreviewPage() {
+  /**
+   * Estado e tipo de entrega vêm da URL para conferir os casos difíceis sem editar código.
+   *
+   * `?status=separated&deliveryType=pickup` mostra a esteira de retirada; sem parâmetro, cai no caso
+   * que interessa mais (entrega sendo separada). Sem isso, cada verificação de layout exigia editar a
+   * fixture, salvar e recarregar — e o caminho que ninguém checa é o que quebra.
+   */
+  const { searchParams } = useRouter()
+  const status = searchParams.get('status') ?? 'preparing'
+  const deliveryType = searchParams.get('deliveryType') ?? 'delivery'
+
   const [pickedItemIds, setPickedItemIds] = React.useState<readonly string[]>([
     'preview-item-0',
     'preview-item-1',
@@ -110,6 +122,10 @@ export function OrderDetailPreviewPage() {
    */
   const order: OrderDetail = {
     ...PREVIEW_ORDER,
+    status: status as OrderDetail['status'],
+    deliveryType: deliveryType as OrderDetail['deliveryType'],
+    // Retirada não tem endereço: mostrar um faria a tela ensinar errado.
+    address: deliveryType === 'pickup' ? null : PREVIEW_ORDER.address,
     items,
     totalInCents: items
       .filter((item) => item.unavailableAt === null)

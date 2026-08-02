@@ -48,6 +48,24 @@ export type Product = {
  * Sem identificar quem pediu: a decisão do lojista é sobre o catálogo, e nome de cliente não entra em
  * tela de relatório sem precisar.
  */
+export const UNMATCHED_DEMAND_SOURCE = {
+  /** O catálogo não tem nada parecido. Falta de produto. */
+  LIST: 'list',
+  /** Havia candidatos e o cliente respondeu "nenhum desses". Falta do produto CERTO. */
+  RESOLUTION_SKIPPED: 'resolution_skipped',
+  /** A loja vende, mas acabou na hora de separar. Falta reposição, não cadastro. */
+  OUT_OF_STOCK: 'out_of_stock',
+} as const
+export type UnmatchedDemandSource = (typeof UNMATCHED_DEMAND_SOURCE)[keyof typeof UNMATCHED_DEMAND_SOURCE]
+
+export const UNMATCHED_DEMAND_SORTABLE_FIELDS = [
+  'customerCount',
+  'requestCount',
+  'lastRequestedAt',
+  'term',
+] as const
+export type UnmatchedDemandSortableField = (typeof UNMATCHED_DEMAND_SORTABLE_FIELDS)[number]
+
 export type UnmatchedDemand = {
   readonly term: string
   /** Como foi falado da última vez — inclusive com erro de transcrição, que é o dado útil aqui. */
@@ -55,6 +73,13 @@ export type UnmatchedDemand = {
   readonly requestCount: number
   readonly customerCount: number
   readonly lastRequestedAt: string
+  /**
+   * Todas as origens do termo na janela, porque um termo pode ter faltado por motivos diferentes.
+   *
+   * É o que separa "cadastrar produto" de "repor prateleira" — decisões com orçamentos diferentes, e
+   * sem isto a linha não diz qual das duas o lojista está olhando.
+   */
+  readonly sources: readonly UnmatchedDemandSource[]
 }
 
 export const ORDER_STATUS = {

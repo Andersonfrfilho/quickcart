@@ -1,6 +1,7 @@
 import { formatPhone } from '@adatechnology/conversations-ui'
 import { ORDER_URGENCY, formatWaitingFor, resolveOrderUrgency } from '@/modules/admin/shared/orderUrgency'
 import { Badge, Button, Card, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui'
+import { nextStatusesFor } from '@/modules/admin/shared/orderTransitions'
 import { ORDER_STATUS, type OrderDetail, type OrderItem } from '@/shared/api/api.types'
 
 const STATUS_LABELS: Record<string, string> = {
@@ -41,15 +42,6 @@ const STATUS_ACTION_LABELS: Record<string, string> = {
   cancelled: 'Cancelar pedido',
 }
 
-const NEXT_STATUS: Record<string, string[]> = {
-  pending_confirmation: ['confirmed', 'cancelled'],
-  confirmed: ['preparing', 'cancelled'],
-  preparing: ['separated', 'cancelled'],
-  // De separado sai para a rua ou para o balcão — o caminho depende do que o cliente escolheu.
-  separated: ['out_for_delivery', 'ready_for_pickup', 'cancelled'],
-  out_for_delivery: ['completed'],
-  ready_for_pickup: ['completed'],
-}
 
 const DELIVERY_LABELS: Record<string, string> = { delivery: '🚚 Entrega', pickup: '🏪 Retirada' }
 const PAYMENT_LABELS: Record<string, string> = {
@@ -124,7 +116,8 @@ export function OrderDetailView({
    */
   const availableItems = items.filter((item) => item.unavailableAt === null)
   /** Só oferece o passo que a esteira permite: em pedido já separado ou entregue, o convite seria ruído. */
-  const canMarkSeparated = (NEXT_STATUS[order.status] ?? []).includes(ORDER_STATUS.SEPARATED)
+  const nextStatuses = nextStatusesFor({ status: order.status, deliveryType: order.deliveryType })
+  const canMarkSeparated = nextStatuses.includes(ORDER_STATUS.SEPARATED)
   const unavailableCount = items.length - availableItems.length
   const isPickingDone = availableItems.length > 0 && pickedCount >= availableItems.length
   const progressPercent =
@@ -169,7 +162,7 @@ export function OrderDetailView({
           <Button variant="outline" size="sm" onClick={() => window.print()} className="hidden sm:inline-flex">
             Imprimir
           </Button>
-          {(NEXT_STATUS[order.status] ?? [])
+          {nextStatuses
             .filter((next) => next !== 'cancelled')
             .map((next) => (
               <Button key={next} size="sm" disabled={isUpdatingStatus} onClick={() => onUpdateStatus(next)}>
@@ -198,7 +191,7 @@ export function OrderDetailView({
         </span>
         {/* Cancelar sai do topo: é ação rara e destrutiva, e no cabeçalho disputava espaço com o que se
             usa toda hora. Aqui, discreto, continua a um toque de distância. */}
-        {(NEXT_STATUS[order.status] ?? []).includes('cancelled') && (
+        {nextStatuses.includes('cancelled') && (
           <button
             type="button"
             disabled={isUpdatingStatus}

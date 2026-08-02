@@ -14,6 +14,7 @@ import type {
   OrderDetail,
   SortDirection,
   UnmatchedDemand,
+  UnmatchedDemandSortableField,
 } from '@/shared/api/api.types'
 
 const apiClient = axios.create({
@@ -117,6 +118,11 @@ export async function adminAdjustStock(token: string, id: string, body: { delta:
 export type ListUnmatchedDemandsParams = {
   limit?: number
   windowDays?: number
+  /** Origens do pedido sem resposta; múltiplas porque "não temos" e "acabou" se leem juntas. */
+  source?: string[]
+  search?: string
+  sortBy?: UnmatchedDemandSortableField
+  sortDirection?: SortDirection
 }
 
 export type UnmatchedDemandsResponse = {

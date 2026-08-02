@@ -20,6 +20,7 @@ import {
   SortableTableHead,
 } from '@/components/ui'
 import { formatPhone } from '@adatechnology/conversations-ui'
+import { nextStatusesFor } from '@/modules/admin/shared/orderTransitions'
 import type { OrderSortableField } from '@/shared/api/api.types'
 
 const STATUS_LABELS: Record<string, string> = {
@@ -44,15 +45,6 @@ const STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive' | 
   cancelled: 'destructive',
 }
 
-const NEXT_STATUS: Record<string, string[]> = {
-  pending_confirmation: ['confirmed', 'cancelled'],
-  confirmed: ['preparing', 'cancelled'],
-  preparing: ['separated', 'cancelled'],
-  // De separado sai para a rua ou para o balcão — o caminho depende do que o cliente escolheu.
-  separated: ['out_for_delivery', 'ready_for_pickup', 'cancelled'],
-  out_for_delivery: ['completed'],
-  ready_for_pickup: ['completed'],
-}
 
 const DELIVERY_LABELS: Record<string, string> = { delivery: '🚚 Entrega', pickup: '🏪 Retirada' }
 const PAYMENT_LABELS: Record<string, string> = {
@@ -289,7 +281,8 @@ export function AdminOrdersPage() {
                         <Button variant="ghost" size="sm" onClick={() => openOrder(order.id)}>
                           Abrir
                         </Button>
-                        {(NEXT_STATUS[order.status] ?? []).map((next) => (
+                        {/* Filtrado pelo tipo de entrega: "saiu para entrega" não existe em retirada. */}
+                        {nextStatusesFor({ status: order.status, deliveryType: order.deliveryType }).map((next) => (
                           <Button
                             key={next}
                             variant={next === 'cancelled' ? 'destructive' : 'outline'}
