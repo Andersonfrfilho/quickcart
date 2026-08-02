@@ -40,11 +40,28 @@ export type ListProductsParams = {
   sortDirection?: SortDirection
 }
 
+/**
+ * Espelha `addressInputSchema` do backend (sem latitude/longitude/geocodePrecision — esses só
+ * nascem da geocodificação, nunca do cliente). Duplicado aqui porque frontend e api-quickcart são
+ * apps separados; se um mudar de forma sem o outro, é a validação do servidor que apanha, não um
+ * tipo compartilhado silenciosamente desatualizado.
+ */
+export type CreateOrderAddressInput = {
+  cep: string
+  street: string
+  number: string
+  complement?: string
+  neighborhood: string
+  city: string
+  state: string
+  reference?: string
+}
+
 export type CreateOrderInput = {
   customer: { name: string; phone: string; email?: string }
   items: { productId: string; quantity: number }[]
   deliveryType: DeliveryType
-  address?: { street: string }
+  address?: CreateOrderAddressInput
   paymentMethod: PaymentMethod
   receiptPreference: ReceiptPreference
 }

@@ -16,8 +16,24 @@ export function CheckoutPage() {
     setEmail,
     deliveryType,
     setDeliveryType,
-    address,
-    setAddress,
+    cep,
+    setCep,
+    handleCepBlur,
+    isLookingUpCep,
+    street,
+    setStreet,
+    number,
+    setNumber,
+    complement,
+    setComplement,
+    neighborhood,
+    setNeighborhood,
+    city,
+    setCity,
+    addressState,
+    setAddressState,
+    reference,
+    setReference,
     paymentMethod,
     setPaymentMethod,
     receiptPreference,
@@ -81,9 +97,70 @@ export function CheckoutPage() {
         </div>
 
         {deliveryType === 'delivery' && (
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Endereço</label>
-            <Input required value={address} onChange={(e) => setAddress(e.target.value)} />
+          <div className="space-y-3 rounded-lg border p-3">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">CEP</label>
+              <Input
+                required
+                inputMode="numeric"
+                placeholder="00000-000"
+                value={cep}
+                onChange={(e) => setCep(e.target.value)}
+                onBlur={() => void handleCepBlur()}
+              />
+              {/* CEP que não resolve não bloqueia nada — os campos abaixo continuam editáveis à mão. */}
+              {isLookingUpCep && <p className="text-xs text-muted-foreground">Buscando endereço…</p>}
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <div className="col-span-2 space-y-2">
+                <label className="text-sm font-medium">Rua</label>
+                <Input required value={street} onChange={(e) => setStreet(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Número</label>
+                <Input required placeholder="s/n" value={number} onChange={(e) => setNumber(e.target.value)} />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Complemento (opcional)</label>
+              <Input
+                placeholder="apto, bloco…"
+                value={complement}
+                onChange={(e) => setComplement(e.target.value)}
+              />
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <div className="col-span-2 space-y-2">
+                <label className="text-sm font-medium">Bairro</label>
+                <Input required value={neighborhood} onChange={(e) => setNeighborhood(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">UF</label>
+                <Input
+                  required
+                  maxLength={2}
+                  value={addressState}
+                  onChange={(e) => setAddressState(e.target.value.toUpperCase())}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Cidade</label>
+              <Input required value={city} onChange={(e) => setCity(e.target.value)} />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Ponto de referência (opcional)</label>
+              <Input
+                placeholder="portão azul ao lado da padaria"
+                value={reference}
+                onChange={(e) => setReference(e.target.value)}
+              />
+            </div>
           </div>
         )}
 
