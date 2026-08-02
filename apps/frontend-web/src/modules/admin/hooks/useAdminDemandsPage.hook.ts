@@ -7,7 +7,7 @@ import { useAddProductAliasMutation } from '@/modules/admin/shared/mutations/use
 import type { Product, SortDirection, UnmatchedDemand, UnmatchedDemandSortableField } from '@/shared/api/api.types'
 
 const DEMANDS_LIMIT = 30
-const DEFAULT_WINDOW_DAYS = 90
+export const DEFAULT_WINDOW_DAYS = 90
 
 /**
  * Catálogo carregado de uma vez para a busca de produto acontecer na tela.
@@ -126,6 +126,21 @@ export function useAdminDemandsPage() {
     setQueryParams({ search: nextSearch.trim().length > 0 ? nextSearch : undefined })
   }
 
+  /**
+   * Tirar SÓ a ordenação, e só a janela.
+   *
+   * Antes existia apenas "limpar tudo": para voltar à ordem por clientes depois de espiar por data, o
+   * lojista perdia origem, busca e período junto — e num relatório que se lê ajustando um critério por
+   * vez, isso apaga a comparação que ele estava fazendo.
+   */
+  function clearSort() {
+    setQueryParams({ sortBy: undefined, sortDirection: undefined })
+  }
+
+  function resetWindowDays() {
+    setQueryParams({ windowDays: undefined })
+  }
+
   function clearFilters() {
     setQueryParams({
       source: undefined,
@@ -168,6 +183,8 @@ export function useAdminDemandsPage() {
     sortBy,
     sortDirection,
     handleSort,
+    clearSort,
+    resetWindowDays,
     hasFiltersApplied,
     clearFilters,
     aliasTargetTerm,

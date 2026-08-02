@@ -11,8 +11,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui'
+import { AppliedFilterPills, type AppliedFilter } from '@/modules/admin/components/AppliedFilterPills'
 import { FilterRow } from '@/modules/admin/components/FilterRow'
-import { DEMAND_WINDOWS, useAdminDemandsPage } from '@/modules/admin/hooks/useAdminDemandsPage.hook'
+import {
+  DEFAULT_WINDOW_DAYS,
+  DEMAND_WINDOWS,
+  useAdminDemandsPage,
+} from '@/modules/admin/hooks/useAdminDemandsPage.hook'
 import {
   UNMATCHED_DEMAND_SOURCE,
   type UnmatchedDemandSortableField,
@@ -40,6 +45,18 @@ const SOURCE_VARIANTS: Record<UnmatchedDemandSource, 'default' | 'secondary' | '
 
 const SOURCE_FILTER_OPTIONS = Object.entries(SOURCE_LABELS) as (readonly [string, string])[]
 
+/** Nome da coluna na pill de ordenação: "Ordem: Clientes ↓" lê melhor que "Ordem: customerCount ↓". */
+const SORT_LABELS: Record<string, string> = {
+  term: 'Termo',
+  customerCount: 'Clientes',
+  requestCount: 'Pedidos',
+  lastRequestedAt: 'Última vez',
+}
+
+const WINDOW_LABELS: Record<number, string> = Object.fromEntries(
+  DEMAND_WINDOWS.map((window) => [window.days, window.label]),
+)
+
 const COLUMN_COUNT = 7
 
 function formatDate(isoDate: string): string {
@@ -61,6 +78,8 @@ export function AdminDemandsPage() {
     sortBy,
     sortDirection,
     handleSort,
+    clearSort,
+    resetWindowDays,
     hasFiltersApplied,
     clearFilters,
     aliasTargetTerm,
@@ -83,6 +102,40 @@ export function AdminDemandsPage() {
   function sortHeaderProps(field: UnmatchedDemandSortableField) {
     return { active: sortBy === field, direction: sortDirection, onSort: () => handleSort(field) }
   }
+
+  /*
+   * Busca, ordenação e janela não têm botão que mostre o próprio estado — e são justamente os três que
+   * encurtam a lista sem nada na tela dizendo por quê. A janela entra porque é a causa mais comum de
+   * "sumiu uma linha": 30 dias esconde o que aconteceu no mês passado sem parecer um filtro.
+   */
+  const appliedFilters: AppliedFilter[] = [
+    ...sourceFilter.map((value) => ({
+      key: `source:${value}`,
+      label: `Origem: ${SOURCE_LABELS[value as UnmatchedDemandSource] ?? value}`,
+      onRemove: () => toggleSourceFilter(value),
+    })),
+    ...(search.trim().length > 0
+      ? [{ key: 'search', label: `Busca: ${search.trim()}`, onRemove: () => setSearch('') }]
+      : []),
+    ...(windowDays !== DEFAULT_WINDOW_DAYS
+      ? [
+          {
+            key: 'window',
+            label: `Período: ${WINDOW_LABELS[windowDays] ?? `${windowDays} dias`}`,
+            onRemove: resetWindowDays,
+          },
+        ]
+      : []),
+    ...(sortBy !== 'customerCount' || sortDirection !== 'desc'
+      ? [
+          {
+            key: 'sort',
+            label: `Ordem: ${SORT_LABELS[sortBy] ?? sortBy} ${sortDirection === 'asc' ? '↑' : '↓'}`,
+            onRemove: clearSort,
+          },
+        ]
+      : []),
+  ]
 
   return (
     <div className="space-y-6 p-4 lg:p-6">
@@ -139,11 +192,12 @@ export function AdminDemandsPage() {
         </div>
 
         {/* Só quando há filtro ou ordenação aplicados: botão morto ensina a ignorar a barra inteira. */}
-        {hasFiltersApplied && (
-          <Button variant="ghost" size="sm" onClick={clearFilters}>
-            Limpar filtros e ordenação
-          </Button>
-        )}
+        {/*
+          As pills substituem o botão "limpar filtros e ordenação" que ficava aqui: elas cobrem os cinco
+          filtros que existem, e o próprio componente oferece "limpar tudo" quando há mais de um. Manter os
+          dois deixaria a mesma ação com dois nomes, e o botão sozinho não dizia O QUE estava filtrando.
+        */}
+        <AppliedFilterPills filters={appliedFilters} onClearAll={clearFilters} />
       </div>
 
       {feedback && <p className="rounded-md border bg-card p-3 text-sm">{feedback}</p>}
