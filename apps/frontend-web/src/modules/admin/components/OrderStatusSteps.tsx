@@ -43,9 +43,14 @@ const STEP_SHORT_LABELS: Record<string, string> = {
 export type OrderStatusStepsProps = {
   readonly status: string
   readonly deliveryType: string
+  /**
+   * A barra do pedido inteiro. Desligada enquanto a separação está em andamento, porque nesse momento a
+   * barra visível é a dos itens — duas barras empilhadas disputam a mesma olhada e nenhuma vence.
+   */
+  readonly withProgressBar: boolean
 }
 
-export function OrderStatusSteps({ status, deliveryType }: OrderStatusStepsProps) {
+export function OrderStatusSteps({ status, deliveryType, withProgressBar }: OrderStatusStepsProps) {
   /*
    * Cancelado não é um passo da esteira: é a esteira interrompida.
    *
@@ -64,7 +69,24 @@ export function OrderStatusSteps({ status, deliveryType }: OrderStatusStepsProps
   const currentIndex = steps.indexOf(status)
 
   return (
-    <ol className="flex flex-wrap items-center gap-x-1 gap-y-2" aria-label="Progresso do pedido">
+    <div className="space-y-2">
+      {/*
+        A barra é resumo VISUAL: os passos abaixo já carregam o significado para o leitor de tela, e
+        anunciar "60%" além de "Separado, passo atual" seria a mesma informação duas vezes.
+
+        A proporção é sobre os intervalos (`length - 1`), não sobre os passos: "Recebido" é o começo da
+        esteira, e uma barra já iniciada num pedido que ninguém confirmou sugeriria trabalho feito.
+      */}
+      {withProgressBar && (
+        <progress
+          aria-hidden="true"
+          className="order-macro-progress"
+          value={currentIndex > 0 ? currentIndex : 0}
+          max={steps.length - 1}
+        />
+      )}
+
+      <ol className="flex flex-wrap items-center gap-x-1 gap-y-2" aria-label="Progresso do pedido">
       {steps.map((step, index) => {
         /*
          * Status fora da lista (deploy escalonado, front antigo) faz `currentIndex` ser -1: nesse caso
@@ -96,8 +118,9 @@ export function OrderStatusSteps({ status, deliveryType }: OrderStatusStepsProps
               <span aria-hidden="true" className={`h-px w-3 ${isDone ? 'bg-emerald-400' : 'bg-border'}`} />
             )}
           </li>
-        )
-      })}
-    </ol>
+          )
+        })}
+      </ol>
+    </div>
   )
 }

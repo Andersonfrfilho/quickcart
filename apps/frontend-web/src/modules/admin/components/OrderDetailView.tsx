@@ -145,6 +145,15 @@ export function OrderDetailView({
   // Vem do servidor: a tela não decide mais o que é transição válida, só desenha o que ele permite.
   const nextStatuses = order.allowedNextStatuses
   const pickingState = resolvePickingState(order.status)
+  /**
+   * Enquanto a separação é o trabalho da hora, a barra é a DELA; depois volta a ser a do pedido.
+   *
+   * Duas barras empilhadas disputam a mesma olhada e nenhuma vence: quem está com o carrinho no corredor
+   * quer saber quantos itens faltam, e quem abre um pedido já separado quer saber em que etapa ele está.
+   * A lista continua marcável em `separated` — alguém ainda descobre uma falta ao ensacar — mas a contagem
+   * passa a ser texto, não barra.
+   */
+  const isSeparationInProgress = order.status === ORDER_STATUS.PREPARING
   const isPickingLocked = pickingState !== PICKING_STATE.UNLOCKED
   const startPickingStatus = nextStatuses.find((next) => next === ORDER_STATUS.CONFIRMED || next === ORDER_STATUS.PREPARING)
   const canMarkSeparated = nextStatuses.includes(ORDER_STATUS.SEPARATED)
@@ -248,8 +257,12 @@ export function OrderDetailView({
         Entrega primeiro, e o endereço com destaque: é a informação que decide o que fazer com a
         sacola depois de separada, e é onde um erro custa a compra inteira.
       */}
-      {/* A jornada do pedido inteiro. A barra de baixo é só da separação, que é uma etapa entre seis. */}
-      <OrderStatusSteps status={order.status} deliveryType={order.deliveryType} />
+      {/* A jornada do pedido inteiro; a barra sai daqui só enquanto a separação estiver em andamento. */}
+      <OrderStatusSteps
+        status={order.status}
+        deliveryType={order.deliveryType}
+        withProgressBar={!isSeparationInProgress}
+      />
 
       {/*
         Duas colunas no celular, três no monitor. Empilhados, os três cards gastavam 700 dos 812 pixels
@@ -394,7 +407,7 @@ export function OrderDetailView({
           faltaram" mandava `max` para 1 e a barra não avançava — o texto ao lado dizia que a etapa estava
           encerrada e a barra dizia o contrário.
         */}
-        {!isPickingLocked && (
+        {isSeparationInProgress && (
         <progress
           className="picking-progress print:hidden"
           value={progressPercent}
