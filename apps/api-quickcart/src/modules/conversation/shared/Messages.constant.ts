@@ -214,7 +214,14 @@ export const MESSAGES = {
    */
   CHECKOUT_SAME_AS_LAST: 'Da última vez foi assim:\n\n{resumo}\n\nMantenho igual?',
   CHECKOUT_ASK_DELIVERY_TYPE: 'Como você prefere receber seu pedido?',
-  CHECKOUT_ASK_ADDRESS: '📍 Pode me mandar o endereço completo de entrega?',
+  /**
+   * CEP primeiro (spec §8 Q1): pede 8 dígitos, não o endereço inteiro — rua/bairro/cidade/UF vêm
+   * do ViaCEP, e só falta o número.
+   */
+  CHECKOUT_ASK_ADDRESS: '📍 Pode me mandar o CEP do endereço de entrega?',
+  /** CEP não resolveu (ou não parece CEP): não trava, cai para o endereço completo em texto livre. */
+  CHECKOUT_ASK_ADDRESS_FALLBACK: 'Não achei esse CEP 🤔 Pode me mandar o endereço completo de entrega?',
+  CHECKOUT_ASK_ADDRESS_NUMBER: 'Qual o número? (e o complemento, se tiver — ex: "412, apto 71")',
   CHECKOUT_ASK_PAYMENT: 'Como você vai pagar?',
   CHECKOUT_ASK_RECEIPT_PREFERENCE: 'Como você quer receber a nota/recibo?',
   CHECKOUT_ASK_EMAIL: '📧 Pode me mandar seu e-mail?',

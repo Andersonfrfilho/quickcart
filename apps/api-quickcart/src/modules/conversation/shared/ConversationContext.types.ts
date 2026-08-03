@@ -47,6 +47,20 @@ export type ConversationContext = {
   readonly editingCartItemId?: string
   readonly checkoutDeliveryType?: string
   readonly checkoutAddress?: unknown
+  /**
+   * CEP resolvido, à espera do número (e complemento) para virar `checkoutAddress` completo.
+   *
+   * Campo próprio, e não `checkoutAddress` parcial: um endereço "quase pronto" com o mesmo nome do
+   * campo final é ambíguo para quem lê o contexto de fora do handler — pareceria endereço válido para
+   * qualquer código que só checasse "existe `checkoutAddress`?".
+   */
+  readonly checkoutAddressDraft?: {
+    readonly cep: string
+    readonly street: string
+    readonly neighborhood: string
+    readonly city: string
+    readonly state: string
+  }
   readonly checkoutPaymentMethod?: string
   readonly checkoutReceiptPreference?: string
   readonly checkoutEmail?: string

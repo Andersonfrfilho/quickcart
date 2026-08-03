@@ -23,7 +23,10 @@ export const CONVERSATION_STATE = {
   CART_REVIEW: 'cart_review',
   EDITING_CART: 'editing_cart',
   AWAITING_DELIVERY_TYPE: 'awaiting_delivery_type',
+  /** Pede o CEP. Rua/bairro/cidade/UF vêm do ViaCEP; se não resolver, cai para o endereço em texto livre. */
   AWAITING_ADDRESS: 'awaiting_address',
+  /** Só existe quando o CEP resolveu — pede número (e complemento) para completar o endereço estruturado. */
+  AWAITING_ADDRESS_NUMBER: 'awaiting_address_number',
   AWAITING_PAYMENT: 'awaiting_payment',
   AWAITING_RECEIPT_PREFERENCE: 'awaiting_receipt_preference',
   AWAITING_EMAIL: 'awaiting_email',

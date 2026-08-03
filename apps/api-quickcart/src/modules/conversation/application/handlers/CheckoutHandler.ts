@@ -41,6 +41,9 @@ import {
   RECEIPT_PREFERENCE_BUTTON_ID,
   RECEIPT_PREFERENCE_BUTTONS,
 } from '@/modules/conversation/shared/Messages.constant'
+import type { AddressLookupProviderInterface } from '@/modules/shared/address/AddressLookupProvider.interface'
+import { formatAddressLine } from '@/modules/shared/address/formatAddressLine'
+import { parseAddressNumberReply } from '@/modules/shared/address/parseAddressNumberReply'
 import { CHANNEL } from '@/modules/shared/shared.constant'
 import { OrderEmptyCartError, OrderInsufficientStockError } from '@/shared/errors/OrderErrors'
 
@@ -55,6 +58,7 @@ export type CheckoutHandlerDependencies = {
   readonly productRepository: ProductRepositoryInterface
   readonly customerRepository: CustomerRepositoryInterface
   readonly createOrderFromCartUseCase: CreateOrderFromCartUseCase
+  readonly addressLookupProvider: AddressLookupProviderInterface
 }
 
 /**
@@ -79,6 +83,9 @@ export class CheckoutHandler implements ConversationHandlerInterface {
         return
       case CONVERSATION_STATE.AWAITING_ADDRESS:
         await this.handleAwaitingAddress(context)
+        return
+      case CONVERSATION_STATE.AWAITING_ADDRESS_NUMBER:
+        await this.handleAwaitingAddressNumber(context)
         return
       case CONVERSATION_STATE.AWAITING_PAYMENT:
         await this.handleAwaitingPayment(context)
@@ -165,6 +172,12 @@ export class CheckoutHandler implements ConversationHandlerInterface {
     await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_UNEXPECTED_INPUT)
   }
 
+  /**
+   * CEP primeiro (spec §8 Q1): 8 dígitos que resolvem no ViaCEP avançam para o passo estruturado
+   * (só falta número/complemento). Qualquer outra coisa — CEP que não resolve, ou o cliente já
+   * mandando o endereço inteiro, apesar da pergunta — vira o endereço final em texto livre, como
+   * sempre foi. CEP que não resolve NÃO trava: pede o endereço completo e segue.
+   */
   private async handleAwaitingAddress({ session, message }: ConversationHandlerContext): Promise<void> {
     const checkoutContext = (session.context ?? {}) as ConversationContext
 
@@ -173,10 +186,71 @@ export class CheckoutHandler implements ConversationHandlerInterface {
       return
     }
 
+    const digitsOnly = message.body.replace(/\D/g, '')
+    if (digitsOnly.length === 8) {
+      const found = await this.dependencies.addressLookupProvider.lookupByCep(digitsOnly)
+      if (found) {
+        await this.dependencies.conversationSessionRepository.updateStateByPhone({
+          customerPhone: session.customerPhone,
+          currentState: CONVERSATION_STATE.AWAITING_ADDRESS_NUMBER,
+          context: { ...checkoutContext, checkoutAddressDraft: { cep: digitsOnly, ...found } },
+        })
+        await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_ASK_ADDRESS_NUMBER)
+        return
+      }
+
+      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_ASK_ADDRESS_FALLBACK)
+      return
+    }
+
     await this.dependencies.conversationSessionRepository.updateStateByPhone({
       customerPhone: session.customerPhone,
       currentState: CONVERSATION_STATE.AWAITING_PAYMENT,
       context: { ...checkoutContext, checkoutAddress: message.body.trim() },
+    })
+    await this.dependencies.whatsAppSender.sendInteractiveButtons(
+      session.customerPhone,
+      MESSAGES.CHECKOUT_ASK_PAYMENT,
+      PAYMENT_METHOD_BUTTONS,
+    )
+  }
+
+  /**
+   * "412, apto 71" → número e complemento. Regra estrutural única (o que vem antes da primeira
+   * vírgula é o número), não interpretação de texto livre — o endereço nasce estruturado porque
+   * cada campo tem seu próprio passo, este é só o último.
+   */
+  private async handleAwaitingAddressNumber({ session, message }: ConversationHandlerContext): Promise<void> {
+    const checkoutContext = (session.context ?? {}) as ConversationContext
+    const draft = checkoutContext.checkoutAddressDraft
+
+    if (message.kind !== 'text' || message.body.trim().length === 0 || !draft) {
+      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_ASK_ADDRESS_NUMBER)
+      return
+    }
+
+    const { number, complement } = parseAddressNumberReply(message.body)
+
+    // O rascunho não sobrevive a este passo — mantê-lo ao lado do endereço final seria dois valores
+    // competindo pela mesma pergunta ("qual endereço vale, o rascunho ou o final?").
+    const contextWithoutDraft = { ...checkoutContext }
+    delete (contextWithoutDraft as { checkoutAddressDraft?: unknown }).checkoutAddressDraft
+
+    await this.dependencies.conversationSessionRepository.updateStateByPhone({
+      customerPhone: session.customerPhone,
+      currentState: CONVERSATION_STATE.AWAITING_PAYMENT,
+      context: {
+        ...contextWithoutDraft,
+        checkoutAddress: {
+          cep: draft.cep,
+          street: draft.street,
+          number,
+          ...(complement ? { complement } : {}),
+          neighborhood: draft.neighborhood,
+          city: draft.city,
+          state: draft.state,
+        },
+      },
     })
     await this.dependencies.whatsAppSender.sendInteractiveButtons(
       session.customerPhone,
@@ -384,7 +458,13 @@ export class CheckoutHandler implements ConversationHandlerInterface {
     })
 
     const deliveryLine = this.describeSelection(DELIVERY_TYPE_BUTTONS, checkoutContext.checkoutDeliveryType)
-    const addressLine = checkoutContext.checkoutAddress ? `📍 ${String(checkoutContext.checkoutAddress)}` : undefined
+    /*
+     * `String(objeto)` virava "[object Object]" desde que o endereço passou a nascer estruturado
+     * (T2.2) — `formatAddressLine` entende os dois formatos, o novo e o texto livre de quem já
+     * estava no meio do checkout antes do deploy.
+     */
+    const formattedAddress = formatAddressLine(checkoutContext.checkoutAddress)
+    const addressLine = formattedAddress ? `📍 ${formattedAddress}` : undefined
     const paymentLine = this.describeSelection(PAYMENT_METHOD_BUTTONS, checkoutContext.checkoutPaymentMethod)
     const receiptLine = this.describeSelection(RECEIPT_PREFERENCE_BUTTONS, checkoutContext.checkoutReceiptPreference)
 

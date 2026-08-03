@@ -22,6 +22,7 @@
  */
 
 import type { OrderRecord } from '@/modules/order/domain/OrderRepository.interface'
+import { formatAddressLine } from '@/modules/shared/address/formatAddressLine'
 import {
   DELIVERY_TYPE_BUTTON_ID,
   DELIVERY_TYPE_BUTTONS,
@@ -106,11 +107,16 @@ export function describeRememberedCheckout(remembered: RememberedCheckout): stri
     `Recibo: ${labelOf(RECEIPT_PREFERENCE_BUTTONS, remembered.receiptPreference)}`,
   ]
 
-  // Logo abaixo da entrega, e completo: o endereço qualifica a entrega, e é o item em que um erro
-  // custa a compra inteira — some numa linha truncada e o cliente confirma sem ter conferido.
-  if (typeof remembered.address === 'string' && remembered.address.trim().length > 0) {
-    lines.splice(1, 0, `📍 ${remembered.address.trim()}`)
-  }
+  /*
+   * Logo abaixo da entrega, e completo: o endereço qualifica a entrega, e é o item em que um erro
+   * custa a compra inteira — some numa linha truncada e o cliente confirma sem ter conferido.
+   *
+   * `formatAddressLine` entende os dois formatos porque `lastOrder.address` pode vir de um pedido de
+   * ANTES de T2.2 (string crua) ou de DEPOIS (objeto estruturado) — sem isso, "repetir a última
+   * compra" pararia de mostrar o endereço assim que o primeiro pedido estruturado fosse feito.
+   */
+  const addressLine = formatAddressLine(remembered.address)
+  if (addressLine) lines.splice(1, 0, `📍 ${addressLine}`)
 
   return lines.map((line) => `• ${line}`).join('\n')
 }

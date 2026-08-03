@@ -29,6 +29,8 @@ import { UpdateProductUseCase } from '@/modules/catalog/application/use-cases/Up
 import { CategoryController } from '@/modules/catalog/infra/http/Category.controller'
 import { ProductController } from '@/modules/catalog/infra/http/Product.controller'
 import { RedisProvider } from '@/infra/redis/RedisProvider'
+import type { AddressLookupProviderInterface } from '@/modules/shared/address/AddressLookupProvider.interface'
+import { ViaCepAddressLookupProvider } from '@/infra/viacep/ViaCepAddressLookupProvider'
 import type { CacheProvider } from '@/shared/providers/CacheProvider.interface'
 import type { CustomerRepositoryInterface } from '@/modules/webhook/domain/CustomerRepository.interface'
 import type { ConversationSessionRepositoryInterface } from '@/modules/webhook/domain/ConversationSessionRepository.interface'
@@ -248,6 +250,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
 
 type WebhookRepositories = {
   readonly cacheProvider: CacheProvider
+  readonly addressLookupProvider: AddressLookupProviderInterface
   readonly customerRepository: CustomerRepositoryInterface
   readonly conversationSessionRepository: ConversationSessionRepositoryInterface
   readonly messageRepository: MessageRepositoryInterface
@@ -256,16 +259,26 @@ type WebhookRepositories = {
 
 function buildWebhookRepositories(): WebhookRepositories {
   const cacheProvider = new RedisProvider()
+  // CEP → rua/bairro/cidade/UF, para o checkout do WhatsApp não pedir o endereço inteiro por texto livre.
+  const addressLookupProvider = new ViaCepAddressLookupProvider()
   const customerRepository = new DrizzleCustomerRepository()
   const conversationSessionRepository = new DrizzleConversationSessionRepository()
   const messageRepository = new DrizzleMessageRepository()
   const whatsAppSender = new WhatsAppSender({ messageRepository, conversationSessionRepository })
 
-  return { cacheProvider, customerRepository, conversationSessionRepository, messageRepository, whatsAppSender }
+  return {
+    cacheProvider,
+    addressLookupProvider,
+    customerRepository,
+    conversationSessionRepository,
+    messageRepository,
+    whatsAppSender,
+  }
 }
 
 type ConversationModuleDependencies = {
   readonly productRepository: ProductRepositoryInterface
+  readonly addressLookupProvider: AddressLookupProviderInterface
   readonly categoryRepository: CategoryRepositoryInterface
   readonly customerRepository: CustomerRepositoryInterface
   readonly conversationSessionRepository: ConversationSessionRepositoryInterface
@@ -286,6 +299,7 @@ type ConversationModule = {
 function buildConversationModule(dependencies: ConversationModuleDependencies): ConversationModule {
   const {
     productRepository,
+    addressLookupProvider,
     categoryRepository,
     customerRepository,
     conversationSessionRepository,
@@ -358,6 +372,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     productRepository,
     customerRepository,
     createOrderFromCartUseCase,
+    addressLookupProvider,
   })
   const globalHandler = new GlobalHandler({
     conversationSessionRepository,
@@ -558,6 +573,7 @@ const orderModule = buildOrderModule({
 })
 const conversationModule = buildConversationModule({
   productRepository: catalogModule.productRepository,
+  addressLookupProvider: webhookRepositories.addressLookupProvider,
   categoryRepository: catalogModule.categoryRepository,
   customerRepository: webhookRepositories.customerRepository,
   conversationSessionRepository: webhookRepositories.conversationSessionRepository,
