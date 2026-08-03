@@ -22,6 +22,7 @@ import { CategoryNameDuplicateError } from '@/shared/errors/CatalogErrors'
 import { SEED_CATEGORIES } from './CatalogSeedCategories'
 import { SEED_PRODUCTS } from './CatalogSeedProducts'
 import { seedConversations } from './ConversationSeedRunner'
+import { seedOrders } from './OrderSeedRunner'
 import { container } from '@/infra/container'
 
 const log = logger.child('SeedScript')
@@ -88,6 +89,9 @@ async function seedCatalog(): Promise<void> {
 
 seedCatalog()
   .then(() => seedConversations(container.webhook.metaWhatsApp))
+  // Depois do catálogo, porque pedido precisa de produto — e depois da conversa, para o log ficar na
+  // ordem em que alguém leria a jornada.
+  .then(() => seedOrders())
   .then(() => closeDatabaseConnection())
   .then(() => process.exit(0))
   .catch((error) => {

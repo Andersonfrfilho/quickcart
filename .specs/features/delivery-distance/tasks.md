@@ -21,8 +21,8 @@ que geocodificar (spec §1.1). Cada task tem commit isolado, para rollback barat
 
 ---
 
-## Fase 1 — Modelo de endereço e migração expand
-> 🤖 Modelo: `sonnet`
+## Fase 1 — Modelo de endereço e migração expand ✅
+> 🤖 Modelo: `sonnet` — concluída
 
 ### T1.1 — `addressSchema` como única definição
 - **Arquivo:** `apps/api-quickcart/src/modules/shared/address/Address.schema.ts` (novo)
@@ -72,8 +72,8 @@ que geocodificar (spec §1.1). Cada task tem commit isolado, para rollback barat
 
 ---
 
-## Fase 2 — Captura nos dois canais
-> 🤖 Modelo: `sonnet`
+## Fase 2 — Captura nos dois canais ✅
+> 🤖 Modelo: `sonnet` — concluída
 
 ### T2.1 — CEP primeiro no web
 - CEP → ViaCEP preenche rua/bairro/cidade/UF; cliente completa número e complemento
@@ -86,8 +86,14 @@ que geocodificar (spec §1.1). Cada task tem commit isolado, para rollback barat
 
 ---
 
-## Fase 3 — Geocodificação, distância e ETA
-> 🤖 Modelo: `sonnet`
+## Fase 3 — Geocodificação, distância e ETA ✅
+> 🤖 Modelo: `sonnet` na tabela; executado em `opus` por instrução do usuário
+
+**Correção de premissa, medida contra a API real:** a spec §4.3 previa precisão `street` para CEP de
+logradouro em capital. Busca por CEP no Nominatim nunca devolve `road` — os CEPs voltam
+`type: postcode` e `place_rank: 21`, idênticos. A precisão real sai das chaves de `address`
+(`suburb`/`city_district` → bairro; só `municipality` → município). `street` não é alcançável por
+este caminho.
 
 ### T3.1 — Provider com cache por CEP
 - CEP → Nominatim (coordenada), cacheado em `geocoded_addresses`. **BrasilAPI anuncia coordenada e
@@ -121,13 +127,22 @@ saída, seguro em qualquer ambiente. É o que mede produção antes de qualquer 
 
 ---
 
-## Fase 5 — Seeders e UI
-> 🤖 Modelo: `haiku`
+## Fase 5 — Seeders e UI ✅
+> 🤖 Modelo: `haiku` na tabela; executado em `opus` por instrução do usuário
 
-- Seeders passam a gerar clientes e pedidos com CEPs **reais** em faixas de distância variadas,
-  incluindo um fora do raio — hoje não criam cliente nem pedido, então não há o que ver na tela
-- Seed roda os use-cases, nunca `INSERT` bruto (`code-standart.md` §5)
-- Aviso de "fora da área" no admin **sinaliza, não bloqueia** (spec §8 Q2)
+Seis clientes com CEPs reais, distâncias **medidas** a partir de `STORE_CEP=01415-000`:
+
+| CEP | Distância | Estado que exercita |
+|---|---|---|
+| `01310-100` | 2,0 km | caso comum, lista de 12 itens |
+| `04101-300` | 6,3 km | dentro do raio, nome comprido |
+| `02011-000` | 6,7 km | borda do raio |
+| `09010-000` | 23,7 km | **fora do raio** — aviso ao operador |
+| `37925-000` | 471,9 km, precisão `city` | distância aproximada, **sem horário** |
+| — | — | retirada: sem endereço nem distância |
+
+Roda pelo `CreateWebOrderUseCase`, com fila de recibo e cache de idempotência dublados (seed não
+manda WhatsApp para cliente fictício). Idempotente: segunda execução pulou os seis.
 
 ---
 
