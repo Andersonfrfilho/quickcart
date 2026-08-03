@@ -49,6 +49,10 @@ migrate: ## 🧱 Roda as migrations do Drizzle
 	@echo "🧱 Rodando migrations ($(ENV))..."
 	@cd apps/api-quickcart && bun --env-file=../../$(ENV_FILE) $(ENV_LOCAL_ARG) run db:migrate
 
+address-inventory: ## 🔍 Conta as formas de endereço gravadas (SÓ LEITURA, seguro em qualquer ambiente)
+	@echo "🔍 Inventariando endereços ($(ENV))..."
+	@cd apps/api-quickcart && bun --env-file=../../$(ENV_FILE) $(ENV_LOCAL_ARG) run db:address-inventory
+
 seed: ## 🌱 Popula o catálogo via use-cases (nunca INSERT bruto)
 	@echo "🌱 Rodando seeds ($(ENV))..."
 	@cd apps/api-quickcart && bun --env-file=../../$(ENV_FILE) $(ENV_LOCAL_ARG) run db:seed

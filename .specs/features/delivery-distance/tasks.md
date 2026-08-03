@@ -103,13 +103,21 @@ que geocodificar (spec §1.1). Cada task tem commit isolado, para rollback barat
 
 ---
 
-## Fase 4 — Backfill do legado
-> 🤖 Modelo: `sonnet` 🧠 (mexe em dado de produção — validar o plano com `opus` antes de rodar)
+## ~~Fase 4 — Backfill do legado~~ ❌ CANCELADA
+> Revisada em `opus` antes de escrever em dado real, como a marca 🧠 exigia.
+> Decisão registrada em [`docs/adr/0001-sem-backfill-de-endereco-legado.md`](../../../docs/adr/0001-sem-backfill-de-endereco-legado.md).
 
-- Script extrai CEP por regex do texto livre; o que casar, geocodifica; o que não casar fica
-  `null` com o texto preservado
-- **Aceite:** nenhuma linha reescrita com endereço adivinhado; contagem de casados/não casados
-  registrada no log
+**Não implementar.** O regex `\d{5}-?\d{3}` em texto livre extrai celular (`98888-7777` →
+`98888-777`) e CPF (`01415000123` → `01415000`, que é um CEP real em São Paulo) — geocodifica com
+sucesso e produz distância errada sem nada na tela para desconfiar. Além disso
+`customers.default_address` é coluna morta (nunca escrita, nunca lida, 18/18 nulos em dev), e
+`addressSchema` exige `number`, que não é recuperável de texto livre.
+
+Nada depende disso: sem coordenada, a Fase 3 não exibe ETA (spec §5), e o legado é uma cauda que
+encurta sozinha porque todo pedido novo já nasce estruturado.
+
+**Entregue no lugar:** `make address-inventory` — conta as formas gravadas, só leitura, sem PII na
+saída, seguro em qualquer ambiente. É o que mede produção antes de qualquer conversa sobre volume.
 
 ---
 
@@ -125,6 +133,12 @@ que geocodificar (spec §1.1). Cada task tem commit isolado, para rollback barat
 
 ## Revisão final
 > 🤖 Modelo: `opus`
+
+Dois critérios de aceite da spec §9 mudaram de sentido com o cancelamento da Fase 4:
+
+- ~~"Pedido antigo sem CEP extraível continua exibindo o texto original"~~ → agora **todo** pedido
+  antigo exibe o texto original, porque nenhum é reescrito. Já entregue e verificado em T1.4.
+- O item de backfill sai da lista.
 
 Percorrer os 11 critérios de aceite da spec §9, mais a auditoria do `code-standart.md` §15 (N+1,
 I/O assíncrono, log sem PII) e o §1 do `security.md`: **CEP não é PII, mas endereço completo é** —
