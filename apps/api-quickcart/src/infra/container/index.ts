@@ -29,6 +29,7 @@ import { UpdateProductUseCase } from '@/modules/catalog/application/use-cases/Up
 import { CategoryController } from '@/modules/catalog/infra/http/Category.controller'
 import { ProductController } from '@/modules/catalog/infra/http/Product.controller'
 import { RedisProvider } from '@/infra/redis/RedisProvider'
+import { NominatimGeocodingProvider } from '@/infra/nominatim/NominatimGeocodingProvider'
 import type { AddressLookupProviderInterface } from '@/modules/shared/address/AddressLookupProvider.interface'
 import { ViaCepAddressLookupProvider } from '@/infra/viacep/ViaCepAddressLookupProvider'
 import type { CacheProvider } from '@/shared/providers/CacheProvider.interface'
@@ -91,6 +92,9 @@ import { CreateWebOrderUseCase } from '@/modules/order/application/use-cases/Cre
 import { GetOrderByShortCodeUseCase } from '@/modules/order/application/use-cases/GetOrderByShortCode.use-case'
 import { UpdateOrderStatusUseCase } from '@/modules/order/application/use-cases/UpdateOrderStatus.use-case'
 import { GetAdminOrderDetailUseCase } from '@/modules/order/application/use-cases/GetAdminOrderDetail.use-case'
+import { ResolveOrderDeliveryEstimateUseCase } from '@/modules/order/application/use-cases/ResolveOrderDeliveryEstimate.use-case'
+import { ResolveCepCoordinateUseCase } from '@/modules/shared/address/ResolveCepCoordinate.use-case'
+import { DrizzleGeocodedAddressRepository } from '@/modules/shared/address/infra/DrizzleGeocodedAddressRepository'
 import { SetOrderItemUnavailableUseCase } from '@/modules/order/application/use-cases/SetOrderItemUnavailable.use-case'
 import { NotifyUnavailableItemsUseCase } from '@/modules/order/application/use-cases/NotifyUnavailableItems.use-case'
 import { RepeatLastOrderUseCase } from '@/modules/order/application/use-cases/RepeatLastOrder.use-case'
@@ -208,7 +212,26 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     customerRepository: dependencies.customerRepository,
   })
   const updateOrderStatusUseCase = new UpdateOrderStatusUseCase({ orderRepository, notificationQueue })
-  const getAdminOrderDetailUseCase = new GetAdminOrderDetailUseCase({ orderRepository })
+  /*
+   * Coordenada por CEP, cacheada em Postgres. Uma instância só do provider por processo, porque é ela
+   * que guarda o instante da última chamada para respeitar o 1 req/s do Nominatim.
+   */
+  const resolveCepCoordinateUseCase = new ResolveCepCoordinateUseCase({
+    geocodedAddressRepository: new DrizzleGeocodedAddressRepository(),
+    geocodingProvider: new NominatimGeocodingProvider(),
+  })
+  const resolveOrderDeliveryEstimateUseCase = new ResolveOrderDeliveryEstimateUseCase({
+    resolveCepCoordinateUseCase,
+    storeCep: environment.STORE_CEP,
+    detourFactor: environment.DISTANCE_DETOUR_FACTOR,
+    averageSpeedKmh: environment.DELIVERY_AVERAGE_SPEED_KMH,
+    preparationMinutes: environment.STORE_PREPARATION_MINUTES,
+    deliveryRadiusKm: environment.STORE_DELIVERY_RADIUS_KM,
+  })
+  const getAdminOrderDetailUseCase = new GetAdminOrderDetailUseCase({
+    orderRepository,
+    resolveOrderDeliveryEstimateUseCase,
+  })
   const setOrderItemUnavailableUseCase = new SetOrderItemUnavailableUseCase({
     orderRepository,
     unmatchedDemandRepository: new DrizzleUnmatchedDemandRepository(),

@@ -111,6 +111,26 @@ const environmentSchema = z.object({
   STORE_NAME: z.string().default('QuickCart'),
   STORE_CNPJ: z.string().optional(),
   STORE_ADDRESS: z.string().optional(),
+
+  /*
+   * ── Distância e previsão de chegada ──
+   *
+   * `STORE_CEP` é o interruptor da feature: sem ele não há de onde medir, e a tela mostra endereço sem
+   * distância. Opcional de propósito — uma loja que não configurou não deve deixar de subir por isso.
+   *
+   * Os três números são estimativas grosseiras, e estão em env justamente porque precisam ser
+   * calibrados com entrega real (spec §4.4) sem exigir deploy de código.
+   */
+  STORE_CEP: z
+    .string()
+    .regex(/^\d{5}-?\d{3}$/, 'STORE_CEP precisa ter 8 dígitos')
+    .optional(),
+  /** Haversine é linha reta e subestima percurso urbano. 1.35 é ponto de partida da literatura, não medição desta operação. */
+  DISTANCE_DETOUR_FACTOR: z.coerce.number().positive().default(1.35),
+  DELIVERY_AVERAGE_SPEED_KMH: z.coerce.number().positive().default(25),
+  STORE_PREPARATION_MINUTES: z.coerce.number().nonnegative().default(20),
+  /** Alimenta um AVISO ao operador, nunca uma trava na venda (spec §8 Q2) — a coordenada vem de CEP e erra. */
+  STORE_DELIVERY_RADIUS_KM: z.coerce.number().positive().default(8),
 })
 
 export const environment = environmentSchema.parse(process.env)

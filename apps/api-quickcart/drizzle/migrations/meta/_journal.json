@@ -78,6 +78,13 @@
       "when": 1784464062867,
       "tag": "0010_structured_address",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1784464063867,
+      "tag": "0011_drop_unused_stores",
+      "breakpoints": true
     }
   ]
 }

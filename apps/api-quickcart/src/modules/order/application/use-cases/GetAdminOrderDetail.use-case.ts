@@ -19,17 +19,47 @@
 
 import { OrderNotFoundError } from '@/shared/errors/OrderErrors'
 import type { OrderDetail, OrderRepositoryInterface } from '@/modules/order/domain/OrderRepository.interface'
+import type {
+  OrderDeliveryEstimate,
+  ResolveOrderDeliveryEstimateUseCase,
+} from '@/modules/order/application/use-cases/ResolveOrderDeliveryEstimate.use-case'
+import { logger } from '@/shared/logger'
+import { serializeError } from '@/shared/serializeError'
+
+const useCaseLog = logger.child('GetAdminOrderDetail')
 
 type GetAdminOrderDetailUseCaseDependencies = {
   readonly orderRepository: OrderRepositoryInterface
+  readonly resolveOrderDeliveryEstimateUseCase: ResolveOrderDeliveryEstimateUseCase
+}
+
+export type AdminOrderDetail = OrderDetail & {
+  /** Ausente sempre que não dá para responder com honestidade — ver ResolveOrderDeliveryEstimate. */
+  readonly deliveryEstimate?: OrderDeliveryEstimate
 }
 
 export class GetAdminOrderDetailUseCase {
   constructor(private readonly dependencies: GetAdminOrderDetailUseCaseDependencies) {}
 
-  async execute(params: { readonly orderId: string }): Promise<OrderDetail> {
+  async execute(params: { readonly orderId: string }): Promise<AdminOrderDetail> {
     const detail = await this.dependencies.orderRepository.findDetailById(params.orderId)
     if (!detail) throw new OrderNotFoundError(params.orderId)
-    return detail
+
+    /*
+     * Distância é enfeite; o pedido é o conteúdo.
+     *
+     * A estimativa depende de um serviço de mapa externo (só no primeiro pedido de cada CEP — depois
+     * vem do cache). Deixar essa dependência derrubar a tela significaria não conseguir separar uma
+     * compra porque o OpenStreetMap está fora. O erro é logado e a tela abre sem a distância.
+     */
+    try {
+      const deliveryEstimate = await this.dependencies.resolveOrderDeliveryEstimateUseCase.execute({
+        order: detail.order,
+      })
+      return deliveryEstimate ? { ...detail, deliveryEstimate } : detail
+    } catch (error: unknown) {
+      useCaseLog.warn('delivery_estimate_failed', { orderId: params.orderId, error: serializeError(error) })
+      return detail
+    }
   }
 }

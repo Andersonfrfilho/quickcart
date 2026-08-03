@@ -139,6 +139,23 @@ export type OrderItem = {
 }
 
 /**
+ * A que distância o cliente está e quando o pedido chega.
+ *
+ * Chave AUSENTE quando o servidor não consegue responder com honestidade: retirada, loja sem CEP
+ * configurado, endereço legado sem CEP, CEP que não geocodifica, mapa fora do ar. A tela decide por
+ * presença — nunca preenche com zero nem com "—", que o operador leria como "é pertinho".
+ */
+export type OrderDeliveryEstimate = {
+  readonly distanceKm: number
+  /** Ausentes quando a precisão da coordenada não sustenta previsão (centroide de município). */
+  readonly minMinutes?: number
+  readonly maxMinutes?: number
+  readonly isApproximate: boolean
+  /** Aviso ao operador, nunca trava na venda: a coordenada vem de CEP e erra. */
+  readonly isOutsideRadius: boolean
+}
+
+/**
  * O pedido aberto para a loja: o que separar, para quem e como entregar.
  *
  * Endereço e recibo só existem aqui, e não na listagem: a lista precisa caber na tela e ninguém escolhe
@@ -146,6 +163,7 @@ export type OrderItem = {
  */
 export type OrderDetail = Order & {
   readonly address: unknown
+  readonly deliveryEstimate?: OrderDeliveryEstimate
   /** `null` quando não há texto original a preservar — todo pedido, exceto o que o backfill (Fase 4) tocou. */
   readonly legacyAddressText: string | null
   readonly receiptPreference: ReceiptPreference

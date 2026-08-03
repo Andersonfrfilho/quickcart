@@ -21,6 +21,17 @@ function formatMoney(totalInCents: number): string {
 }
 
 /**
+ * Uma casa decimal, e metro só abaixo de 1 km.
+ *
+ * "2,13 km" alegaria precisão de 10 metros sobre um cálculo em linha reta corrigido por um fator
+ * estimado — o número honesto tem uma casa. Abaixo de 1 km, metro comunica melhor que "0,4 km".
+ */
+function formatDistanceKm(distanceKm: number): string {
+  if (distanceKm < 1) return `${Math.round(distanceKm * 1000)} m`
+  return `${distanceKm.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km`
+}
+
+/**
  * O endereço estruturado (`Address.schema.ts` no backend) reconhecido pela FORMA, não por uma
  * versão ou flag: `street`, `number`, `neighborhood`, `city` e `state` são os campos obrigatórios
  * do schema, e nenhum formato antigo (string crua, `{ street: "..." }` do checkout velho) tem os
@@ -291,6 +302,38 @@ export function OrderDetailView({
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Entrega</p>
           <p className="mt-0.5 font-medium">{DELIVERY_LABELS[order.deliveryType] ?? order.deliveryType}</p>
           {address && <p className="mt-0.5 text-sm">{address}</p>}
+
+          {/*
+            Distância e previsão só aparecem quando o servidor manda — e ele só manda quando dá para
+            responder. Um "—" no lugar seria pior que a ausência: o operador leria como "perto".
+          */}
+          {order.deliveryEstimate && (
+            <p className="mt-1.5 text-sm">
+              <span aria-hidden="true">🚗 </span>
+              <span className="font-medium tabular-nums">
+                {order.deliveryEstimate.isApproximate && '~'}
+                {formatDistanceKm(order.deliveryEstimate.distanceKm)}
+              </span>
+              {order.deliveryEstimate.minMinutes !== undefined ? (
+                <>
+                  {' · chega em '}
+                  <span className="font-medium tabular-nums">
+                    {order.deliveryEstimate.minMinutes}–{order.deliveryEstimate.maxMinutes} min
+                  </span>
+                </>
+              ) : (
+                /* Sem previsão, a tela DIZ por que — senão parece bug, e o operador inventa a conta. */
+                <span className="text-muted-foreground"> · CEP genérico, sem previsão de horário</span>
+              )}
+            </p>
+          )}
+
+          {/* Aviso, não impedimento (spec §8 Q2): quem decide atender fora do raio é a pessoa. */}
+          {order.deliveryEstimate?.isOutsideRadius && (
+            <p className="mt-1 text-sm font-medium text-amber-700 dark:text-amber-400">
+              <span aria-hidden="true">⚠️ </span>Fora da área de entrega habitual
+            </p>
+          )}
         </Card>
 
         <Card className="p-3 md:p-4">

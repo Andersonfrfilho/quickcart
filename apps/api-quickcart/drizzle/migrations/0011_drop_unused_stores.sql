@@ -1,0 +1,16 @@
+-- Remove a tabela `stores`, criada na 0010 e nunca usada.
+--
+-- Ela veio da spec §8 Q3, que propôs "endereço da loja vira tabela" partindo de que "o resto do schema
+-- já é multiempresa". Não é: nenhuma tabela deste projeto tem tenant, não existe tabela `companies`, e
+-- quickcart é uma loja por deployment. Registrei a divergência ao criar a tabela e segui — foi erro
+-- meu criar antes de resolver quem escreveria nela.
+--
+-- Com o endereço da loja vindo de `STORE_CEP` (env, ao lado do `STORE_ADDRESS` que já existia para o
+-- recibo) e a coordenada saindo do mesmo cache por CEP dos clientes, a tabela não tem escritor nem
+-- leitor. Deixá-la seria exatamente a coluna morta que a ADR 0001 usou como argumento para cancelar o
+-- backfill — e não vale manter schema que ninguém preenche só porque já foi criado.
+--
+-- Seguro: a tabela foi criada nesta mesma leva de trabalho, está vazia em dev e em test, e nenhum
+-- código a referencia. Se um dia a loja precisar editar o endereço sem redeploy, ela volta — com o
+-- escritor e a tela junto, não antes.
+DROP TABLE IF EXISTS "stores";

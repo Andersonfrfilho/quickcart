@@ -37,6 +37,24 @@ const MINUTES_ROUNDING_STEP = 5
 
 const MINUTES_PER_HOUR = 60
 
+/**
+ * Quanto MENOR o número, pior a precisão. Desconhecido cai em 0 junto com `none`.
+ *
+ * Existe para combinar duas coordenadas: uma distância entre dois pontos não é mais precisa que o
+ * pior dos dois. Loja com CEP genérico de cidade pequena torna toda distância aproximada, mesmo com
+ * cliente em CEP de bairro — o erro de um lado não é compensado pela exatidão do outro.
+ */
+const PRECISION_RANK: Readonly<Record<string, number>> = {
+  [GEOCODE_PRECISION.NONE]: 0,
+  [GEOCODE_PRECISION.CITY]: 1,
+  [GEOCODE_PRECISION.POSTAL_CODE]: 2,
+  [GEOCODE_PRECISION.STREET]: 3,
+}
+
+export function worstPrecision(left: string, right: string): string {
+  return (PRECISION_RANK[left] ?? 0) <= (PRECISION_RANK[right] ?? 0) ? left : right
+}
+
 export type DeliveryEstimateParams = {
   readonly storeCoordinate: Coordinate
   readonly customerCoordinate: Coordinate

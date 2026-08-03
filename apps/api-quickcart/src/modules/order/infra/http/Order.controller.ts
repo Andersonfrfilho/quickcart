@@ -89,7 +89,14 @@ export class OrderController {
     requireAdminToken(request)
     const id = request.params[0] ?? ''
     const detail = await this.dependencies.getAdminOrderDetailUseCase.execute({ orderId: id })
-    response.json(200, { data: { ...withAllowedTransitions(detail.order), items: detail.items } })
+    response.json(200, {
+      data: {
+        ...withAllowedTransitions(detail.order),
+        items: detail.items,
+        // Chave ausente, e não `null`, quando não há estimativa: a tela decide por presença.
+        ...(detail.deliveryEstimate ? { deliveryEstimate: detail.deliveryEstimate } : {}),
+      },
+    })
   }
 
   handleSetItemUnavailable: RouteHandler = async (request, response) => {

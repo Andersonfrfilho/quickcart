@@ -7,7 +7,7 @@ import {
   orderStatusLabel,
 } from '@/modules/admin/shared/orderStatusStyle'
 import { OrderDetailView } from '@/modules/admin/components/OrderDetailView'
-import type { OrderDetail, OrderItem } from '@/shared/api/api.types'
+import type { OrderDeliveryEstimate, OrderDetail, OrderItem } from '@/shared/api/api.types'
 
 /**
  * A tela do pedido com dado de mentira, para ajustar desenho sem depender de sessão nem de um pedido
@@ -149,6 +149,25 @@ const PREVIEW_ORDER: OrderDetail = {
   allowedNextStatuses: [],
 }
 
+/**
+ * Os quatro estados da distância — `?estimate=`.
+ *
+ * `perto` é o caso feliz; `longe` é o aviso de fora do raio; `aproximada` é o CEP genérico de cidade
+ * pequena, em que a tela mostra distância e NÃO promete horário; `ausente` é retirada, loja sem CEP
+ * configurado, endereço legado ou mapa fora do ar — todos indistinguíveis na tela de propósito, porque
+ * a única coisa honesta a dizer é nada.
+ */
+function resolvePreviewEstimate(estimateCase: string): OrderDeliveryEstimate | undefined {
+  if (estimateCase === 'longe') {
+    return { distanceKm: 12.4, minMinutes: 55, maxMinutes: 100, isApproximate: false, isOutsideRadius: true }
+  }
+  if (estimateCase === 'aproximada') {
+    return { distanceKm: 47.8, isApproximate: true, isOutsideRadius: true }
+  }
+  if (estimateCase === 'ausente') return undefined
+  return { distanceKm: 2.1, minMinutes: 25, maxMinutes: 45, isApproximate: false, isOutsideRadius: false }
+}
+
 export function OrderDetailPreviewPage() {
   /**
    * Estado e tipo de entrega vêm da URL para conferir os casos difíceis sem editar código.
@@ -161,6 +180,7 @@ export function OrderDetailPreviewPage() {
   const status = searchParams.get('status') ?? 'preparing'
   const deliveryType = searchParams.get('deliveryType') ?? 'delivery'
   const addressCase = searchParams.get('address') ?? 'structured'
+  const estimateCase = searchParams.get('estimate') ?? 'perto'
 
   const [pickedItemIds, setPickedItemIds] = React.useState<readonly string[]>([
     'preview-item-0',
@@ -200,6 +220,13 @@ export function OrderDetailPreviewPage() {
      * `?address=`, para testar estruturado, legado e cru sem precisar editar a fixture.
      */
     ...(deliveryType === 'pickup' ? { address: null, legacyAddressText: null } : resolvePreviewAddressCase(addressCase)),
+    // Retirada nunca tem distância: o cliente vem até a loja.
+    ...(deliveryType === 'pickup'
+      ? {}
+      : (() => {
+          const deliveryEstimate = resolvePreviewEstimate(estimateCase)
+          return deliveryEstimate ? { deliveryEstimate } : {}
+        })()),
     items,
     totalInCents: items
       .filter((item) => item.unavailableAt === null)
