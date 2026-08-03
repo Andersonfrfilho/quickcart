@@ -149,6 +149,13 @@ manda WhatsApp para cliente fictício). Idempotente: segunda execução pulou os
 ## Revisão final
 > 🤖 Modelo: `opus`
 
+**Achado da revisão:** `addressSchema` declarava `latitude`, `longitude` e `geocodePrecision` como
+"preenchidos pela geocodificação" (spec §3) e ninguém nunca os escreveu nem leu — a coordenada mora em
+`geocoded_addresses`, indexada por CEP, porque é o CEP que a determina. Os três campos saíram: duplicar
+coordenada dentro de cada pedido criaria duas verdades, e a do `jsonb` nunca seria atualizada. A
+proteção contra o cliente injetar coordenada continua valendo (zod descarta chave não declarada) —
+verificado mandando `latitude: -1` na requisição e conferindo o que foi gravado.
+
 Dois critérios de aceite da spec §9 mudaram de sentido com o cancelamento da Fase 4:
 
 - ~~"Pedido antigo sem CEP extraível continua exibindo o texto original"~~ → agora **todo** pedido

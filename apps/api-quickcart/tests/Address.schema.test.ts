@@ -29,9 +29,6 @@ describe('addressSchema', () => {
       ...VALID_ADDRESS,
       complement: 'apto 71, Bloco B',
       reference: 'portão azul ao lado da padaria',
-      latitude: -23.5649659,
-      longitude: -46.6518144,
-      geocodePrecision: 'street',
     })
     expect(result.success).toBe(true)
   })
@@ -49,16 +46,16 @@ describe('addressSchema', () => {
     expect(addressSchema.safeParse({ ...VALID_ADDRESS, state: 'São Paulo' }).success).toBe(false)
   })
 
-  it('recusa coordenada fora do intervalo geográfico possível', () => {
-    expect(addressSchema.safeParse({ ...VALID_ADDRESS, latitude: 200 }).success).toBe(false)
-    expect(addressSchema.safeParse({ ...VALID_ADDRESS, longitude: -200 }).success).toBe(false)
-  })
+
 })
 
 describe('addressInputSchema', () => {
-  it('recusa coordenada e precisão vindas do cliente', () => {
-    // O que a geocodificação preenche não pode chegar pronto no corpo da requisição — senão
-    // qualquer cliente inventa a própria distância até a loja.
+  it('descarta coordenada mandada pelo cliente em vez de gravá-la', () => {
+    /*
+     * A coordenada não é campo de endereço: ela mora em `geocoded_addresses`, indexada por CEP. Zod
+     * descarta chave que o schema não declara, então um cliente que mande `latitude` no corpo não
+     * consegue inventar a própria distância até a loja — o valor simplesmente não chega ao banco.
+     */
     const result = addressInputSchema.safeParse({
       ...VALID_ADDRESS,
       latitude: -23.5649659,

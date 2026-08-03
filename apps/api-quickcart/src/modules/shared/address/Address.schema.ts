@@ -28,16 +28,21 @@ export const GEOCODE_PRECISION = {
   NONE: 'none',
 } as const
 
-export const GEOCODE_PRECISION_VALUES = Object.values(GEOCODE_PRECISION) as [string, ...string[]]
-
 export type GeocodePrecision = (typeof GEOCODE_PRECISION)[keyof typeof GEOCODE_PRECISION]
 
 /**
- * `number` é string de propósito: "s/n" e "123A" são endereços reais, e `integer` os rejeitaria.
+ * O endereço, e SÓ o endereço: sem coordenada.
  *
- * `latitude`, `longitude` e `geocodePrecision` são preenchidos pela GEOCODIFICAÇÃO, nunca pelo
- * cliente — por isso `addressInputSchema` (abaixo) os omite. Aceitar coordenada vinda do corpo da
- * requisição deixaria qualquer cliente inventar a própria distância até a loja.
+ * `number` é string de propósito — "s/n" e "123A" são endereços reais, e `integer` os rejeitaria.
+ *
+ * A spec §3 previa `latitude`, `longitude` e `geocodePrecision` aqui dentro, e eles existiram até a
+ * revisão final da feature mostrar que ninguém os escrevia nem lia: a coordenada mora em
+ * `geocoded_addresses`, indexada por CEP, porque é o CEP que a determina — dois clientes do mesmo
+ * prédio têm a mesma. Duplicá-la dentro de cada pedido criaria duas verdades que podem discordar, e
+ * a de dentro do `jsonb` nunca seria atualizada.
+ *
+ * Como consequência, o cliente também não tem onde injetar coordenada: zod descarta chave que o
+ * schema não declara, então mandar `latitude` no corpo da requisição não muda nada.
  */
 export const addressSchema = z.object({
   cep: z.string().regex(/^\d{5}-?\d{3}$/, 'CEP precisa ter 8 dígitos'),
@@ -49,21 +54,14 @@ export const addressSchema = z.object({
   state: z.string().length(2),
   /** "portão azul ao lado da padaria" — em entrega de bairro costuma valer mais que o número. */
   reference: z.string().max(160).optional(),
-  latitude: z.number().min(-90).max(90).optional(),
-  longitude: z.number().min(-180).max(180).optional(),
-  geocodePrecision: z.enum(GEOCODE_PRECISION_VALUES).optional(),
 })
 
 export type Address = z.infer<typeof addressSchema>
 
 /**
- * O que o CLIENTE pode enviar. Sem coordenada nem precisão — essas nascem da geocodificação, que
- * roda depois, a partir do CEP validado aqui.
+ * Nome mantido nos pontos de entrada HTTP: lá o que importa é "isto é o que o cliente pode enviar",
+ * e a intenção continua legível mesmo agora que nada precisa ser removido do schema base.
  */
-export const addressInputSchema = addressSchema.omit({
-  latitude: true,
-  longitude: true,
-  geocodePrecision: true,
-})
+export const addressInputSchema = addressSchema
 
 export type AddressInput = z.infer<typeof addressInputSchema>
