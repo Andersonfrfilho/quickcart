@@ -35,6 +35,11 @@ const environmentSchema = z.object({
   // Este UUID fixo é o tenant único — existe para satisfazer a chave do módulo, não porque
   // haja mais de um inquilino. Vira configurável no dia em que houver.
   WHATSAPP_COMPANY_ID: z.string().uuid().default('00000000-0000-4000-8000-000000000001'),
+  /**
+   * Chave do HMAC da lista de supressão de notificações. A lista guarda hash, nunca o endereço em
+   * claro — ela existe para não enviar, não para virar cadastro de contatos (`security.md` §1).
+   */
+  NOTIFICATION_SUPPRESSION_KEY: z.string().min(32),
 
   // ── Moderação de conteúdo ──
   // Desligada por padrão: marcar mensagem de cliente é decisão de operação, não default técnico.

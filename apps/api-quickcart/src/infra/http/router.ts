@@ -275,10 +275,29 @@ type CompiledRoute = {
   readonly handler: RouteHandler
 }
 
+/**
+ * Router de módulo plugável (`@adatechnology/module-http`). O contrato é mínimo de propósito: o
+ * Router daqui não conhece rota, escopo nem schema do módulo — só pergunta se ele atende e delega.
+ */
+export type MountedModuleRouter = {
+  match(request: Request): boolean
+  handle(request: Request): Promise<Response>
+}
+
 export class Router {
   private readonly routes: CompiledRoute[] = []
+  private readonly mounted: MountedModuleRouter[] = []
   private corsPreflightEnabled = false
   private notFoundHandlerRegistered = false
+
+  /**
+   * Delega um bloco de rotas a um módulo plugável. Consultado **depois** das rotas locais e antes
+   * do 404, para que uma rota do app sempre vença a de um módulo — se um dia colidirem, o
+   * comportamento do app não muda por causa de um upgrade de pacote.
+   */
+  mount(moduleRouter: MountedModuleRouter): void {
+    this.mounted.push(moduleRouter)
+  }
 
   get(pattern: string, handler: RouteHandler): void {
     this.register('GET', pattern, handler, false)
@@ -336,6 +355,12 @@ export class Router {
     const matched = this.findRoute(request.method, url.pathname)
 
     if (!matched) {
+      // O módulo já traz validação, autorização e filtro de erro próprios — passar pelo
+      // `runWithContext`/`buildResponseHelper` daqui só reescreveria o que ele resolve melhor.
+      for (const moduleRouter of this.mounted) {
+        if (moduleRouter.match(request)) return moduleRouter.handle(request)
+      }
+
       if (!this.notFoundHandlerRegistered) return new Response(null, { status: 404 })
       const { helper, responsePromise } = buildResponseHelper({ origin })
       helper.error(new AppError('Route not found', 404, NOT_FOUND))

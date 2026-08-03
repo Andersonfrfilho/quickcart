@@ -21,6 +21,8 @@ import { registerOrderRoutes } from '@/modules/order/infra/http/OrderRoutes'
 import { registerWebhookRoutes } from '@/modules/webhook/infra/http/WebhookRoutes'
 import { registerInternalRoutes } from '@/modules/internal/infra/http/InternalRoutes'
 import { registerConversationRoutes } from '@/modules/conversation/infra/http/ConversationRoutes'
+import { createNotificationRoutes } from '@adatechnology/notification-module'
+import { createModuleFetchRouter } from '@adatechnology/module-http/fetch'
 
 export function createRouter(): Router {
   const router = new Router()
@@ -45,6 +47,16 @@ export function createRouter(): Router {
     previewMediaController: container.conversationHttp.previewMediaController,
     unmatchedDemandController: container.conversationHttp.unmatchedDemandController,
   })
+
+  // Notificação inteira — inbox, SSE do sino, devices, preferências e templates — em três linhas.
+  // O módulo traz validação, autorização por objeto e filtro de erro; não há controller a escrever.
+  router.mount(
+    createModuleFetchRouter({
+      routes: createNotificationRoutes({ module: container.notification }),
+      basePath: '/v1',
+      authResolver: container.notification.authContextResolver,
+    }),
+  )
 
   router.registerNotFoundHandler()
 

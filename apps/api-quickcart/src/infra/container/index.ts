@@ -40,6 +40,8 @@ import { DrizzleCustomerRepository } from '@/modules/webhook/infra/database/Driz
 import { DrizzleConversationSessionRepository } from '@/modules/webhook/infra/database/DrizzleConversationSessionRepository'
 import { DrizzleMessageRepository } from '@/modules/webhook/infra/database/DrizzleMessageRepository'
 import { createQuickCartWhatsAppModule } from '@/modules/webhook/infra/whatsapp/metaWhatsAppModule'
+import { createQuickCartNotificationModule } from '@/modules/notification/infra/notificationModule'
+import { createWhatsAppDriverFromChannel } from '@adatechnology/notification-contracts'
 import type { MetaWhatsAppModule } from '@adatechnology/meta-whatsapp-module'
 import { ConversationController } from '@/modules/conversation/infra/http/Conversation.controller'
 import { audioTranscriber, quickCartObjectStorage } from '@/modules/webhook/infra/whatsapp/metaWhatsAppModule'
@@ -466,6 +468,12 @@ function buildWebhookModule(
     resolveInboundAudio: () => resolveInboundAudio,
   })
 
+  // O canal de WhatsApp já existe: notificação por WhatsApp reusa o mesmo, em vez de abrir uma
+  // segunda conexão com a Graph API e um segundo lugar para o número de origem divergir.
+  const notification = createQuickCartNotificationModule({
+    channels: { whatsapp: createWhatsAppDriverFromChannel(metaWhatsApp.channel) },
+  })
+
   /**
    * Um único ponto de transcrição, antes de qualquer roteamento.
    *
@@ -522,6 +530,7 @@ function buildWebhookModule(
   const controller = new WebhookController({ metaWhatsApp })
 
   return { controller, whatsAppSender, metaWhatsApp }
+    notification,
 }
 
 type ConversationHttpModule = {
@@ -642,6 +651,7 @@ export async function seedMainFlow(): Promise<void> {
 
 export const container = {
   health: buildHealthModule(),
+  notification: webhookModule.notification,
   catalog: { categoryController: catalogModule.categoryController, productController: catalogModule.productController },
   cart: {
     addCartItemUseCase: cartModule.addCartItemUseCase,
