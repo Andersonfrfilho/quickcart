@@ -3,16 +3,48 @@ import { useRouter, Link } from '@/app/router'
 import { TYPOGRAPHY } from '@/shared/theme'
 import { useCartStore } from '@/modules/store/shared/cartStore'
 import { Badge } from '@/components/ui'
+import { usePendingOrdersAlert } from '@/modules/admin/hooks/usePendingOrdersAlert.hook'
 
 type NavItem = {
   label: string
   path: string
   icon: string
+  /**
+   * Caminho que mostra contagem ao vivo ao lado do rótulo.
+   *
+   * Marcado no item, e não no componente que desenha: quem lê a lista descobre ali que Pedidos tem
+   * sinal, sem precisar caçar um `if` no meio do JSX.
+   */
+  showsPendingOrders?: boolean
 }
 
-const ADMIN_NAV: NavItem[] = [
-  { label: 'Produtos', path: '/admin/products', icon: '📦' },
-  { label: 'Pedidos', path: '/admin/orders', icon: '🛒' },
+type NavSection = {
+  label: string
+  items: NavItem[]
+}
+
+// Agrupado pelo trabalho de quem usa (operar a loja × atender cliente), não por qual pacote
+// implementa a tela — quem atende não sabe nem precisa saber que Conversas vem do conversations-ui.
+// Cabeçalho estático em vez de menu colapsável: com cinco destinos, um accordion cobraria um clique
+// e esconderia caminho sem economizar espaço.
+const ADMIN_SECTIONS: NavSection[] = [
+  {
+    label: 'Loja',
+    items: [
+      { label: 'Produtos', path: '/admin/products', icon: '📦' },
+      { label: 'Pedidos', path: '/admin/orders', icon: '🛒', showsPendingOrders: true },
+      { label: 'Demanda', path: '/admin/demands', icon: '🔎' },
+    ],
+  },
+  {
+    label: 'Atendimento',
+    items: [
+      { label: 'Conversas', path: '/admin/conversations', icon: '💬' },
+      { label: 'Documentos', path: '/admin/documents', icon: '📎' },
+      { label: 'Mensagens', path: '/admin/messages', icon: '✉️' },
+      { label: 'Fluxo do bot', path: '/admin/flows', icon: '🔀' },
+    ],
+  },
 ]
 
 const STORE_NAV: NavItem[] = [
@@ -23,6 +55,7 @@ const STORE_NAV: NavItem[] = [
 export function AdminLayout({ children }: { children: React.ReactNode }) {
   const { currentPath, navigate } = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const { pendingCount } = usePendingOrdersAlert()
 
   const isActive = (path: string) => currentPath.startsWith(path)
 
@@ -53,21 +86,36 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          <nav className="flex-1 p-4 space-y-1">
-            {ADMIN_NAV.map((item) => (
-              <button
-                key={item.path}
-                type="button"
-                onClick={() => { navigate(item.path); setSidebarOpen(false) }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors ${
-                  isActive(item.path)
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-foreground hover:bg-accent'
-                }`}
-              >
-                <span>{item.icon}</span>
-                <span>{item.label}</span>
-              </button>
+          <nav className="flex-1 overflow-y-auto p-4 space-y-5">
+            {ADMIN_SECTIONS.map((section) => (
+              <div key={section.label} className="space-y-1">
+                <p className="px-3 pb-1 font-semibold uppercase tracking-wide text-muted-foreground" style={{ fontSize: TYPOGRAPHY.size.xs }}>
+                  {section.label}
+                </p>
+                {section.items.map((item) => (
+                  <button
+                    key={item.path}
+                    type="button"
+                    onClick={() => { navigate(item.path); setSidebarOpen(false) }}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors ${
+                      isActive(item.path)
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-foreground hover:bg-accent'
+                    }`}
+                  >
+                    <span>{item.icon}</span>
+                    <span>{item.label}</span>
+                    {/* Pedido esperando é trabalho parado: o número fica no menu, visível de qualquer
+                        tela do painel, e não só na de Pedidos. */}
+                    {item.showsPendingOrders && pendingCount > 0 && (
+                      <Badge variant="destructive" className="ml-auto">
+                        {pendingCount}
+                      </Badge>
+                    )}
+                  </button>
+                ))}
+
+              </div>
             ))}
           </nav>
 
@@ -96,7 +144,14 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
           <span className="ml-3 font-medium">QuickCart Admin</span>
         </header>
 
-        <main className="flex-1 overflow-auto p-6">
+        {/* Sem padding no celular: 24px em cada lado tiram 13% da largura de uma tela de 375px, e
+            nas telas de altura cheia (conversas, fluxo) o padding vertical ainda somava 48px à
+            altura já calculada em 100vh, criando um segundo scroll por fora do painel. Quem precisa
+            de respiro no celular é a página, que sabe se é conteúdo de leitura ou superfície cheia. */}
+        {/* Sem padding em nenhum tamanho: quem sabe se precisa de respiro é a página. Telas de
+            superfície cheia (conversas) trazem o próprio, e o do layout virava moldura dupla — uma
+            borda em volta de tudo, visível como um quadro em torno do painel. */}
+        <main className="flex-1 overflow-auto p-0">
           {children}
         </main>
       </div>

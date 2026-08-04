@@ -8,14 +8,15 @@
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  */
 
-import { pgTable, uuid, varchar, jsonb, timestamp } from 'drizzle-orm/pg-core'
+import { pgTable, uuid, varchar, timestamp } from 'drizzle-orm/pg-core'
 
+// Cliente não guarda endereço: o endereço de entrega vive no pedido, que é a única fonte de verdade
+// que `toRememberedCheckout` reaproveita. Ver migração 0012 e ADR 0001.
 export const customers = pgTable('customers', {
   id: uuid('id').primaryKey(),
   phone: varchar('phone', { length: 20 }).notNull().unique(),
   name: varchar('name', { length: 120 }),
   email: varchar('email', { length: 160 }),
-  defaultAddress: jsonb('default_address'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })

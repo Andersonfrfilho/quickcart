@@ -10,15 +10,21 @@
     "test": "bun test --preload ./tests/setup.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "bun run src/infra/database/migrate.ts",
-    "db:seed": "bun run src/infra/database/seeds/index.ts"
+    "db:seed": "bun run src/infra/database/seeds/index.ts",
+    "db:reseed-flow": "bun run src/infra/database/seeds/reseedMainFlow.ts",
+    "db:address-inventory": "bun run src/infra/database/inventoryAddresses.ts"
   },
   "dependencies": {
-    "@adatechnology/meta-whatsapp-contracts": "^0.2.0-rc.2",
-    "@adatechnology/meta-whatsapp-module": "^0.2.0-rc.8",
-    "@adatechnology/meta-whatsapp-provider": "^0.2.0-rc.2",
+    "@adatechnology/audio-transcription-provider": "0.1.0-rc.1",
+    "@adatechnology/meta-whatsapp-contracts": "0.2.0-rc.9",
+    "@adatechnology/meta-whatsapp-module": "0.2.0-rc.18",
+    "@adatechnology/meta-whatsapp-provider": "0.2.0-rc.3",
+    "@adatechnology/object-storage-provider": "0.1.1",
+    "@adatechnology/text-moderation": "0.2.0-rc.0",
     "bullmq": "^5.79.2",
-    "drizzle-orm": "^0.36.4",
+    "drizzle-orm": "0.45.2",
     "ioredis": "5.11.1",
+    "jszip": "^3.10.1",
     "pg": "^8.13.1",
     "zod": "^3.24.1"
   },

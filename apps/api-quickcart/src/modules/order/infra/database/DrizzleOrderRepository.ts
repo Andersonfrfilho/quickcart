@@ -14,9 +14,9 @@
  * o pedido/itens serem persistidos — nenhuma escrita parcial sobrevive.
  */
 
-import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql, type SQL } from 'drizzle-orm'
 import { db } from '@/infra/database/connection'
-import { orders, orderItems, products, type Order, type OrderItem } from '@/infra/database/schema'
+import { orders, orderItems, products, customers, type Order, type OrderItem } from '@/infra/database/schema'
 import { generateId } from '@/shared/id'
 import { ORDER_STATUS } from '@/modules/order/shared/Order.constant'
 import type {
@@ -28,6 +28,7 @@ import type {
   OrderItemRecord,
   OrderRecord,
   OrderRepositoryInterface,
+  OrderDetail,
 } from '@/modules/order/domain/OrderRepository.interface'
 
 const SORTABLE_COLUMNS = {
@@ -53,6 +54,7 @@ function toOrderRecord(order: Order): OrderRecord {
     totalInCents: order.totalInCents,
     deliveryType: order.deliveryType,
     address: order.address,
+    legacyAddressText: order.legacyAddressText,
     paymentMethod: order.paymentMethod,
     receiptPreference: order.receiptPreference,
     fiscalDocumentId: order.fiscalDocumentId,
@@ -71,6 +73,9 @@ function toOrderItemRecord(item: OrderItem): OrderItemRecord {
     unitPriceInCents: item.unitPriceInCents,
     quantity: Number(item.quantity),
     totalInCents: item.totalInCents,
+    unavailableAt: item.unavailableAt,
+    unavailableNotifiedAt: item.unavailableNotifiedAt,
+    pickedAt: item.pickedAt,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   }
@@ -166,6 +171,16 @@ export class DrizzleOrderRepository implements OrderRepositoryInterface {
     return order ? toOrderRecord(order) : undefined
   }
 
+  async listRecentByCustomer(customerId: string, limit: number): Promise<OrderRecord[]> {
+    const rows = await db
+      .select()
+      .from(orders)
+      .where(eq(orders.customerId, customerId))
+      .orderBy(desc(orders.createdAt))
+      .limit(limit)
+    return rows.map(toOrderRecord)
+  }
+
   async listItems(orderId: string): Promise<OrderItemRecord[]> {
     const items = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId))
     return items.map(toOrderItemRecord)
@@ -174,22 +189,174 @@ export class DrizzleOrderRepository implements OrderRepositoryInterface {
   async list(params: ListOrdersRepositoryParams): Promise<ListOrdersRepositoryResult> {
     const conditions: SQL[] = []
     if (params.status && params.status.length > 0) conditions.push(inArray(orders.status, [...params.status]))
+    if (params.deliveryType && params.deliveryType.length > 0) {
+      conditions.push(inArray(orders.deliveryType, [...params.deliveryType]))
+    }
+    if (params.paymentMethod && params.paymentMethod.length > 0) {
+      conditions.push(inArray(orders.paymentMethod, [...params.paymentMethod]))
+    }
+
+    /**
+     * Uma busca, três campos: o operador tem na mão o que o cliente falou ao telefone — o nome, o
+     * número ou o código do pedido —, e não deveria ter de escolher em qual caixa digitar.
+     *
+     * `ilike` para não diferenciar maiúscula, e o telefone é comparado com os dígitos crus porque
+     * ninguém dita "+55".
+     */
+    if (params.search) {
+      const pattern = `%${params.search.replace(/[%_]/g, '')}%`
+      conditions.push(
+        sql`(${customers.name} ilike ${pattern} or ${customers.phone} ilike ${pattern} or ${orders.shortCode} ilike ${pattern})`,
+      )
+    }
+
     const where = conditions.length > 0 ? and(...conditions) : undefined
 
     const sortColumn = SORTABLE_COLUMNS[params.sortBy]
     const orderBy = params.sortDirection === 'desc' ? desc(sortColumn) : asc(sortColumn)
     const offset = (params.page - 1) * params.perPage
 
-    const [items, countRows] = await Promise.all([
-      db.select().from(orders).where(where).orderBy(orderBy).limit(params.perPage).offset(offset),
-      db.select({ total: sql<number>`count(*)::int` }).from(orders).where(where),
+    const [rows, countRows] = await Promise.all([
+      // `innerJoin` e não `leftJoin`: pedido sem cliente não existe (a FK é obrigatória), e um left
+      // aqui só criaria um caminho de nome nulo que nunca acontece.
+      db
+        .select({ order: orders, customerName: customers.name, customerPhone: customers.phone })
+        .from(orders)
+        .innerJoin(customers, eq(orders.customerId, customers.id))
+        .where(where)
+        .orderBy(orderBy)
+        .limit(params.perPage)
+        .offset(offset),
+      // O mesmo join na contagem: filtrar por nome e contar sem o join daria total maior que a lista,
+      // e paginação com total errado manda o operador para páginas vazias.
+      db
+        .select({ total: sql<number>`count(*)::int` })
+        .from(orders)
+        .innerJoin(customers, eq(orders.customerId, customers.id))
+        .where(where),
     ])
 
-    return { items: items.map(toOrderRecord), total: countRows[0]?.total ?? 0 }
+    return {
+      items: rows.map((row) => ({
+        ...toOrderRecord(row.order),
+        customerName: row.customerName,
+        customerPhone: row.customerPhone,
+      })),
+      total: countRows[0]?.total ?? 0,
+    }
   }
 
-  async updateStatus(id: string, status: string): Promise<OrderRecord | undefined> {
-    const [order] = await db.update(orders).set({ status, updatedAt: new Date() }).where(eq(orders.id, id)).returning()
+  async findDetailById(id: string): Promise<OrderDetail | undefined> {
+    const [row] = await db
+      .select({ order: orders, customerName: customers.name, customerPhone: customers.phone })
+      .from(orders)
+      .innerJoin(customers, eq(orders.customerId, customers.id))
+      .where(eq(orders.id, id))
+      .limit(1)
+
+    if (!row) return undefined
+
+    const items = await db.select().from(orderItems).where(eq(orderItems.orderId, id))
+
+    return {
+      order: { ...toOrderRecord(row.order), customerName: row.customerName, customerPhone: row.customerPhone },
+      items: items.map(toOrderItemRecord),
+    }
+  }
+
+  async markUnavailableItemsNotified(orderId: string): Promise<OrderItemRecord[]> {
+    const notifiedNow = await db
+      .update(orderItems)
+      .set({ unavailableNotifiedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(orderItems.orderId, orderId),
+          isNotNull(orderItems.unavailableAt),
+          isNull(orderItems.unavailableNotifiedAt),
+        ),
+      )
+      .returning()
+
+    return notifiedNow.map(toOrderItemRecord)
+  }
+
+  async setItemPicked(params: {
+    orderId: string
+    itemId: string
+    picked: boolean
+  }): Promise<OrderDetail | undefined> {
+    await db
+      .update(orderItems)
+      .set({ pickedAt: params.picked ? new Date() : null, updatedAt: new Date() })
+      .where(and(eq(orderItems.id, params.itemId), eq(orderItems.orderId, params.orderId)))
+
+    return this.findDetailById(params.orderId)
+  }
+
+  async setAllItemsPicked(params: { orderId: string; picked: boolean }): Promise<OrderDetail | undefined> {
+    /*
+     * Ao MARCAR, item em falta fica de fora: não se separa o que não existe, e marcá-lo faria o
+     * progresso dizer que a sacola está completa. Ao LIMPAR, todos são limpos — limpar é desfazer.
+     */
+    const scope = params.picked
+      ? and(eq(orderItems.orderId, params.orderId), isNull(orderItems.unavailableAt))
+      : eq(orderItems.orderId, params.orderId)
+
+    await db
+      .update(orderItems)
+      .set({ pickedAt: params.picked ? new Date() : null, updatedAt: new Date() })
+      .where(scope)
+
+    return this.findDetailById(params.orderId)
+  }
+
+  async setItemUnavailable(params: {
+    orderId: string
+    itemId: string
+    unavailable: boolean
+  }): Promise<OrderDetail | undefined> {
+    /**
+     * Marca e recalcula na MESMA transação.
+     *
+     * Entre marcar o item e recalcular o total existe um instante em que a conta está errada no banco;
+     * numa transação esse instante não é visível para mais ninguém — e é uma conta que pode ser lida,
+     * cobrada ou fechada em caixa.
+     */
+    await db.transaction(async (tx) => {
+      await tx
+        .update(orderItems)
+        .set({
+          unavailableAt: params.unavailable ? new Date() : null,
+          // Desmarcar limpa o aviso junto: item que voltou a existir não tem falta a ter sido avisada, e
+          // manter o registro faria a tela dizer "cliente avisado" sobre algo que não aconteceu mais.
+          ...(params.unavailable ? {} : { unavailableNotifiedAt: null }),
+          updatedAt: new Date(),
+        })
+        .where(and(eq(orderItems.id, params.itemId), eq(orderItems.orderId, params.orderId)))
+
+      // Soma só o que segue de pé. `filter` em SQL para o total nunca depender de quem chama somar certo.
+      const [totals] = await tx
+        .select({
+          total: sql<number>`coalesce(sum(${orderItems.totalInCents}) filter (where ${orderItems.unavailableAt} is null), 0)::int`,
+        })
+        .from(orderItems)
+        .where(eq(orderItems.orderId, params.orderId))
+
+      await tx
+        .update(orders)
+        .set({ totalInCents: totals?.total ?? 0, updatedAt: new Date() })
+        .where(eq(orders.id, params.orderId))
+    })
+
+    return this.findDetailById(params.orderId)
+  }
+
+  async updateStatus(id: string, status: string, expectedCurrentStatus?: string): Promise<OrderRecord | undefined> {
+    const where = expectedCurrentStatus
+      ? and(eq(orders.id, id), eq(orders.status, expectedCurrentStatus))
+      : eq(orders.id, id)
+
+    const [order] = await db.update(orders).set({ status, updatedAt: new Date() }).where(where).returning()
     return order ? toOrderRecord(order) : undefined
   }
 

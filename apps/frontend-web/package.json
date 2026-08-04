@@ -9,9 +9,10 @@
     "build": "tsc --noEmit && vite build"
   },
   "dependencies": {
-    "@adatechnology/conversations-ui": "^0.1.0-rc.0",
+    "@adatechnology/conversations-ui": "0.1.0-rc.22",
     "@tanstack/react-query": "^5.62.8",
     "@tanstack/react-router": "^1.95.1",
+    "@xyflow/react": "^12.11.2",
     "axios": "^1.7.9",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

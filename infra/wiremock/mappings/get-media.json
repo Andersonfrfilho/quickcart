@@ -1,0 +1,35 @@
+{
+  "mappings": [
+    {
+      "name": "Graph API — metadados da mídia (passo 1 de 2)",
+      "request": {
+        "method": "GET",
+        "urlPathPattern": "/v[0-9]+\\.[0-9]+/[A-Za-z0-9_.-]+"
+      },
+      "response": {
+        "status": 200,
+        "headers": { "Content-Type": "application/json" },
+        "jsonBody": {
+          "url": "http://localhost:9563/media-binary/{{request.pathSegments.[1]}}",
+          "mime_type": "application/pdf",
+          "sha256": "fake-sha",
+          "file_size": 33,
+          "id": "{{request.pathSegments.[1]}}",
+          "messaging_product": "whatsapp"
+        }
+      }
+    },
+    {
+      "name": "Graph API — binário da mídia (passo 2 de 2)",
+      "request": {
+        "method": "GET",
+        "urlPathPattern": "/media-binary/.*"
+      },
+      "response": {
+        "status": 200,
+        "headers": { "Content-Type": "application/pdf" },
+        "base64Body": "Y29udGV1ZG8gZmFsc28gZGUgdW0gcGRmIGRlIHRlc3RlCg=="
+      }
+    }
+  ]
+}

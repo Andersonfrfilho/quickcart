@@ -9,6 +9,7 @@
  */
 
 import type { OrderItemRecord, OrderRecord } from '@/modules/order/domain/OrderRepository.interface'
+import type { AddressInput } from '@/modules/shared/address/Address.schema'
 
 export type CreateWebOrderItemInput = {
   readonly productId: string
@@ -26,7 +27,7 @@ export type CreateWebOrderParams = {
   readonly customer: CreateWebOrderCustomerInput
   readonly items: ReadonlyArray<CreateWebOrderItemInput>
   readonly deliveryType: string
-  readonly address?: unknown
+  readonly address?: AddressInput | undefined
   readonly paymentMethod: string
   readonly receiptPreference: string
   readonly notes?: string | undefined

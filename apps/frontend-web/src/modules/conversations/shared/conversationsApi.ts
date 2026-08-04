@@ -14,14 +14,23 @@
  * O identificador de conversa é o número de WhatsApp, igual ao backend.
  */
 
-import type { ConversationsApi, SSEProvider } from '@adatechnology/conversations-ui'
-import { ADMIN_TOKEN_STORAGE_KEY } from '@/modules/admin/shared/adminAuth.constant'
+import type {
+  ConversationsApi,
+  ConversationSummary,
+  MessagePayload,
+  MessageTranscription,
+  SSEProvider,
+} from '@adatechnology/conversations-ui'
+import type { PreviewInboundCommand } from '@adatechnology/conversations-ui/preview'
+import { getAdminToken } from '@/modules/admin/shared/useAdminAuth.hook'
+import { ApiRequestError } from '@/modules/conversations/shared/ApiRequestError'
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
 const ADMIN_BASE_PATH = '/v1/admin'
 
 function adminToken(): string {
-  return localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) ?? ''
+  // sessionStorage, pelo mesmo acessor do login — ler localStorage aqui mandava token vazio.
+  return getAdminToken() ?? ''
 }
 
 async function request<TResponse>(path: string, init?: RequestInit): Promise<TResponse> {
@@ -37,8 +46,14 @@ async function request<TResponse>(path: string, init?: RequestInit): Promise<TRe
   if (!response.ok) {
     // A API responde { error: { code, message } }; preservar a mensagem é o que faz o toast do
     // SDK dizer algo útil em vez de "erro inesperado".
-    const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null
-    throw new Error(body?.error?.message ?? `Falha na requisição (${response.status})`)
+    const body = (await response.json().catch(() => null)) as
+      | { error?: { message?: string; code?: string } }
+      | null
+    throw new ApiRequestError(
+      body?.error?.message ?? `Falha na requisição (${response.status})`,
+      response.status,
+      body?.error?.code,
+    )
   }
 
   if (response.status === 204) return undefined as TResponse
@@ -55,24 +70,112 @@ function buildQuery(params: Record<string, string | number | boolean | undefined
   return query ? `?${query}` : ''
 }
 
+// A API fala `sentAt`/`received` e tipos como `interactive_list`; o SDK espera `timestamp` e uma
+// união fechada de tipos. Sem traduzir aqui, o horário vira "NaN:NaN" na bolha e o tipo cai fora
+// do contrato — o adapter é justamente o lugar de absorver essa diferença.
+export type ApiMessage = {
+  readonly id: string
+  readonly type: string
+  readonly content?: string
+  readonly direction: MessagePayload['direction']
+  readonly sender: MessagePayload['sender']
+  readonly status?: string
+  readonly sentAt: string
+  readonly readAt?: string | null
+  readonly uploadId?: string
+  readonly sizeBytes?: number
+  readonly mediaId?: string
+  readonly mimeType?: string
+  readonly filename?: string
+  readonly transcription?: MessageTranscription | null
+  readonly moderation?: NonNullable<MessagePayload['moderation']> | null
+}
+
+const RENDERABLE_MESSAGE_TYPES = new Set<MessagePayload['type']>([
+  'text',
+  'image',
+  'video',
+  'audio',
+  'document',
+  'sticker',
+  'template',
+])
+
+const DELIVERY_STATUSES = new Set<NonNullable<MessagePayload['status']>>(['sent', 'delivered', 'read', 'failed'])
+
+export function toMessagePayload(message: ApiMessage): MessagePayload {
+  const type = message.type as MessagePayload['type']
+  const status = message.status as NonNullable<MessagePayload['status']>
+
+  return {
+    id: message.id,
+    // Interativos (`interactive_list`, `button`) não têm renderização própria no SDK; o que o
+    // cliente viu foi o texto, então é como texto que eles devem aparecer no transcript.
+    type: RENDERABLE_MESSAGE_TYPES.has(type) ? type : 'text',
+    // `exactOptionalPropertyTypes` distingue ausente de undefined: as opcionais entram por spread
+    // condicional, nunca com valor undefined explícito.
+    ...(message.content !== undefined ? { content: message.content } : {}),
+    direction: message.direction,
+    sender: message.sender,
+    timestamp: message.sentAt,
+    // `received` é estado de entrada e não tem tique de entrega — virar `undefined` é o que
+    // impede a bolha de inbound desenhar confirmação que não existe.
+    ...(DELIVERY_STATUSES.has(status) ? { status } : {}),
+    ...(message.readAt ? { readAt: message.readAt } : {}),
+    // `uploadId` primeiro na cadeia do MediaRenderer: mídia já copiada para o nosso storage sai por
+    // URL assinada, sem passar pela Meta.
+    ...(message.uploadId ? { uploadId: message.uploadId } : {}),
+    ...(message.mediaId ? { mediaId: message.mediaId } : {}),
+    ...(message.mimeType ? { mimeType: message.mimeType } : {}),
+    ...(message.filename ? { filename: message.filename } : {}),
+    ...(message.sizeBytes ? { sizeBytes: message.sizeBytes } : {}),
+    // `null` é significativo e passa adiante: é o "não avaliado" que faz o balão oferecer
+    // "transcrever" em vez de dizer que o áudio não tem fala. Só a chave ausente é descartada.
+    ...(message.transcription !== undefined ? { transcription: message.transcription } : {}),
+    // `null` (não avaliado) é distinto de avaliado-e-limpo e passa adiante; só a chave ausente cai.
+    ...(message.moderation !== undefined ? { moderation: message.moderation } : {}),
+  }
+}
+
+/**
+ * Fora do objeto `conversationsApi` porque não faz parte do contrato do pacote: é uma rota só de
+ * desenvolvimento. Passa pelo mesmo `request` para herdar o token de admin — a assinatura do webhook
+ * é feita no servidor, o app secret nunca chega ao navegador.
+ */
+export async function sendPreviewInbound(command: PreviewInboundCommand): Promise<void> {
+  await request('/conversations/preview/inbound', {
+    method: 'POST',
+    body: JSON.stringify(command),
+  })
+}
+
 export const conversationsApi: ConversationsApi = {
-  fetchConversations: (params) =>
-    request(
+  fetchConversations: async (params) => {
+    const conversations = await request<readonly ConversationSummary[]>(
       `/conversations${buildQuery({
         page: params?.page,
         limit: params?.limit,
         waitingHuman: params?.waitingHuman,
         search: params?.search,
       })}`,
-    ),
+    )
 
-  fetchMessages: (conversationId, params) =>
-    request(
+    // A listagem devolve `id` como UUID da sessão, mas todas as outras rotas — mensagens, stream,
+    // takeover — endereçam a conversa pelo número. Sem reescrever aqui, clicar numa conversa pede
+    // as mensagens de um id que a API não conhece e volta 500.
+    return conversations.map((conversation) => ({ ...conversation, id: conversation.whatsappNumber }))
+  },
+
+  fetchMessages: async (conversationId, params) => {
+    const messages = await request<readonly ApiMessage[]>(
       `/conversations/${encodeURIComponent(conversationId)}/messages${buildQuery({
         limit: params?.limit,
         before: params?.before,
       })}`,
-    ),
+    )
+
+    return messages.map(toMessagePayload)
+  },
 
   sendMessage: (conversationId, text) =>
     request(`/conversations/${encodeURIComponent(conversationId)}/messages`, {
@@ -101,10 +204,71 @@ export const conversationsApi: ConversationsApi = {
   // chega em base64 no momento em que o atendente abre o anexo.
   getMediaProxyUrl: (mediaId) => request(`/whatsapp/media/${encodeURIComponent(mediaId)}`),
 
-  // Biblioteca de documentos exige persistência de arquivo, que o QuickCart não tem. Devolver
-  // vazio é honesto: a aba aparece sem itens, em vez de quebrar ou fingir que buscou.
-  getDocuments: () => Promise.resolve([]),
-  getDocumentUrl: () => Promise.reject(new Error('Biblioteca de documentos indisponível nesta instalação')),
+  // Repassa filtro, ordenação e página: o backend honra os quatro, e mandar só `search` faria a UI
+  // exibir controles que não mudam nada.
+  getDocuments: (conversationId, params) =>
+    request(
+      `/conversations/${encodeURIComponent(conversationId)}/documents${buildQuery({
+        search: params?.search,
+        source: params?.source,
+        sortDirection: params?.sortDirection,
+        page: params?.page,
+        limit: params?.limit,
+      })}`,
+    ),
+
+  // Biblioteca da empresa: mesma forma de filtro do painel da conversa, mas sem conversa no
+  // caminho — cada item volta dizendo de qual conversa veio.
+  getAllDocuments: (params) =>
+    request(
+      `/documents${buildQuery({
+        search: params?.search,
+        source: params?.source,
+        sortDirection: params?.sortDirection,
+        page: params?.page,
+        limit: params?.limit,
+      })}`,
+    ),
+
+  // Resposta binária, então não passa pelo `request` (que desembrulha JSON `{ data }`).
+  downloadDocumentsArchive: async (conversationId, uploadIds) => {
+    const response = await fetch(
+      `${API_BASE_URL}${ADMIN_BASE_PATH}/conversations/${encodeURIComponent(conversationId)}/documents/archive`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken()}` },
+        body: JSON.stringify({ uploadIds }),
+      },
+    )
+
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null
+      throw new Error(body?.error?.message ?? `Falha ao montar o arquivo (${response.status})`)
+    }
+
+    return response.blob()
+  },
+
+  // A rota devolve URL assinada e curta; o binário nunca passa pela API — o atendente vai direto
+  // ao storage. Por isso o `uploadId` (que é a key do objeto) precisa ser escapado.
+  getDocumentUrl: async (uploadId, disposition) => {
+    const { url } = await request<{ url: string }>(
+      `/documents/${encodeURIComponent(uploadId)}/url${buildQuery({ disposition })}`,
+    )
+    return url
+  },
+
+  /**
+   * Transcreve o áudio de uma mensagem. Endereçada por `messageId` e fora de `/conversations`:
+   * transcrição é por áudio, e uma conversa tem vários.
+   *
+   * A rota responde 404 quando a transcrição não está habilitada no backend — o `request` levanta, o
+   * balão mostra "tentar novamente" e nada mais acontece. Não desenhar o botão nesse caso ficaria a
+   * cargo de o backend não expor a capacidade, mas o método aqui existe sempre porque o cliente não
+   * sabe da configuração do servidor.
+   */
+  transcribeAudio: (messageId) =>
+    request(`/messages/${encodeURIComponent(messageId)}/transcription`, { method: 'POST' }),
 }
 
 // EventSource não manda header, então o backend troca token de admin por um ticket de uso único

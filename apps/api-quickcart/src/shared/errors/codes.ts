@@ -41,10 +41,13 @@ export const ORDER_IDEMPOTENCY_CONFLICT = 'ORDER_IDEMPOTENCY_CONFLICT'
 export const ORDER_PHONE_MISMATCH = 'ORDER_PHONE_MISMATCH'
 export const ORDER_CART_EMPTY = 'ORDER_CART_EMPTY'
 export const ORDER_NO_PREVIOUS_ORDER = 'ORDER_NO_PREVIOUS_ORDER'
+export const ORDER_INVALID_STATUS_TRANSITION = 'ORDER_INVALID_STATUS_TRANSITION'
 export const IDEMPOTENCY_KEY_MISSING = 'IDEMPOTENCY_KEY_MISSING'
 
 // ── Conversation (motor de conversa/WhatsApp) ────────────────────────
 export const CONVERSATION_NOT_FOUND = 'CONVERSATION_NOT_FOUND'
+// Exclusão parcial: objeto ficou no storage, então a conversa foi preservada para repetir.
+export const CONVERSATION_DELETE_INCOMPLETE = 'CONVERSATION_DELETE_INCOMPLETE'
 export const CONVERSATION_INVALID_STATE = 'CONVERSATION_INVALID_STATE'
 
 // ── WhatsApp (integração Meta Cloud API) ─────────────────────────────

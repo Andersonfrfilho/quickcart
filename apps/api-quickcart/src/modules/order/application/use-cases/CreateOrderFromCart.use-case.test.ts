@@ -181,6 +181,7 @@ class FakeOrderRepository implements OrderRepositoryInterface {
       totalInCents: params.items.reduce((sum, item) => sum + item.totalInCents, 0),
       deliveryType: params.deliveryType,
       address: params.address ?? null,
+      legacyAddressText: null,
       paymentMethod: params.paymentMethod,
       receiptPreference: params.receiptPreference,
       fiscalDocumentId: null,
@@ -198,6 +199,9 @@ class FakeOrderRepository implements OrderRepositoryInterface {
       unitPriceInCents: item.unitPriceInCents,
       quantity: item.quantity,
       totalInCents: item.totalInCents,
+      unavailableAt: null,
+      unavailableNotifiedAt: null,
+        pickedAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }))
@@ -218,6 +222,34 @@ class FakeOrderRepository implements OrderRepositoryInterface {
     return [...this.orders.values()]
       .filter((order) => order.customerId === customerId)
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0]
+  }
+
+  async listRecentByCustomer(customerId: string, limit: number): Promise<OrderRecord[]> {
+    return [...this.orders.values()].filter((order) => order.customerId === customerId).slice(0, limit)
+  }
+
+  async findDetailById(id: string) {
+    const order = this.orders.get(id)
+    // O fake não guarda cliente: os testes deste caso de uso não passam pelo detalhe.
+    return order ? { order: { ...order, customerName: null, customerPhone: '' }, items: [] } : undefined
+  }
+
+  async setItemUnavailable(params: { orderId: string; itemId: string; unavailable: boolean }) {
+    // O fake não guarda item: os testes deste caso de uso não passam por falta de produto.
+    return this.findDetailById(params.orderId)
+  }
+
+  async setItemPicked(): Promise<undefined> {
+    throw new Error('not implemented')
+  }
+
+  async setAllItemsPicked(): Promise<undefined> {
+    throw new Error('not implemented')
+  }
+
+  async markUnavailableItemsNotified(_orderId: string) {
+    // O fake não guarda item: os testes deste caso de uso não passam por aviso de falta.
+    return []
   }
 
   async listItems(orderId: string): Promise<OrderItemRecord[]> {

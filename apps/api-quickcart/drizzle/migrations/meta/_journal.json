@@ -43,6 +43,62 @@
       "when": 1784464057867,
       "tag": "0005_move_conversations_to_meta_whatsapp",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784464058867,
+      "tag": "0006_list_imports_session_fk",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1784464059867,
+      "tag": "0007_unmatched_demands",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1784464060867,
+      "tag": "0008_order_items_unavailable",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1784464061867,
+      "tag": "0009_order_items_unavailable_notified",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784464062867,
+      "tag": "0010_structured_address",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1784464063867,
+      "tag": "0011_drop_unused_stores",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1784464064867,
+      "tag": "0012_drop_customer_default_address",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1784464065867,
+      "tag": "0013_order_items_picked",
+      "breakpoints": true
     }
   ]
 }

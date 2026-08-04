@@ -18,10 +18,15 @@ export const LOG_EVENTS = {
 
   // STT (Groq Whisper)
   STT_TRANSCRIBE_SKIPPED_NO_KEY: 'stt_transcribe_skipped_no_key',
-  STT_TRANSCRIBE_NON_OK: 'stt_transcribe_non_ok',
   STT_TRANSCRIBE_FAILED: 'stt_transcribe_failed',
   STT_JOB_PROCESSED: 'stt_job_processed',
   STT_JOB_FAILED: 'stt_job_failed',
+
+  // Transcrição persistida da nota de voz (@adatechnology/audio-transcription-provider)
+  TRANSCRIPTION_DISABLED_NO_KEY: 'transcription_disabled_no_key',
+  TRANSCRIPTION_ENGINE_DEGRADED: 'transcription_engine_degraded',
+  TRANSCRIPTION_JOB_PROCESSED: 'transcription_job_processed',
+  TRANSCRIPTION_UNAVAILABLE: 'transcription_unavailable',
 
   // Notificação
   NOTIFICATION_JOB_PROCESSED: 'notification_job_processed',

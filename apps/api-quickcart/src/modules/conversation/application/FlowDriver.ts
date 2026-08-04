@@ -20,14 +20,30 @@
  */
 
 import type { FlowGraphData, FlowActionHandler, FlowNodeData } from '@adatechnology/meta-whatsapp-contracts'
-import type { FlowInterpreter, LogMessageUseCase, SessionRepository } from '@adatechnology/meta-whatsapp-module'
+import type { FlowInterpreter, LogMessageUseCase, MessageRepository, SessionRepository } from '@adatechnology/meta-whatsapp-module'
+import { TRANSCRIPTION_STATUS } from '@adatechnology/meta-whatsapp-module'
 import { logger } from '@/shared/logger'
 import { environment } from '@/infra/config/environment'
 import type { ChannelAdapterInterface, ConversationSession as ModuleSession } from '@adatechnology/meta-whatsapp-contracts'
 import type { ParsedInboundMessage } from '@/modules/webhook/application/types/WhatsAppWebhookPayload.types'
+import type { AudioTranscriber } from '@adatechnology/audio-transcription-provider'
+import { serializeError } from '@/shared/serializeError'
+import { MESSAGES } from '@/modules/conversation/shared/Messages.constant'
+import { matchChoiceOption } from '@/modules/conversation/application/matchChoiceOption'
+import { shouldYieldToShoppingList } from '@/modules/conversation/application/shouldYieldToShoppingList'
+import { wrapChannelWithLogging } from '@/modules/conversation/application/wrapChannelWithLogging'
 
 const flowLog = logger.child('FlowDriver')
 const COMPANY_ID = environment.WHATSAPP_COMPANY_ID
+
+/**
+ * Quanto esperar antes de avisar que estamos ouvindo o áudio.
+ *
+ * Groq turbo mais a busca da mídia na Meta fica na casa de 2-3s, e silêncio curto no WhatsApp não
+ * assusta ninguém. Avisar sempre dobraria as mensagens do bot no transcript; avisar só quando passa
+ * daqui dá o retorno exatamente quando a espera começa a parecer travamento.
+ */
+const AUDIO_NOTICE_AFTER_MS = 2_000
 
 // Fluxo que atende quem chega sem conversa em andamento. É um registro no banco, editável pelo
 // lojista — a constante aqui é só a chave usada para encontrá-lo.
@@ -40,6 +56,25 @@ export type FlowDriverDependencies = {
   readonly logMessage: LogMessageUseCase
   readonly startState: string
   readonly loadFlow: (key: string) => Promise<FlowGraphData | undefined>
+  /**
+   * Esconde opções que não servem para ESTE cliente antes de desenhar a lista.
+   *
+   * Oferecer "repetir minha última compra" a quem nunca comprou é prometer o que não existe: o cliente
+   * toca, ouve que não há pedido anterior e aprende que o menu mente. Filtrar na hora de exibir é o
+   * que mantém a promessa — e não pode ser resolvido no grafo, porque o lojista edita o grafo sem
+   * saber quem vai receber a mensagem.
+   *
+   * Ausente, todas as opções aparecem, que é o comportamento de antes. O filtro NÃO mexe no
+   * roteamento: `next.byAnswer` continua com todas, então um toque em lista antiga (ou a mesma
+   * intenção dita por voz) ainda chega no lugar certo, com a ação respondendo o que for verdade.
+   */
+  readonly filterNodeOptions?:
+    | ((params: {
+        readonly whatsappNumber: string
+        readonly node: FlowNodeData
+        readonly options: readonly (readonly [string, string])[]
+      }) => Promise<readonly (readonly [string, string])[]>)
+    | undefined
 }
 
 export type HandleInboundParams = {
@@ -59,6 +94,44 @@ function extractAnswer(message: ParsedInboundMessage): string | undefined {
 export class FlowDriver {
   constructor(private readonly dependencies: FlowDriverDependencies) {}
 
+  /**
+   * A resposta que o grafo consome.
+   *
+   * Áudio chega aqui já como texto: quem transcreve é o resolvedor da entrada, antes do roteamento.
+   * Enquanto a transcrição vivia aqui dentro, voz só era entendida DENTRO do grafo — fora dele o
+   * cliente que ditava a compra ouvia "escolha uma opção da lista acima".
+   *
+   * Áudio que sobrou como áudio é transcrição indisponível: `extractAnswer` devolve `undefined` e o
+   * nó repergunta, que é o comportamento correto quando não há o que entender.
+   */
+  private resolveAnswer(message: ParsedInboundMessage, node: FlowNodeData | undefined): string | undefined {
+    const text = extractAnswer(message)
+    if (text === undefined) return undefined
+
+    /**
+     * Texto livre num nó de escolha vira o id da opção.
+     *
+     * O interpretador compara a resposta com o id (`next.byAnswer[answerId]`), e nem transcrição nem
+     * digitação são iguais a um id — sem traduzir, quem responde o menu falando cai no `default`, que
+     * reenvia o menu, e o bot repete a pergunta para sempre.
+     *
+     * Botão e item de lista não passam por aqui: `extractAnswer` já devolve o id de verdade, e
+     * reinterpretá-lo por texto só criaria chance de errar o que já estava certo.
+     */
+    if (message.kind === 'text') {
+      const isChoice = node?.type === 'menu' || node?.questionType === 'choice'
+      if (isChoice && node?.options && node.options.length > 0) {
+        const optionId = matchChoiceOption(text, node.options)
+        // Sem casar: devolve o texto cru e o nó decide (cai no `default`, que normalmente repergunta).
+        // Melhor reperguntar que adivinhar entre duas opções e mandar o cliente para o caminho errado.
+        flowLog.info('flow_choice_matched', { nodeId: node.id, matched: optionId !== undefined })
+        return optionId ?? text
+      }
+    }
+
+    return text
+  }
+
   registerFlowAction(kind: string, handler: FlowActionHandler): void {
     this.dependencies.interpreter.registerFlowAction(kind, handler)
   }
@@ -77,7 +150,37 @@ export class FlowDriver {
     }
 
     const currentNodeId = session.currentNodeId ?? graph.startNodeId
-    const answer = extractAnswer(message)
+    const node = graph.nodes[currentNodeId]
+
+    /*
+     * O nome vem do contexto do FLUXO, não do cadastro: é ele que o nó de saudação preenche, e é o que
+     * sobrevive à expiração da sessão da engine — que zera o contexto dela mas não o do grafo.
+     */
+    const flowContext = (session.context ?? {}) as { readonly customerName?: unknown }
+
+    if (
+      shouldYieldToShoppingList({
+        messageKind: message.kind,
+        body: message.kind === 'text' ? message.body : '',
+        nodeType: node?.type,
+        nodeQuestionType: node?.questionType,
+        hasOptions: (node?.options?.length ?? 0) > 0,
+        matchedOption:
+          message.kind === 'text' && node?.options
+            ? matchChoiceOption(message.body, node.options) !== undefined
+            : false,
+        isAtStartNode: currentNodeId === graph.startNodeId,
+        hasKnownCustomerName: typeof flowContext.customerName === 'string' && flowContext.customerName.length > 0,
+      })
+    ) {
+      // Solta a posição antes de sair: sem isto a próxima mensagem do cliente reentraria no menu
+      // enquanto a engine está no meio da desambiguação, e as duas brigariam pela mesma resposta.
+      await this.dependencies.sessionRepository.setFlowPosition(COMPANY_ID, session.whatsappNumber, null, null)
+      flowLog.info('flow_yielded_to_shopping_list', { nodeId: currentNodeId })
+      return false
+    }
+
+    const answer = this.resolveAnswer(message, node)
 
     const result = await this.dependencies.interpreter.run({
       graph,
@@ -110,7 +213,12 @@ export class FlowDriver {
     if (!node?.question) return
 
     const channel = this.wrapChannelWithLogging(whatsappNumber)
-    const options = node.options ?? []
+    const declaredOptions = node.options ?? []
+    const { filterNodeOptions } = this.dependencies
+    const options =
+      filterNodeOptions && declaredOptions.length > 0
+        ? await filterNodeOptions({ whatsappNumber, node, options: declaredOptions })
+        : declaredOptions
 
     if (options.length === 0) {
       await channel.sendText(whatsappNumber, node.question)
@@ -127,44 +235,7 @@ export class FlowDriver {
 
   private wrapChannelWithLogging(whatsappNumber: string): ChannelAdapterInterface {
     const { channel, logMessage, startState } = this.dependencies
-
-    const log = async (type: string, content: string | null, sent: { externalMessageId: string | null }) => {
-      await logMessage.execute({
-        companyId: COMPANY_ID,
-        whatsappNumber,
-        direction: 'outbound',
-        sender: 'bot',
-        type,
-        content,
-        waMessageId: sent.externalMessageId,
-        status: 'sent',
-        startState,
-      })
-    }
-
-    return {
-      sendText: async (to, body) => {
-        const sent = await channel.sendText(to, body)
-        await log('text', body, sent)
-        return sent
-      },
-      sendMedia: async (mediaParams) => {
-        const sent = await channel.sendMedia(mediaParams)
-        await log('media', mediaParams.caption ?? mediaParams.filename, sent)
-        return sent
-      },
-      sendTemplate: async (templateParams) => {
-        const sent = await channel.sendTemplate(templateParams)
-        await log('template', templateParams.templateName, sent)
-        return sent
-      },
-      sendInteractiveList: async (listParams) => {
-        const sent = await channel.sendInteractiveList(listParams)
-        await log('interactive_list', listParams.body, sent)
-        return sent
-      },
-      fetchMediaAsBase64: (mediaId) => channel.fetchMediaAsBase64(mediaId),
-    }
+    return wrapChannelWithLogging({ channel, logMessage, companyId: COMPANY_ID, whatsappNumber, startState })
   }
 
   private async persistPosition(params: {

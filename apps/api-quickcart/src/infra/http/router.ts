@@ -18,6 +18,7 @@ import { runWithContext } from '@/shared/request-context'
 import { logger } from '@/shared/logger'
 import { LOG_EVENTS } from '@/shared/constants/log-events.constant'
 import { AppError, TooManyRequestsError } from '@/shared/errors/AppError.error'
+import { MetaWhatsAppError } from '@adatechnology/meta-whatsapp-contracts'
 import { DomainError } from '@/shared/errors/DomainError'
 import { INTERNAL_ERROR, NOT_FOUND, REQUEST_TIMEOUT, INVALID_JSON_BODY } from '@/shared/errors/codes'
 import { captureError } from '@/infra/observability/sentry'
@@ -45,6 +46,11 @@ export type ParsedRequest = {
 export type ResponseHelper = {
   json(statusCode: number, payload: unknown, extraHeaders?: Record<string, string>): void
   text(statusCode: number, body: string): void
+  /**
+   * Resposta binária de tamanho conhecido (arquivo, zip). Distinta de `stream`, que só escreve
+   * string e existe para SSE — mandar bytes por lá corromperia o conteúdo na conversão para UTF-8.
+   */
+  binary(statusCode: number, body: Uint8Array, headers: Record<string, string>): void
   error(error: unknown): void
   // Resposta de duração indefinida (SSE). Devolve o writer para o handler empurrar eventos e
   // o `close` que o chamador precisa registrar para soltar a inscrição quando o cliente sai —
@@ -127,12 +133,29 @@ function buildResponseHelper(params: { readonly origin: string | undefined }): {
     resolveResponse = resolve
   })
 
+  /**
+   * Status sem corpo por definição do HTTP. Mandar corpo aqui não é só desleixo: o navegador
+   * recebe `204` com `Content-Length` preenchido, conclui que a resposta está truncada e derruba a
+   * requisição com `ERR_CONTENT_LENGTH_MISMATCH` — do lado do JS vira erro de rede, e o `fetch`
+   * rejeita mesmo com o servidor tendo feito o trabalho.
+   *
+   * Foi assim que `markRead` nunca funcionou: a conversa era marcada como lida no banco, a resposta
+   * era descartada pelo navegador, e o contador de não lidas continuava na tela.
+   */
+  const BODYLESS_STATUS_CODES = new Set([204, 205, 304])
+
   function json(statusCode: number, payload: unknown, extraHeaders?: Record<string, string>): void {
     const headers = buildCorsHeaders(origin)
-    headers.set('Content-Type', 'application/json')
     if (extraHeaders) {
       for (const [key, value] of Object.entries(extraHeaders)) headers.set(key, value)
     }
+
+    if (BODYLESS_STATUS_CODES.has(statusCode)) {
+      resolveResponse(new Response(null, { status: statusCode, headers }))
+      return
+    }
+
+    headers.set('Content-Type', 'application/json')
     resolveResponse(new Response(JSON.stringify(payload), { status: statusCode, headers }))
   }
 
@@ -142,7 +165,24 @@ function buildResponseHelper(params: { readonly origin: string | undefined }): {
     resolveResponse(new Response(body, { status: statusCode, headers }))
   }
 
+  function binary(statusCode: number, body: Uint8Array, extraHeaders: Record<string, string>): void {
+    const headers = buildCorsHeaders(origin)
+    for (const [key, value] of Object.entries(extraHeaders)) headers.set(key, value)
+    headers.set('Content-Length', String(body.byteLength))
+    resolveResponse(new Response(body, { status: statusCode, headers }))
+  }
+
   function error(caughtError: unknown): void {
+    /**
+     * Os erros do meta-whatsapp-module já carregam `statusCode` e `code` estáveis, de propósito: o
+     * pacote não conhece o AppError daqui, e o contrato dele manda o host traduzir. Sem esta
+     * tradução, "isso não é áudio" (422) e "áudio ainda está sendo copiado" (409) chegavam ao
+     * cliente como 500 genérico — a UI não tinha como explicar nada ao operador.
+     */
+    if (caughtError instanceof MetaWhatsAppError) {
+      json(caughtError.statusCode, { error: { code: caughtError.code, message: caughtError.message } })
+      return
+    }
     if (!(caughtError instanceof AppError)) {
       json(500, { error: { code: INTERNAL_ERROR, message: 'Internal server error' } })
       return
@@ -194,7 +234,7 @@ function buildResponseHelper(params: { readonly origin: string | undefined }): {
     resolveResponse(new Response(body, { status: 200, headers }))
   }
 
-  return { helper: { json, text, error, stream }, responsePromise }
+  return { helper: { json, text, binary, error, stream }, responsePromise }
 }
 
 function logErrorAndReport(params: {

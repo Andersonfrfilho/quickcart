@@ -9,6 +9,13 @@ type RouterContextValue = {
   navigate: (path: string) => void
   currentPath: string
   searchParams: URLSearchParams
+  /**
+   * Segmentos nomeados da rota casada (`/admin/orders/:id` → `{ id: '…' }`).
+   *
+   * Vazio quando a rota não tem parâmetro. Fica no contexto, e não numa prop da página, para a página
+   * não depender de quem a renderizou passar o id certo.
+   */
+  params: Readonly<Record<string, string>>
 }
 
 const RouterContext = createContext<RouterContextValue | null>(null)
@@ -30,6 +37,38 @@ function parseHash(hash: string): Location {
   return { pathname, search }
 }
 
+/**
+ * Casa `/admin/orders/:id` com `/admin/orders/abc`.
+ *
+ * O roteador comparava path por igualdade, então rota com parâmetro simplesmente caía no 404 — e a
+ * saída fácil seria empurrar o id para a query string, deixando a URL mentir sobre a hierarquia da
+ * tela. Segmento a segmento, sem regex: o casamento é literal exceto onde começa com `:`, e um path
+ * com número de segmentos diferente nem chega a ser comparado.
+ */
+function matchRoute(routePath: string, currentPath: string): Readonly<Record<string, string>> | undefined {
+  if (routePath === currentPath) return {}
+  if (!routePath.includes(':')) return undefined
+
+  const routeSegments = routePath.split('/')
+  const currentSegments = currentPath.split('/')
+  if (routeSegments.length !== currentSegments.length) return undefined
+
+  const params: Record<string, string> = {}
+
+  for (const [index, routeSegment] of routeSegments.entries()) {
+    const currentSegment = currentSegments[index] ?? ''
+    if (routeSegment.startsWith(':')) {
+      // Segmento vazio não é valor: `/admin/orders/` não deve casar com `/admin/orders/:id`.
+      if (currentSegment.length === 0) return undefined
+      params[routeSegment.slice(1)] = decodeURIComponent(currentSegment)
+      continue
+    }
+    if (routeSegment !== currentSegment) return undefined
+  }
+
+  return params
+}
+
 export function createRouter(routes: RouteConfig[]) {
   function RouterProvider({ children }: { children: ReactNode }) {
     const [location, setLocation] = useState<Location>(() => parseHash(window.location.hash))
@@ -46,8 +85,21 @@ export function createRouter(routes: RouteConfig[]) {
 
     const searchParams = new URLSearchParams(location.search)
 
+    /**
+     * Rota exata antes de rota com parâmetro.
+     *
+     * Sem essa ordem, `/admin/orders/:id` engoliria uma futura `/admin/orders/novo` — e o bug
+     * apareceria como "a tela de novo pedido abre em branco", que não parece problema de rota.
+     */
+    const matched = routes
+      .map((route) => ({ route, params: matchRoute(route.path, location.pathname) }))
+      .filter((entry): entry is { route: RouteConfig; params: Readonly<Record<string, string>> } => !!entry.params)
+      .sort((left, right) => Object.keys(left.params).length - Object.keys(right.params).length)[0]
+
     return (
-      <RouterContext.Provider value={{ navigate, currentPath: location.pathname, searchParams }}>
+      <RouterContext.Provider
+        value={{ navigate, currentPath: location.pathname, searchParams, params: matched?.params ?? {} }}
+      >
         {children}
       </RouterContext.Provider>
     )
@@ -55,8 +107,11 @@ export function createRouter(routes: RouteConfig[]) {
 
   function RouteRenderer() {
     const { currentPath } = useRouter()
-    const route = routes.find((r) => r.path === currentPath)
-    if (route) return <route.component />
+    const matched = routes
+      .map((route) => ({ route, params: matchRoute(route.path, currentPath) }))
+      .filter((entry): entry is { route: RouteConfig; params: Readonly<Record<string, string>> } => !!entry.params)
+      .sort((left, right) => Object.keys(left.params).length - Object.keys(right.params).length)[0]
+    if (matched) return <matched.route.component />
     return (
       <div className="flex flex-col items-center justify-center min-h-screen p-8">
         <h1 className="text-2xl font-bold mb-4">404</h1>

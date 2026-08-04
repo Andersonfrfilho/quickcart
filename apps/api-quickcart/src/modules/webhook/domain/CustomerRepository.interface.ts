@@ -18,7 +18,6 @@ export type UpsertCustomerByPhoneParams = {
 export type UpdateContactInfoParams = {
   readonly customerId: string
   readonly email?: string | undefined
-  readonly defaultAddress?: unknown
 }
 
 export interface CustomerRepositoryInterface {

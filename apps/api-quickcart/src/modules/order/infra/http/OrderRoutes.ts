@@ -23,5 +23,20 @@ export function registerOrderRoutes(params: RegisterOrderRoutesParams): void {
   router.get('/v1/orders/:shortCode', orderController.handleGetByShortCode)
 
   router.get('/v1/admin/orders', orderController.handleListAdmin)
+  // Antes do `:id/status` não faz diferença aqui (métodos diferentes), mas mantém os dois juntos para
+  // quem lê a lista de rotas ver que o detalhe e a transição são da mesma tela.
+  router.get('/v1/admin/orders/:id', orderController.handleGetAdminDetail)
   router.patch('/v1/admin/orders/:id/status', orderController.handleUpdateStatus)
+  // Item em falta: descoberto na separação, muda o total e avisa o cliente.
+  router.patch('/v1/admin/orders/:id/items/:itemId/unavailable', orderController.handleSetItemUnavailable)
+  /*
+   * Separação marcada no servidor, não no aparelho.
+   *
+   * A rota com `:itemId` vem primeiro de propósito: registrada depois, `/items/picked` casaria com
+   * `:itemId = "picked"` e a marcação em lote viraria marcação de um item inexistente.
+   */
+  router.patch('/v1/admin/orders/:id/items/:itemId/picked', orderController.handleSetItemPicked)
+  router.patch('/v1/admin/orders/:id/items/picked', orderController.handleSetItemPicked)
+  // Aviso das faltas: uma mensagem com todas, quando quem separa termina de conferir.
+  router.post('/v1/admin/orders/:id/unavailable-items/notify', orderController.handleNotifyUnavailableItems)
 }

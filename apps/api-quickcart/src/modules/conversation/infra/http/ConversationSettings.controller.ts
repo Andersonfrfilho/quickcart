@@ -13,7 +13,7 @@
  */
 
 import type { MetaWhatsAppModule } from '@adatechnology/meta-whatsapp-module'
-import type { FlowGraphData } from '@adatechnology/meta-whatsapp-contracts'
+import type { FlowGraphData, TranscriptionMode, WhatsAppSettings } from '@adatechnology/meta-whatsapp-contracts'
 import { OptimisticLockError } from '@adatechnology/meta-whatsapp-module'
 import type { RouteHandler } from '@/infra/http/router'
 import { requireAdminToken } from '@/infra/http/middlewares/requireAdminToken'
@@ -36,13 +36,72 @@ function requireFlows(module: MetaWhatsAppModule) {
   return module.flows
 }
 
+const TRANSCRIPTION_MODES = ['auto', 'onDemand'] as const
+
+/**
+ * Valida os campos de transcrição do corpo, que de resto é repassado cru ao módulo.
+ *
+ * `transcription_mode` é `varchar` no banco, então sem esta checagem qualquer string entraria — e
+ * embora o módulo normalize modo desconhecido na leitura (caindo no padrão do host), gravar lixo
+ * transformaria "escolhi automático" numa configuração que silenciosamente não vale nada.
+ *
+ * `null` é valor legítimo nos dois campos: significa "voltar a herdar o padrão da instalação".
+ */
+function parseTranscriptionPolicy(body: Record<string, unknown>): Partial<WhatsAppSettings> {
+  const policy: Partial<WhatsAppSettings> = {}
+
+  if ('transcriptionEnabled' in body) {
+    const enabled = body['transcriptionEnabled']
+    if (enabled !== null && typeof enabled !== 'boolean') {
+      throw new ValidationError('transcriptionEnabled deve ser booleano ou nulo', VALIDATION_ERROR)
+    }
+    policy.transcriptionEnabled = enabled
+  }
+
+  if ('transcriptionMode' in body) {
+    const mode = body['transcriptionMode']
+    if (mode !== null && !TRANSCRIPTION_MODES.includes(mode as TranscriptionMode)) {
+      throw new ValidationError(
+        `transcriptionMode deve ser ${TRANSCRIPTION_MODES.join(' ou ')}, ou nulo`,
+        VALIDATION_ERROR,
+      )
+    }
+    policy.transcriptionMode = mode as TranscriptionMode | null
+  }
+
+  return policy
+}
+
 export class ConversationSettingsController {
   constructor(private readonly dependencies: ConversationSettingsControllerDependencies) {}
 
   handleGetSettings: RouteHandler = async (request, response) => {
     requireAdminToken(request)
     const settings = await this.dependencies.metaWhatsApp.settings.get(COMPANY_ID)
-    response.json(200, { data: settings })
+
+    const transcription = this.dependencies.metaWhatsApp.transcription
+
+    /**
+     * Dois booleanos porque são duas perguntas diferentes, com dois consumidores diferentes:
+     *
+     * - `transcriptionAvailable` — "o ambiente CONSEGUE?" (engine e credencial configurados). É o que
+     *   o formulário de configurações usa para avisar e travar os campos: sem isso, o lojista ligaria
+     *   o interruptor num deploy sem engine e concluiria que o produto está quebrado.
+     *
+     * - `transcriptionActive` — "está valendo AGORA para esta empresa?", já com a política resolvida
+     *   (capacidade + escolha do painel + padrão da instalação). É o que a inbox usa para decidir se
+     *   desenha o botão "transcrever". Resolvido no servidor de propósito: o cliente não conhece o
+     *   padrão do deploy, e deixá-lo inferir a partir do tri-state seria pedir que ele adivinhe.
+     */
+    const policy = transcription ? await transcription.resolvePolicy(COMPANY_ID) : undefined
+
+    response.json(200, {
+      data: {
+        ...settings,
+        transcriptionAvailable: transcription !== undefined,
+        transcriptionActive: policy?.isEnabled ?? false,
+      },
+    })
   }
 
   handleSaveSettings: RouteHandler = async (request, response) => {
@@ -52,7 +111,10 @@ export class ConversationSettingsController {
       throw new ValidationError('Corpo da requisição inválido', VALIDATION_ERROR)
     }
 
-    const settings = await this.dependencies.metaWhatsApp.settings.save(COMPANY_ID, body)
+    const settings = await this.dependencies.metaWhatsApp.settings.save(COMPANY_ID, {
+      ...body,
+      ...parseTranscriptionPolicy(body),
+    })
     response.json(200, { data: settings })
   }
 

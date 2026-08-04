@@ -41,6 +41,34 @@ class FakeOrderRepository implements OrderRepositoryInterface {
     return undefined
   }
 
+  async listRecentByCustomer(customerId: string, limit: number): Promise<OrderRecord[]> {
+    return [...this.orders.values()].filter((order) => order.customerId === customerId).slice(0, limit)
+  }
+
+  async findDetailById(id: string) {
+    const order = this.orders.get(id)
+    // O fake não guarda cliente: os testes deste caso de uso não passam pelo detalhe.
+    return order ? { order: { ...order, customerName: null, customerPhone: '' }, items: [] } : undefined
+  }
+
+  async setItemUnavailable(params: { orderId: string; itemId: string; unavailable: boolean }) {
+    // O fake não guarda item: os testes deste caso de uso não passam por falta de produto.
+    return this.findDetailById(params.orderId)
+  }
+
+  async setItemPicked(): Promise<undefined> {
+    throw new Error('not implemented')
+  }
+
+  async setAllItemsPicked(): Promise<undefined> {
+    throw new Error('not implemented')
+  }
+
+  async markUnavailableItemsNotified(_orderId: string) {
+    // O fake não guarda item: os testes deste caso de uso não passam por aviso de falta.
+    return []
+  }
+
   async listItems(orderId: string): Promise<OrderItemRecord[]> {
     return this.itemsByOrder.get(orderId) ?? []
   }
@@ -92,6 +120,7 @@ function buildOrder(overrides: Partial<OrderRecord> = {}): OrderRecord {
     totalInCents: 5000,
     deliveryType: 'delivery',
     address: null,
+    legacyAddressText: null,
     paymentMethod: 'pix',
     receiptPreference: 'email',
     fiscalDocumentId: null,
@@ -134,6 +163,9 @@ describe('UpdateOrderStatusUseCase', () => {
         unitPriceInCents: 2500,
         quantity: 2,
         totalInCents: 5000,
+        unavailableAt: null,
+        unavailableNotifiedAt: null,
+        pickedAt: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       },

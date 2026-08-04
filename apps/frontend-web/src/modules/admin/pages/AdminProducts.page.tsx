@@ -44,7 +44,8 @@ export function AdminProductsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    /* O padding do celular é daqui, não do shell: conteúdo de leitura não deve encostar na borda. */
+    <div className="space-y-6 p-4 lg:p-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Produtos</h1>

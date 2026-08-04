@@ -29,6 +29,9 @@ import { UpdateProductUseCase } from '@/modules/catalog/application/use-cases/Up
 import { CategoryController } from '@/modules/catalog/infra/http/Category.controller'
 import { ProductController } from '@/modules/catalog/infra/http/Product.controller'
 import { RedisProvider } from '@/infra/redis/RedisProvider'
+import { NominatimGeocodingProvider } from '@/infra/nominatim/NominatimGeocodingProvider'
+import type { AddressLookupProviderInterface } from '@/modules/shared/address/AddressLookupProvider.interface'
+import { ViaCepAddressLookupProvider } from '@/infra/viacep/ViaCepAddressLookupProvider'
 import type { CacheProvider } from '@/shared/providers/CacheProvider.interface'
 import type { CustomerRepositoryInterface } from '@/modules/webhook/domain/CustomerRepository.interface'
 import type { ConversationSessionRepositoryInterface } from '@/modules/webhook/domain/ConversationSessionRepository.interface'
@@ -39,11 +42,22 @@ import { DrizzleMessageRepository } from '@/modules/webhook/infra/database/Drizz
 import { createQuickCartWhatsAppModule } from '@/modules/webhook/infra/whatsapp/metaWhatsAppModule'
 import type { MetaWhatsAppModule } from '@adatechnology/meta-whatsapp-module'
 import { ConversationController } from '@/modules/conversation/infra/http/Conversation.controller'
+import { audioTranscriber, quickCartObjectStorage } from '@/modules/webhook/infra/whatsapp/metaWhatsAppModule'
+import type { ObjectStorageInterface } from '@adatechnology/meta-whatsapp-contracts'
 import { ConversationSettingsController } from '@/modules/conversation/infra/http/ConversationSettings.controller'
+import { createPreviewTranscriptController } from '@/modules/conversation/infra/http/PreviewTranscript.controller'
+import { createPreviewMediaController } from '@/modules/conversation/infra/http/PreviewMedia.controller'
+import { createPreviewInboundController } from '@/modules/conversation/infra/http/PreviewInbound.controller'
 import { ConversationStreamController } from '@/modules/conversation/infra/http/ConversationStream.controller'
 import { conversationSseHub, conversationTicketStore } from '@/modules/conversation/infra/realtime/conversationRealtime'
 import { FlowDriver } from '@/modules/conversation/application/FlowDriver'
 import { registerQuickCartFlowActions } from '@/modules/conversation/application/registerQuickCartFlowActions'
+import {
+  createInboundAudioResolver,
+  type ResolveInboundAudio,
+} from '@/modules/conversation/application/resolveInboundAudio'
+import { wrapChannelWithLogging } from '@/modules/conversation/application/wrapChannelWithLogging'
+import { createMenuOptionsFilter } from '@/modules/conversation/application/createMenuOptionsFilter'
 import { MAIN_FLOW_SEED } from '@/modules/conversation/shared/MainFlow.seed'
 import { logger } from '@/shared/logger'
 import { environment } from '@/infra/config/environment'
@@ -54,6 +68,8 @@ import { MatchProductsUseCase } from '@/modules/conversation/application/use-cas
 import { ParseShoppingListUseCase } from '@/modules/conversation/application/use-cases/ParseShoppingList.use-case'
 import { GroqListRefinerProvider } from '@/modules/conversation/infra/providers/GroqListRefinerProvider'
 import { DrizzleListImportRepository } from '@/modules/conversation/infra/database/DrizzleListImportRepository'
+import { DrizzleUnmatchedDemandRepository } from '@/modules/conversation/infra/database/DrizzleUnmatchedDemandRepository'
+import { UnmatchedDemandController } from '@/modules/conversation/infra/http/UnmatchedDemand.controller'
 import { ProcessParsedListItems } from '@/modules/conversation/application/handlers/support/ProcessParsedListItems'
 import { GreetingHandler } from '@/modules/conversation/application/handlers/GreetingHandler'
 import { MenuHandler } from '@/modules/conversation/application/handlers/MenuHandler'
@@ -76,6 +92,13 @@ import { CreateOrderFromCartUseCase } from '@/modules/order/application/use-case
 import { CreateWebOrderUseCase } from '@/modules/order/application/use-cases/CreateWebOrder.use-case'
 import { GetOrderByShortCodeUseCase } from '@/modules/order/application/use-cases/GetOrderByShortCode.use-case'
 import { UpdateOrderStatusUseCase } from '@/modules/order/application/use-cases/UpdateOrderStatus.use-case'
+import { GetAdminOrderDetailUseCase } from '@/modules/order/application/use-cases/GetAdminOrderDetail.use-case'
+import { ResolveOrderDeliveryEstimateUseCase } from '@/modules/order/application/use-cases/ResolveOrderDeliveryEstimate.use-case'
+import { ResolveCepCoordinateUseCase } from '@/modules/shared/address/ResolveCepCoordinate.use-case'
+import { DrizzleGeocodedAddressRepository } from '@/modules/shared/address/infra/DrizzleGeocodedAddressRepository'
+import { SetOrderItemUnavailableUseCase } from '@/modules/order/application/use-cases/SetOrderItemUnavailable.use-case'
+import { SetOrderItemPickedUseCase } from '@/modules/order/application/use-cases/SetOrderItemPicked.use-case'
+import { NotifyUnavailableItemsUseCase } from '@/modules/order/application/use-cases/NotifyUnavailableItems.use-case'
 import { RepeatLastOrderUseCase } from '@/modules/order/application/use-cases/RepeatLastOrder.use-case'
 import { ListOrdersUseCase } from '@/modules/order/application/use-cases/ListOrders.use-case'
 import { OrderController } from '@/modules/order/infra/http/Order.controller'
@@ -155,6 +178,8 @@ type OrderModuleDependencies = {
   readonly productRepository: ProductRepositoryInterface
   readonly customerRepository: CustomerRepositoryInterface
   readonly cacheProvider: CacheProvider
+  /** Para avisar o cliente quando um item do pedido acabar na separação. */
+  readonly whatsAppSender: WhatsAppSender
 }
 
 type OrderModule = {
@@ -189,6 +214,37 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     customerRepository: dependencies.customerRepository,
   })
   const updateOrderStatusUseCase = new UpdateOrderStatusUseCase({ orderRepository, notificationQueue })
+  /*
+   * Coordenada por CEP, cacheada em Postgres. Uma instância só do provider por processo, porque é ela
+   * que guarda o instante da última chamada para respeitar o 1 req/s do Nominatim.
+   */
+  const resolveCepCoordinateUseCase = new ResolveCepCoordinateUseCase({
+    geocodedAddressRepository: new DrizzleGeocodedAddressRepository(),
+    geocodingProvider: new NominatimGeocodingProvider(),
+  })
+  const resolveOrderDeliveryEstimateUseCase = new ResolveOrderDeliveryEstimateUseCase({
+    resolveCepCoordinateUseCase,
+    storeCep: environment.STORE_CEP,
+    detourFactor: environment.DISTANCE_DETOUR_FACTOR,
+    averageSpeedKmh: environment.DELIVERY_AVERAGE_SPEED_KMH,
+    preparationMinutes: environment.STORE_PREPARATION_MINUTES,
+    deliveryRadiusKm: environment.STORE_DELIVERY_RADIUS_KM,
+  })
+  const getAdminOrderDetailUseCase = new GetAdminOrderDetailUseCase({
+    orderRepository,
+    resolveOrderDeliveryEstimateUseCase,
+  })
+  const setOrderItemPickedUseCase = new SetOrderItemPickedUseCase({ orderRepository })
+  const setOrderItemUnavailableUseCase = new SetOrderItemUnavailableUseCase({
+    orderRepository,
+    unmatchedDemandRepository: new DrizzleUnmatchedDemandRepository(),
+  })
+  const notifyUnavailableItemsUseCase = new NotifyUnavailableItemsUseCase({
+    orderRepository,
+    // Mesmo remetente do resto do produto: o recado entra no transcript da conversa, então o atendente vê
+    // o que o cliente já ouviu e não repete.
+    notifyCustomer: ({ whatsappNumber, body }) => dependencies.whatsAppSender.sendText(whatsappNumber, body),
+  })
   const repeatLastOrderUseCase = new RepeatLastOrderUseCase({
     orderRepository,
     cartRepository: dependencies.cartRepository,
@@ -201,6 +257,10 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     getOrderByShortCodeUseCase,
     listOrdersUseCase,
     updateOrderStatusUseCase,
+    getAdminOrderDetailUseCase,
+    setOrderItemUnavailableUseCase,
+    setOrderItemPickedUseCase,
+    notifyUnavailableItemsUseCase,
   })
 
   return {
@@ -217,6 +277,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
 
 type WebhookRepositories = {
   readonly cacheProvider: CacheProvider
+  readonly addressLookupProvider: AddressLookupProviderInterface
   readonly customerRepository: CustomerRepositoryInterface
   readonly conversationSessionRepository: ConversationSessionRepositoryInterface
   readonly messageRepository: MessageRepositoryInterface
@@ -225,16 +286,26 @@ type WebhookRepositories = {
 
 function buildWebhookRepositories(): WebhookRepositories {
   const cacheProvider = new RedisProvider()
+  // CEP → rua/bairro/cidade/UF, para o checkout do WhatsApp não pedir o endereço inteiro por texto livre.
+  const addressLookupProvider = new ViaCepAddressLookupProvider()
   const customerRepository = new DrizzleCustomerRepository()
   const conversationSessionRepository = new DrizzleConversationSessionRepository()
   const messageRepository = new DrizzleMessageRepository()
   const whatsAppSender = new WhatsAppSender({ messageRepository, conversationSessionRepository })
 
-  return { cacheProvider, customerRepository, conversationSessionRepository, messageRepository, whatsAppSender }
+  return {
+    cacheProvider,
+    addressLookupProvider,
+    customerRepository,
+    conversationSessionRepository,
+    messageRepository,
+    whatsAppSender,
+  }
 }
 
 type ConversationModuleDependencies = {
   readonly productRepository: ProductRepositoryInterface
+  readonly addressLookupProvider: AddressLookupProviderInterface
   readonly categoryRepository: CategoryRepositoryInterface
   readonly customerRepository: CustomerRepositoryInterface
   readonly conversationSessionRepository: ConversationSessionRepositoryInterface
@@ -245,6 +316,7 @@ type ConversationModuleDependencies = {
   readonly updateCartItemQuantityUseCase: UpdateCartItemQuantityUseCase
   readonly createOrderFromCartUseCase: CreateOrderFromCartUseCase
   readonly repeatLastOrderUseCase: RepeatLastOrderUseCase
+  readonly orderRepository: OrderRepositoryInterface
 }
 
 type ConversationModule = {
@@ -254,6 +326,7 @@ type ConversationModule = {
 function buildConversationModule(dependencies: ConversationModuleDependencies): ConversationModule {
   const {
     productRepository,
+    addressLookupProvider,
     categoryRepository,
     customerRepository,
     conversationSessionRepository,
@@ -264,14 +337,18 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     updateCartItemQuantityUseCase,
     createOrderFromCartUseCase,
     repeatLastOrderUseCase,
+    orderRepository,
   } = dependencies
 
   const matchProductsUseCase = new MatchProductsUseCase(productRepository)
   const parseShoppingListUseCase = new ParseShoppingListUseCase(new GroqListRefinerProvider())
   const listImportRepository = new DrizzleListImportRepository()
+  // Demanda que a loja está perdendo: gravada onde o motivo é conhecido, lida pelo relatório do admin.
+  const unmatchedDemandRepository = new DrizzleUnmatchedDemandRepository()
 
   const processParsedListItems = new ProcessParsedListItems({
     matchProductsUseCase,
+    unmatchedDemandRepository,
     conversationSessionRepository,
     whatsAppSender,
     listImportRepository,
@@ -295,6 +372,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     cartRepository,
     productRepository,
     addCartItemUseCase,
+    unmatchedDemandRepository,
   })
   const browseHandler = new BrowseHandler({
     conversationSessionRepository,
@@ -302,6 +380,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     productRepository,
     cartRepository,
     addCartItemUseCase,
+    unmatchedDemandRepository,
   })
   const cartHandler = new CartHandler({
     conversationSessionRepository,
@@ -310,6 +389,8 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     productRepository,
     removeCartItemUseCase,
     updateCartItemQuantityUseCase,
+    // Reaproveita as escolhas do último pedido no checkout: quatro perguntas viram uma.
+    orderRepository,
   })
   const checkoutHandler = new CheckoutHandler({
     conversationSessionRepository,
@@ -318,6 +399,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     productRepository,
     customerRepository,
     createOrderFromCartUseCase,
+    addressLookupProvider,
   })
   const globalHandler = new GlobalHandler({
     conversationSessionRepository,
@@ -325,6 +407,8 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     cartRepository,
     productRepository,
     repeatLastOrderUseCase,
+    // O mesmo handler do estado `awaiting_list`: lista ditada fora de hora precisa dar no mesmo lugar.
+    listHandler,
   })
 
   const conversationEngine = new ConversationEngine({
@@ -367,6 +451,7 @@ function buildWebhookModule(
       readonly repeatLastOrderUseCase: RepeatLastOrderUseCase
       readonly cartRepository: CartRepositoryInterface
       readonly productRepository: ProductRepositoryInterface
+      readonly orderRepository: OrderRepositoryInterface
     },
 ): WebhookModule {
   const { cacheProvider, customerRepository, whatsAppSender, conversationEngine, repeatLastOrderUseCase } = params
@@ -374,12 +459,41 @@ function buildWebhookModule(
   // Amarração circular resolvida por referência tardia: o driver precisa do interpretador que
   // esta fábrica cria, e a fábrica precisa saber chamar o driver.
   let flowDriver: FlowDriver | undefined
+  // Mesma amarração tardia: o resolvedor precisa do canal e do repositório que esta fábrica cria.
+  let resolveInboundAudio: ResolveInboundAudio | undefined
 
   const metaWhatsApp = createQuickCartWhatsAppModule({
     cacheProvider,
     customerRepository,
     resolveConversationEngine: () => conversationEngine,
     resolveFlowDriver: () => flowDriver,
+    resolveInboundAudio: () => resolveInboundAudio,
+  })
+
+  /**
+   * Um único ponto de transcrição, antes de qualquer roteamento.
+   *
+   * Ficava dentro do `FlowDriver`, e por isso voz era entendida só dentro do grafo: fora dele o
+   * `BrowseHandler` respondia "escolha uma opção da lista acima" a quem ditava a compra.
+   */
+  resolveInboundAudio = createInboundAudioResolver({
+    // Mesmo transcritor da inbox. Ausente, áudio segue cru para quem sabe lidar com ele.
+    transcriber: audioTranscriber,
+    languageHint: environment.TRANSCRIPTION_LANGUAGE,
+    fetchMediaAsBase64: (mediaId) => metaWhatsApp.channel.fetchMediaAsBase64(mediaId),
+    // Pelo canal com log: o cliente viu o aviso, então ele pertence ao transcript do atendente.
+    sendNotice: async (whatsappNumber, body) => {
+      await wrapChannelWithLogging({
+        channel: metaWhatsApp.channel,
+        logMessage: metaWhatsApp.conversations.log,
+        companyId: environment.WHATSAPP_COMPANY_ID,
+        whatsappNumber,
+        startState: CONVERSATION_STATE.GREETING,
+      }).sendText(whatsappNumber, body)
+    },
+    // Grava a transcrição na mensagem: o painel mostra na hora e o modo automático do módulo pula o
+    // áudio em vez de pagar uma segunda chamada pelo mesmo texto.
+    messageRepository: metaWhatsApp.conversations.messageRepository,
   })
 
   if (metaWhatsApp.flows) {
@@ -390,6 +504,11 @@ function buildWebhookModule(
       logMessage: metaWhatsApp.conversations.log,
       startState: CONVERSATION_STATE.GREETING,
       loadFlow: (key) => metaWhatsApp.flows!.get.execute({ companyId: environment.WHATSAPP_COMPANY_ID, key }),
+      // Esconde do menu o que depende de compra anterior, para quem ainda não comprou.
+      filterNodeOptions: createMenuOptionsFilter({
+        customerRepository,
+        orderRepository: params.orderRepository,
+      }),
     })
 
     registerQuickCartFlowActions({
@@ -400,6 +519,7 @@ function buildWebhookModule(
       repeatLastOrderUseCase,
       cartRepository: params.cartRepository,
       productRepository: params.productRepository,
+      orderRepository: params.orderRepository,
     })
   }
 
@@ -412,15 +532,34 @@ type ConversationHttpModule = {
   readonly conversationController: ConversationController
   readonly settingsController: ConversationSettingsController
   readonly streamController: ConversationStreamController
+  readonly previewTranscriptController: ReturnType<typeof createPreviewTranscriptController>
+  readonly previewMediaController: ReturnType<typeof createPreviewMediaController>
+  readonly previewInboundController: ReturnType<typeof createPreviewInboundController>
+  readonly unmatchedDemandController: UnmatchedDemandController
 }
 
-function buildConversationHttpModule(params: { readonly metaWhatsApp: MetaWhatsAppModule }): ConversationHttpModule {
+function buildConversationHttpModule(params: {
+  readonly metaWhatsApp: MetaWhatsAppModule
+  readonly objectStorage?: ObjectStorageInterface
+}): ConversationHttpModule {
   return {
-    conversationController: new ConversationController({ metaWhatsApp: params.metaWhatsApp }),
+    conversationController: new ConversationController({
+      metaWhatsApp: params.metaWhatsApp,
+      ...(params.objectStorage ? { objectStorage: params.objectStorage } : {}),
+      ...(quickCartObjectStorage ? { objectStorageProvider: quickCartObjectStorage.provider } : {}),
+    }),
     settingsController: new ConversationSettingsController({ metaWhatsApp: params.metaWhatsApp }),
     streamController: new ConversationStreamController({
       sseHub: conversationSseHub,
       ticketStore: conversationTicketStore,
+    }),
+    previewTranscriptController: createPreviewTranscriptController(params.metaWhatsApp),
+    // `undefined` quando features.previewMedia está desligado — o controller responde 404 e o
+    // simulador esconde o microfone, em vez de oferecer um botão que não tem onde guardar o áudio.
+    previewMediaController: createPreviewMediaController(params.metaWhatsApp.previewMedia),
+    previewInboundController: createPreviewInboundController(params.metaWhatsApp),
+    unmatchedDemandController: new UnmatchedDemandController({
+      unmatchedDemandRepository: new DrizzleUnmatchedDemandRepository(),
     }),
   }
 }
@@ -459,9 +598,11 @@ const orderModule = buildOrderModule({
   productRepository: catalogModule.productRepository,
   customerRepository: webhookRepositories.customerRepository,
   cacheProvider: webhookRepositories.cacheProvider,
+  whatsAppSender: webhookRepositories.whatsAppSender,
 })
 const conversationModule = buildConversationModule({
   productRepository: catalogModule.productRepository,
+  addressLookupProvider: webhookRepositories.addressLookupProvider,
   categoryRepository: catalogModule.categoryRepository,
   customerRepository: webhookRepositories.customerRepository,
   conversationSessionRepository: webhookRepositories.conversationSessionRepository,
@@ -472,6 +613,7 @@ const conversationModule = buildConversationModule({
   updateCartItemQuantityUseCase: cartModule.updateCartItemQuantityUseCase,
   createOrderFromCartUseCase: orderModule.createOrderFromCartUseCase,
   repeatLastOrderUseCase: orderModule.repeatLastOrderUseCase,
+  orderRepository: orderModule.orderRepository,
 })
 
 const webhookModule = buildWebhookModule({
@@ -480,6 +622,7 @@ const webhookModule = buildWebhookModule({
   repeatLastOrderUseCase: orderModule.repeatLastOrderUseCase,
   cartRepository: cartModule.cartRepository,
   productRepository: catalogModule.productRepository,
+  orderRepository: orderModule.orderRepository,
 })
 
 // Chamada pelo boot DEPOIS das migrations: na construção do container as tabelas do módulo
@@ -522,7 +665,10 @@ export const container = {
     orderController: orderModule.orderController,
   },
   webhook: webhookModule,
-  conversationHttp: buildConversationHttpModule({ metaWhatsApp: webhookModule.metaWhatsApp }),
+  conversationHttp: buildConversationHttpModule({
+    metaWhatsApp: webhookModule.metaWhatsApp,
+    ...(quickCartObjectStorage ? { objectStorage: quickCartObjectStorage.forModule } : {}),
+  }),
   internal: buildInternalModule({
     conversationSessionRepository: webhookRepositories.conversationSessionRepository,
     messageRepository: webhookRepositories.messageRepository,

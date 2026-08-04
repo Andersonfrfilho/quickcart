@@ -28,7 +28,10 @@ describe('ParseShoppingListUseCase', () => {
     ['contagem com x', '3x leite', [{ term: 'leite', quantity: 3, unit: 'x' }]],
     ['numeral por extenso: meia dúzia', 'meia duzia de ovos', [{ term: 'ovos', quantity: 6, unit: 'un' }]],
     ['numeral por extenso: uma dúzia', 'uma duzia de ovos', [{ term: 'ovos', quantity: 12, unit: 'un' }]],
-    ['numeral por extenso: dois (termo mantém o substantivo de apoio)', 'dois pacotes de macarrao', [{ term: 'pacotes de macarrao', quantity: 2, unit: 'un' }]],
+    // Antes esperava `pacotes de macarrao` com unidade `un`. Era limitação lida como regra: a mesma
+    // tabela já tirava a unidade em "2 kg de arroz", e o termo com "pacotes de" preso não casa com o
+    // catálogo, entope o relatório de demanda com uma linha por embalagem e não serve de apelido.
+    ['numeral por extenso: dois (unidade sai do termo)', 'dois pacotes de macarrao', [{ term: 'macarrao', quantity: 2, unit: 'pacotes' }]],
     ['numeral por extenso: uma', 'uma cebola', [{ term: 'cebola', quantity: 1, unit: 'un' }]],
     ['sem quantidade, fallback 1/un', 'sabao em po', [{ term: 'sabao em po', quantity: 1, unit: 'un' }]],
     ['unidade em litros por extenso', '2 litros de leite', [{ term: 'leite', quantity: 2, unit: 'litros' }]],

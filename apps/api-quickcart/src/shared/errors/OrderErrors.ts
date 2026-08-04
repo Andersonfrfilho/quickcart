@@ -18,6 +18,7 @@ import {
   ORDER_PHONE_MISMATCH,
   ORDER_CART_EMPTY,
   ORDER_NO_PREVIOUS_ORDER,
+  ORDER_INVALID_STATUS_TRANSITION,
 } from '@/shared/errors/codes'
 
 const ORDER_DOMAIN = 'order'
@@ -62,5 +63,30 @@ export class OrderEmptyCartError extends OrderError {
 export class OrderNoPreviousOrderError extends OrderError {
   constructor(customerId: string) {
     super('Nenhum pedido anterior encontrado para repetir.', 404, ORDER_NO_PREVIOUS_ORDER, { customerId })
+  }
+}
+
+/**
+ * Transição que a esteira não permite.
+ *
+ * 409 e não 422: o corpo é válido — "completed" é um status que existe — e o que impede é o ESTADO atual do
+ * recurso. Quem recebe precisa distinguir "você mandou lixo" de "isso não cabe agora", porque a segunda
+ * costuma significar que outra pessoa já mexeu no pedido e a tela de quem clicou está velha.
+ *
+ * Carrega os próximos válidos no contexto: sem isso, a tela só sabe que falhou, e o operador fica adivinhando
+ * qual botão era o certo.
+ */
+export class OrderInvalidStatusTransitionError extends OrderError {
+  constructor(params: {
+    readonly currentStatus: string
+    readonly nextStatus: string
+    readonly allowedNextStatuses: readonly string[]
+  }) {
+    super(
+      `Pedido em "${params.currentStatus}" não pode ir para "${params.nextStatus}".`,
+      409,
+      ORDER_INVALID_STATUS_TRANSITION,
+      params,
+    )
   }
 }

@@ -27,6 +27,14 @@ import type { ConversationContext } from '@/modules/conversation/shared/Conversa
 import { sendCartSummary } from '@/modules/conversation/application/handlers/support/CartSummary'
 import { buildEditingCartSection, type EditingCartRow } from '@/modules/conversation/application/handlers/support/InteractiveListBuilders'
 import { parseQuantityInput } from '@/modules/conversation/application/handlers/support/parseQuantityInput'
+import {
+  describeRememberedCheckout,
+  toRememberedCheckout,
+  type RememberedCheckout,
+} from '@/modules/conversation/application/rememberedCheckout'
+import type { OrderRepositoryInterface } from '@/modules/order/domain/OrderRepository.interface'
+import { logger } from '@/shared/logger'
+import { serializeError } from '@/shared/serializeError'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import {
   CART_REVIEW_BUTTON_ID,
@@ -34,10 +42,13 @@ import {
   EDITING_CART_ROW_ID,
   EDITING_CART_ROW_PREFIX,
   MESSAGES,
+  REMEMBERED_CHECKOUT_BUTTONS,
 } from '@/modules/conversation/shared/Messages.constant'
 import { CHANNEL } from '@/modules/shared/shared.constant'
 
 const REMOVE_QUANTITY_TEXT = '0'
+
+const cartLog = logger.child('CartHandler')
 
 export type CartHandlerDependencies = {
   readonly conversationSessionRepository: ConversationSessionRepositoryInterface
@@ -46,10 +57,39 @@ export type CartHandlerDependencies = {
   readonly productRepository: ProductRepositoryInterface
   readonly removeCartItemUseCase: RemoveCartItemUseCase
   readonly updateCartItemQuantityUseCase: UpdateCartItemQuantityUseCase
+  /**
+   * Para reaproveitar as escolhas do último pedido no checkout.
+   *
+   * Opcionais: sem eles o checkout pergunta tudo, que é o comportamento de antes. Assim o handler não
+   * passa a exigir dependência nova de quem só quer carrinho.
+   */
+  readonly orderRepository?: OrderRepositoryInterface | undefined
 }
 
 export class CartHandler implements ConversationHandlerInterface {
   constructor(private readonly dependencies: CartHandlerDependencies) {}
+
+  /**
+   * `undefined` sempre que houver qualquer dúvida — e aí o checkout pergunta como sempre.
+   *
+   * Falha de leitura cai no caminho longo em vez de derrubar o fechamento: perder a compra por causa de
+   * uma consulta de conveniência seria desproporcional.
+   */
+  private async resolveRememberedCheckout(customer: {
+    readonly id: string
+    readonly email?: string | null
+  }): Promise<RememberedCheckout | undefined> {
+    const { orderRepository } = this.dependencies
+    if (!orderRepository) return undefined
+
+    try {
+      const lastOrder = await orderRepository.findLastByCustomer(customer.id)
+      return toRememberedCheckout({ lastOrder, customerEmail: customer.email })
+    } catch (error: unknown) {
+      cartLog.warn('remembered_checkout_unavailable', { error: serializeError(error) })
+      return undefined
+    }
+  }
 
   async handle(context: ConversationHandlerContext): Promise<void> {
     if (context.session.currentState === CONVERSATION_STATE.EDITING_CART) {
@@ -67,6 +107,24 @@ export class CartHandler implements ConversationHandlerInterface {
     }
 
     if (message.buttonId === CART_REVIEW_BUTTON_ID.CHECKOUT) {
+      const remembered = await this.resolveRememberedCheckout(customer)
+
+      if (remembered) {
+        // Uma pergunta em vez de quatro. O estado continua o mesmo: o handler de entrega reconhece os
+        // dois botões novos, então o atalho não cria um estado a mais para manter.
+        await this.dependencies.conversationSessionRepository.updateStateByPhone({
+          customerPhone: session.customerPhone,
+          currentState: CONVERSATION_STATE.AWAITING_DELIVERY_TYPE,
+          context: { rememberedCheckout: remembered },
+        })
+        await this.dependencies.whatsAppSender.sendInteractiveButtons(
+          session.customerPhone,
+          MESSAGES.CHECKOUT_SAME_AS_LAST.replace('{resumo}', describeRememberedCheckout(remembered)),
+          REMEMBERED_CHECKOUT_BUTTONS,
+        )
+        return
+      }
+
       await this.dependencies.conversationSessionRepository.updateStateByPhone({
         customerPhone: session.customerPhone,
         currentState: CONVERSATION_STATE.AWAITING_DELIVERY_TYPE,

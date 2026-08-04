@@ -33,6 +33,14 @@ export const orders = pgTable('orders', {
   totalInCents: integer('total_in_cents').notNull(),
   deliveryType: varchar('delivery_type', { length: 10 }).notNull(),
   address: jsonb('address'),
+  /**
+   * O texto original de pedidos gravados antes do endereço estruturado (`Address.schema.ts`).
+   *
+   * Nenhum pedido histórico é reescrito com endereço adivinhado: se o backfill não achar CEP no
+   * texto livre, `address` fica nulo e o texto original mora aqui — endereço de entrega inventado
+   * por heurística é pior que ausente.
+   */
+  legacyAddressText: text('legacy_address_text'),
   paymentMethod: varchar('payment_method', { length: 20 }).notNull(),
   receiptPreference: varchar('receipt_preference', { length: 10 }).notNull(),
   fiscalDocumentId: varchar('fiscal_document_id', { length: 60 }),

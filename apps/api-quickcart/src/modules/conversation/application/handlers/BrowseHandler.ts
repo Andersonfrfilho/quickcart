@@ -26,6 +26,7 @@ import type { ConversationHandlerContext, ConversationHandlerInterface } from '@
 import type { CartDraftItem, ConversationContext } from '@/modules/conversation/shared/ConversationContext.types'
 import { buildProductSection } from '@/modules/conversation/application/handlers/support/InteractiveListBuilders'
 import { enterCartReview } from '@/modules/conversation/application/handlers/support/enterCartReview'
+import type { UnmatchedDemandRepositoryInterface } from '@/modules/conversation/domain/UnmatchedDemandRepository.interface'
 import { parseQuantityInput } from '@/modules/conversation/application/handlers/support/parseQuantityInput'
 import { BROWSE_PRODUCTS_PER_PAGE } from '@/modules/conversation/shared/Browse.constant'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
@@ -40,6 +41,8 @@ export type BrowseHandlerDependencies = {
   readonly productRepository: ProductRepositoryInterface
   readonly cartRepository: CartRepositoryInterface
   readonly addCartItemUseCase: AddCartItemUseCase
+  /** Repassado ao `enterCartReview`: quem chega ao carrinho por aqui também pode perder item. */
+  readonly unmatchedDemandRepository?: UnmatchedDemandRepositoryInterface | undefined
 }
 
 function isViewCartTrigger(rawText: string): boolean {
@@ -73,6 +76,9 @@ export class BrowseHandler implements ConversationHandlerInterface {
         cartRepository: this.dependencies.cartRepository,
         productRepository: this.dependencies.productRepository,
         addCartItemUseCase: this.dependencies.addCartItemUseCase,
+        ...(this.dependencies.unmatchedDemandRepository
+          ? { unmatchedDemandRepository: this.dependencies.unmatchedDemandRepository }
+          : {}),
       })
       return
     }

@@ -12,6 +12,15 @@ export const ORDER_STATUS = {
   PENDING_CONFIRMATION: 'pending_confirmation',
   CONFIRMED: 'confirmed',
   PREPARING: 'preparing',
+  /**
+   * Separado: os itens estão na sacola e o pedido espera entregador ou cliente.
+   *
+   * Faltava um estado entre "preparando" e "saiu para entrega": a esteira ia direto de um ao outro, e
+   * quem terminava de separar um pedido de entrega só tinha o botão "saiu para entrega" — que é mentira
+   * enquanto ninguém saiu. Sem esse degrau, quem olha a lista não distingue o que está pronto do que
+   * ainda está sendo montado, que é a pergunta do balcão inteiro.
+   */
+  SEPARATED: 'separated',
   OUT_FOR_DELIVERY: 'out_for_delivery',
   READY_FOR_PICKUP: 'ready_for_pickup',
   COMPLETED: 'completed',

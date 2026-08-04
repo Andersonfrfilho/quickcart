@@ -11,7 +11,10 @@ import type {
   Product,
   ProductSortableField,
   ReceiptPreference,
+  OrderDetail,
   SortDirection,
+  UnmatchedDemand,
+  UnmatchedDemandSortableField,
 } from '@/shared/api/api.types'
 
 const apiClient = axios.create({
@@ -37,11 +40,28 @@ export type ListProductsParams = {
   sortDirection?: SortDirection
 }
 
+/**
+ * Espelha `addressInputSchema` do backend (sem latitude/longitude/geocodePrecision — esses só
+ * nascem da geocodificação, nunca do cliente). Duplicado aqui porque frontend e api-quickcart são
+ * apps separados; se um mudar de forma sem o outro, é a validação do servidor que apanha, não um
+ * tipo compartilhado silenciosamente desatualizado.
+ */
+export type CreateOrderAddressInput = {
+  cep: string
+  street: string
+  number: string
+  complement?: string
+  neighborhood: string
+  city: string
+  state: string
+  reference?: string
+}
+
 export type CreateOrderInput = {
   customer: { name: string; phone: string; email?: string }
   items: { productId: string; quantity: number }[]
   deliveryType: DeliveryType
-  address?: { street: string }
+  address?: CreateOrderAddressInput
   paymentMethod: PaymentMethod
   receiptPreference: ReceiptPreference
 }
@@ -50,6 +70,10 @@ export type ListAdminOrdersParams = {
   page?: number
   perPage?: number
   status?: string[]
+  /** Nome, telefone ou código — o servidor procura nos três. */
+  search?: string
+  deliveryType?: string[]
+  paymentMethod?: string[]
   sortBy?: OrderSortableField
   sortDirection?: SortDirection
 }
@@ -108,11 +132,98 @@ export async function adminAdjustStock(token: string, id: string, body: { delta:
   return apiClient.patch(`/v1/admin/products/${id}/stock`, body, { headers: { Authorization: `Bearer ${token}` } })
 }
 
+export type ListUnmatchedDemandsParams = {
+  limit?: number
+  windowDays?: number
+  /** Origens do pedido sem resposta; múltiplas porque "não temos" e "acabou" se leem juntas. */
+  source?: string[]
+  search?: string
+  sortBy?: UnmatchedDemandSortableField
+  sortDirection?: SortDirection
+}
+
+export type UnmatchedDemandsResponse = {
+  readonly data: readonly UnmatchedDemand[]
+  readonly meta: { readonly windowDays: number; readonly since: string }
+}
+
+/** Lista vazia vira `undefined`: mandar `status=` sem valor faria o servidor filtrar por nada. */
+function toCsvParam(values: string[] | undefined): string | undefined {
+  return values && values.length > 0 ? values.join(',') : undefined
+}
+
+export async function adminListUnmatchedDemands(
+  token: string,
+  params: ListUnmatchedDemandsParams = {},
+): Promise<UnmatchedDemandsResponse> {
+  const { source, search, ...rest } = params
+  return apiClient.get('/v1/admin/demands/unmatched', {
+    headers: { Authorization: `Bearer ${token}` },
+    params: {
+      ...rest,
+      source: toCsvParam(source),
+      search: search && search.trim().length > 0 ? search.trim() : undefined,
+    },
+  })
+}
+
 export async function adminListOrders(token: string, params: ListAdminOrdersParams = {}): Promise<ApiListResponse<Order>> {
-  const { status, ...rest } = params
+  const { status, deliveryType, paymentMethod, search, ...rest } = params
   return apiClient.get('/v1/admin/orders', {
     headers: { Authorization: `Bearer ${token}` },
-    params: { ...rest, status: status && status.length > 0 ? status.join(',') : undefined },
+    params: {
+      ...rest,
+      status: toCsvParam(status),
+      deliveryType: toCsvParam(deliveryType),
+      paymentMethod: toCsvParam(paymentMethod),
+      search: search && search.trim().length > 0 ? search.trim() : undefined,
+    },
+  })
+}
+
+export async function adminGetOrderDetail(token: string, id: string): Promise<ApiItemResponse<OrderDetail>> {
+  return apiClient.get(`/v1/admin/orders/${id}`, { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export async function adminSetOrderItemUnavailable(
+  token: string,
+  params: { readonly orderId: string; readonly itemId: string; readonly unavailable: boolean },
+): Promise<ApiItemResponse<OrderDetail>> {
+  return apiClient.patch(
+    `/v1/admin/orders/${params.orderId}/items/${params.itemId}/unavailable`,
+    { unavailable: params.unavailable },
+    { headers: { Authorization: `Bearer ${token}` } },
+  )
+}
+
+/**
+ * Marca item separado no servidor. Sem `itemId`, marca (ou limpa) todos de uma vez.
+ *
+ * A marcação era `localStorage`: separar no tablet do balcão e abrir no celular mostrava zero separado
+ * num pedido que a esteira já dava como separado. Em lote numa requisição porque trinta itens seriam
+ * trinta chances de metade ficar marcada se a rede cair no meio.
+ */
+export async function adminSetOrderItemPicked(
+  token: string,
+  params: { readonly orderId: string; readonly itemId?: string | undefined; readonly picked: boolean },
+): Promise<ApiItemResponse<OrderDetail>> {
+  const path = params.itemId
+    ? `/v1/admin/orders/${params.orderId}/items/${params.itemId}/picked`
+    : `/v1/admin/orders/${params.orderId}/items/picked`
+  return apiClient.patch(path, { picked: params.picked }, { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export type NotifyUnavailableItemsResponse = {
+  readonly data: OrderDetail
+  readonly meta: { readonly notifiedCount: number }
+}
+
+export async function adminNotifyUnavailableItems(
+  token: string,
+  orderId: string,
+): Promise<NotifyUnavailableItemsResponse> {
+  return apiClient.post(`/v1/admin/orders/${orderId}/unavailable-items/notify`, undefined, {
+    headers: { Authorization: `Bearer ${token}` },
   })
 }
 

@@ -120,3 +120,43 @@
 - [x] T9.4 Atualização final do `init-claude.md` (estado, rotas, envs)
 
 **Aceite:** `docker build` dos 3 apps passa localmente.
+
+## Fase 11 — Preview de conversa no SDK (dev sem credencial da Meta)
+> 🤖 Modelo: `sonnet` (T11.1 e T11.3 em `opus` — contrato de SDK)
+> Spec detalhada: `.specs/features/conversation-preview/spec.md`
+
+- [x] T11.0 Loop de dev cross-repo: `bun link` dos dois pacotes do SDK + alvos `link-sdk`/`unlink-sdk` no `Makefile`. Sem isso nada da fase é testável no quickcart sem publicar rc a cada edição. O `conversations-ui` já tem `build:watch` (tsup) — o loop é watch no SDK + link no consumidor
+- [x] T11.1 Builders isomórficos em `meta-whatsapp-contracts/testing` (`buildInboundTextPayload`, `buildInboundInteractivePayload`, `buildInboundAudioPayload`, `serializeWebhookPayload`) + signer Node e reexport em `meta-whatsapp-module/testing`. Ficam nos contratos, não no módulo, porque o preview do navegador precisa montá-los e o módulo depende de `node:crypto`. **`id` (wamid) e `timestamp` novos por chamada** — a assinatura é a chave de idempotência (`claimWebhookDelivery`, TTL 300s), payload repetido é engolido como duplicata (spec §3.2)
+- [x] T11.2 `conversations-ui`: afrouxar `SSEProvider` para tipo estrutural `ConversationEventSource` (`addEventListener`/`removeEventListener`/`close`/`readyState`) — retrocompatível com `EventSource` nativo (spec §4.1)
+- [x] T11.3 `conversations-ui`: novo export `./preview` (entrada no script `tsup`), fora do export `.` — fixtures não entram no bundle de produção
+- [x] T11.4 `createMockConversationsApi(fixtures)` implementando os 10 métodos de `ConversationsApi`; fixtures cobrindo `mode`/`waitingHuman`/`unread`/`currentState`/`assignedUserId` e mensagens texto/áudio/mídia/interativa/documento
+- [x] T11.5 `createMockSSEProvider(script)`: emissor roteirizado por timer — inbound novo, `waitingHuman false→true`, handoff `bot→human` e volta, troca de `assignedUserId`
+- [x] T11.6a `createPreviewWebhookClient`: assina com WebCrypto (mesmo HMAC do `node:crypto`, com teste comparando as duas) e entrega no webhook real; `assertPreviewEnvironment` recusa montar em produção, porque o cliente carrega o app secret de dev
+- [x] T11.6b `<ConversationPreview>`: visão lado-cliente (bolhas + composer) sobre o cliente da T11.6a, lendo respostas pelo SSE existente (`conversationRealtime.ts`)
+- [x] T11.7 `apps/frontend-web`: rotas `#/preview/customer` e `#/preview/agent` montadas apenas em dev (`import.meta.env.DEV` **E** `VITE_PREVIEW_ENABLED`, constantes de build time — o bundle de produção não contém o código). Inclui duas peças que faltavam e não estavam previstas: `conversationsSse.ts` (o `SSEProvider` real do QuickCart, com o fluxo de ticket, já que os streams não aceitam header) e `@source` do Tailwind apontando para o dist do SDK (sem isso as classes utilitárias do pacote não são compiladas e a inbox renderiza sem cor)
+- [x] T11.8 Testes: `bun test` nos builders/signer — (a) payload assinado passa a validação real do módulo, (b) payload sem assinatura ou com segredo errado é **recusado** também em dev, (c) duas mensagens de texto idêntico em sequência geram assinaturas distintas e ambas são processadas. Mais `tsc --noEmit` nos pacotes tocados
+
+**Aceite:** sem `WHATSAPP_ACCESS_TOKEN`/`PHONE_NUMBER_ID`, só com o `APP_SECRET` do `envs/env.dev`, o preview cliente conclui uma compra pela rota real de webhook — HMAC validado igual a staging/produção, sem bypass nem rota alternativa; o preview atendente roda com a API desligada, com conversas chegando sozinhas e handoff bot↔humano funcionando.
+
+**Verificado no navegador:** preview atendente com a API desligada (lista, badges `Aguardando`/`Humano`, contadores, roteiro reordenando a inbox sozinho, zero erro de console). Preview cliente ponta a ponta com API + docker no ar: mensagem assinada entregue no webhook real (HTTP 200, HMAC validado) e resposta do bot renderizada. `bun run build` do `frontend-web` sem fixtures, sem app secret e sem código de preview no bundle.
+
+**Defeito de infra encontrado e corrigido pelo preview:** o SSE morria em 10s (`idleTimeout` padrão do `Bun.serve` contra heartbeat de 25s) — a inbox mostrava dado velho sem erro. Corrigido em `apps/api-quickcart/src/index.ts`.
+
+## Fase 12 — Admin: Conversas, Mensagens e Fluxo do bot
+> 🤖 Modelo: `sonnet`
+> Montagem das telas que consomem o SDK; a API já existia desde a Fase 10.
+
+- [x] T12.1 `adminRequest` compartilhado (envelope + token) — três cópias do mesmo fetch iam divergir
+- [x] T12.2 Página **Conversas**: inbox real (`ConversationsProvider` + `conversationsApi` + `conversationsSse`), busca, filtro "só aguardando", painel com transcript e composer
+- [x] T12.3 Página **Mensagens**: `WelcomeFarewellForm` sobre `/v1/admin/whatsapp/settings`
+- [x] T12.4 Página **Fluxo do bot**: `FlowMapCanvas` sobre `/v1/admin/flows`, lendo `meta_whatsapp.flow_graphs`; `@xyflow/react` adicionado como peer
+- [x] T12.5 `ADMIN_NAV` com os três itens novos + rotas
+- [ ] T12.6 **Documentos/upload** — bloqueado: não existe backend (sem tabela, sem rota; o adapter já devolve lista vazia e rejeita download). Precisa de decisão de storage antes da tela
+
+**Quatro defeitos pré-existentes corrigidos ao montar** (todos invisíveis enquanto nenhuma tela consumia a API):
+1. Token gravado em `sessionStorage` pelo login e lido de `localStorage` pelo cliente — toda chamada saía sem credencial
+2. `fetchConversations` devolvia `id` = UUID da sessão, mas as demais rotas endereçam pelo número → 500 ao abrir conversa
+3. `fetchMessages` repassava `sentAt` cru (o SDK espera `timestamp`) → horário `NaN:NaN`
+4. `useDarkMode` do SDK escreve a classe `dark` no `<html>`: renderizar o mapa de fluxos trocava o tema do app inteiro. Criado `useIsDarkTheme` (leitura passiva) e usado no `FlowMapCanvas`
+
+**Aceite:** os três itens aparecem no menu admin e funcionam com dado real — inbox lista e abre transcript, mensagens carrega/salva configurações, mapa desenha o fluxo `main` do banco.

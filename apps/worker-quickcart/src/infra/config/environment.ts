@@ -28,9 +28,46 @@ const environmentSchema = z.object({
   WHATSAPP_PHONE_NUMBER_ID: z.string().default(''),
   WHATSAPP_API_VERSION: z.string().default('v21.0'),
   WHATSAPP_BASE_URL: z.string().default('https://graph.facebook.com'),
+  // Tenant único do QuickCart, igual ao da api-quickcart — a retenção varre por empresa.
+  WHATSAPP_COMPANY_ID: z.string().uuid().default('00000000-0000-4000-8000-000000000001'),
+
+  // ── Object storage (arquivos da conversa) ──
+  // Espelha o schema da api-quickcart: processos separados, mesmas variáveis. O worker é quem
+  // efetivamente grava o binário, então sem isto a fila `documents` não tem para onde copiar.
+  STORAGE_ENABLED: booleanFromString('false'),
+  STORAGE_ENDPOINT: z.string().url().default('http://localhost:9564'),
+  STORAGE_REGION: z.string().default('us-east-1'),
+  STORAGE_BUCKET: z.string().default('quickcart-documents'),
+  STORAGE_ACCESS_KEY_ID: z.string().default(''),
+  STORAGE_SECRET_ACCESS_KEY: z.string().default(''),
+  STORAGE_FORCE_PATH_STYLE: booleanFromString('true'),
+  STORAGE_MAX_OBJECT_SIZE_BYTES: z.coerce.number().int().positive().default(26_214_400),
+  STORAGE_DOWNLOAD_URL_TTL_SECONDS: z.coerce.number().int().positive().default(300),
+
+  // Retenção dos arquivos da conversa. `0` desliga: a política de dado pessoal é decisão do
+  // negócio, e apagar por padrão seria destruir dado de quem nunca pediu isso.
+  DOCUMENTS_RETENTION_DAYS: z.coerce.number().int().min(0).default(0),
+  // Intervalo da varredura, em horas.
+  DOCUMENTS_RETENTION_SWEEP_HOURS: z.coerce.number().int().positive().default(24),
+  // Teto por execução, para o job não segurar conexão e storage indefinidamente.
+  DOCUMENTS_RETENTION_BATCH_SIZE: z.coerce.number().int().positive().default(200),
 
   // ── STT (Groq, opcional) ──
+  // Serve ao STT efêmero que devolve a fala ao motor de conversa (fila `stt`).
   GROQ_API_KEY: z.string().optional(),
+
+  // ── Transcrição de nota de voz (persistida, exibida na inbox) ──
+  // Espelha o schema da api-quickcart: processos separados, mesmas variáveis. Diferente do STT
+  // acima, esta transcrição é GRAVADA na mensagem e o atendente a lê e copia no painel.
+  TRANSCRIPTION_ENABLED: booleanFromString('false'),
+  TRANSCRIPTION_MODE: z.enum(['auto', 'onDemand']).default('onDemand'),
+  TRANSCRIPTION_GROQ_API_KEY: z.string().default(''),
+  TRANSCRIPTION_MODEL: z.string().default('whisper-large-v3-turbo'),
+  TRANSCRIPTION_LANGUAGE: z.string().default('pt'),
+  // Ligado, a imagem do worker precisa de ffmpeg + binário do whisper.cpp + modelo — ver o README
+  // de @adatechnology/audio-transcription-provider.
+  TRANSCRIPTION_LOCAL_FALLBACK_ENABLED: booleanFromString('false'),
+  TRANSCRIPTION_LOCAL_MODEL_PATH: z.string().default('/models/ggml-small.bin'),
 
   // ── Nota fiscal (opcional) — @adatechnology/fiscal-provider (NFC-e) ──
   FISCAL_ENABLED: booleanFromString('false'),
