@@ -13,6 +13,7 @@
     "dev": "bun --watch src/index.ts",
     "start": "bun run src/index.ts",
     "test": "bun test --preload ./tests/setup.ts",
+    "test:e2e": "bun test --env-file=../../envs/env.test.e2e ./tests/e2e/orderStatusNotification.e2e.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

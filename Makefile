@@ -11,7 +11,12 @@ ENV_LOCAL_ARG := $(if $(wildcard $(ENV_LOCAL_FILE)),--env-file=../../$(ENV_LOCAL
 PROJECT_NAME := $(shell grep -m1 '^PROJECT_NAME=' $(ENV_FILE) 2>/dev/null | cut -d '=' -f2)
 PROJECT_NAME := $(if $(PROJECT_NAME),$(PROJECT_NAME),quickcart)
 
-COMPOSE := docker compose -p $(PROJECT_NAME)-$(ENV) -f infra/docker-compose.yml --env-file $(ENV_FILE)
+# O nome de projeto do compose não aceita ponto, e `ENV=test.e2e` é a convenção de nome de env
+# (`code-standart.md` §4). Sem trocar por hífen, `make up ENV=test.e2e` morre com
+# "invalid project name" e o alvo nem chega a subir container.
+COMPOSE_PROJECT := $(subst .,-,$(PROJECT_NAME)-$(ENV))
+
+COMPOSE := docker compose -p $(COMPOSE_PROJECT) -f infra/docker-compose.yml --env-file $(ENV_FILE)
 
 # Checkout local do SDK, para o loop de dev cross-repo. Sobrescreva se o seu clone estiver noutro
 # lugar: make link-sdk SDK_PATH=~/dev/adatechnology-packages
@@ -120,6 +125,14 @@ test: ## 🧪 Roda os testes de todos os apps (unitários, sem infra)
 	@cd apps/api-quickcart && bun run test
 	@echo "🧪 Testes worker-quickcart..."
 	@cd apps/worker-quickcart && bun run test
+
+test-e2e: ## 🔁 E2E de notificação (infra e base PRÓPRIAS, ENV=test.e2e)
+	@echo "🔁 Subindo infra do e2e..."
+	@$(MAKE) up ENV=test.e2e
+	@$(MAKE) migrate ENV=test.e2e
+	@$(MAKE) notification-migrate ENV=test.e2e
+	@echo "🔁 Rodando e2e..."
+	@cd apps/api-quickcart && bun run test:e2e
 
 test-api: ## 🧪 Roda apenas os testes da API
 	@cd apps/api-quickcart && bun run test

@@ -41,25 +41,54 @@ export function orderStatusTemplateKey(status: string): string {
 }
 
 /**
- * Emoji aqui é deliberado e não contraria a regra de ícones em UI: isto é corpo de mensagem de
- * WhatsApp, texto puro, onde não existe biblioteca de ícones nem `currentColor` a herdar.
+ * Nome do template APROVADO na Meta, por status.
+ *
+ * O módulo recusa texto livre no WhatsApp quando não há `whatsappTemplateName` — e está certo: fora
+ * da janela de 24h a Graph API só aceita template aprovado, e quem sabe se a janela está aberta é
+ * ela, não o pacote. Sem isto, a delivery nasce `skipped` com `whatsapp_template_required`, que foi
+ * exatamente o que o E2E revelou.
+ *
+ * Vale registrar o que isso diz sobre o código antigo: o `ProcessNotificationJob` mandava `sendText`
+ * livre, então **só funcionava dentro da janela** — fora dela a Meta rejeitava, e o pedido seguia
+ * como se o cliente tivesse sido avisado. O SDK falha visível em vez de falhar calado.
+ *
+ * ⚠️ Estes nomes precisam existir e estar APROVADOS no WhatsApp Manager da conta. Aprovação é
+ * processo externo, com fila de revisão da Meta — cadastrar status novo aqui não basta.
  */
-export function buildOrderStatusTemplates(): readonly {
+const META_TEMPLATE_BY_STATUS: Record<string, string> = {
+  [ORDER_STATUS.PENDING_CONFIRMATION]: 'quickcart_pedido_recebido',
+  [ORDER_STATUS.CONFIRMED]: 'quickcart_pedido_confirmado',
+  [ORDER_STATUS.PREPARING]: 'quickcart_pedido_em_separacao',
+  [ORDER_STATUS.SEPARATED]: 'quickcart_pedido_separado',
+  [ORDER_STATUS.OUT_FOR_DELIVERY]: 'quickcart_pedido_em_entrega',
+  [ORDER_STATUS.READY_FOR_PICKUP]: 'quickcart_pedido_pronto_retirada',
+  [ORDER_STATUS.COMPLETED]: 'quickcart_pedido_concluido',
+  [ORDER_STATUS.CANCELLED]: 'quickcart_pedido_cancelado',
+}
+
+export type OrderStatusTemplate = {
   readonly key: string
   readonly channel: string
   readonly locale: string
   readonly body: string
   readonly active: boolean
-}[] {
-  return Object.entries(ORDER_STATUS_BODY).flatMap(([status, body]) =>
-    // Inbox além do WhatsApp: o mesmo aviso fica no histórico do cliente, e é o canal que funciona
-    // quando o número está fora da janela de 24h da Meta.
-    (['whatsapp', 'inbox'] as const).map((channel) => ({
-      key: orderStatusTemplateKey(status),
-      channel,
-      locale: 'pt-BR',
-      body,
-      active: true,
-    })),
-  )
+  readonly whatsappTemplateName?: string
+}
+
+/**
+ * Emoji aqui é deliberado e não contraria a regra de ícones em UI: isto é corpo de mensagem de
+ * WhatsApp e de inbox, texto puro, onde não existe biblioteca de ícones nem `currentColor` a herdar.
+ */
+export function buildOrderStatusTemplates(): readonly OrderStatusTemplate[] {
+  return Object.entries(ORDER_STATUS_BODY).flatMap(([status, body]) => {
+    const base = { key: orderStatusTemplateKey(status), locale: 'pt-BR', body, active: true }
+    const metaTemplateName = META_TEMPLATE_BY_STATUS[status]
+
+    return [
+      // Inbox sempre: é o canal que funciona quando o número está fora da janela da Meta, e o que
+      // deixa o aviso no histórico do cliente.
+      { ...base, channel: 'inbox' },
+      ...(metaTemplateName ? [{ ...base, channel: 'whatsapp', whatsappTemplateName: metaTemplateName }] : []),
+    ]
+  })
 }
