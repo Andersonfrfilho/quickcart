@@ -9,7 +9,7 @@
     "build": "tsc --noEmit && vite build"
   },
   "dependencies": {
-    "@adatechnology/conversations-ui": "0.1.0-rc.22",
+    "@adatechnology/conversations-ui": "0.1.0-rc.24",
     "@adatechnology/notification-client": "0.1.0-rc.1",
     "@adatechnology/notification-contracts": "0.1.0-rc.1",
     "@adatechnology/notification-ui": "0.1.0-rc.1",
