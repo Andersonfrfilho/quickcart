@@ -1,0 +1,14 @@
+-- Quando o item foi separado, e por quem o servidor sabe — não o aparelho.
+--
+-- A marcação de separação vivia em `localStorage`, uma por aparelho. Bastava avançar o status pelo botão
+-- da lista, ou separar no tablet do balcão e abrir no celular no corredor, para a tela se contradizer:
+-- a esteira dizia "Separado" e a lista dizia "0/2 separados · 0%". Quem chegava depois não tinha como
+-- saber qual das duas era verdade.
+--
+-- É a mesma razão que trouxe `unavailable_at` para cá: marca que muda o que a tela conta para a próxima
+-- pessoa não pode viver só no aparelho de quem marcou. Separação não muda dinheiro como a falta muda,
+-- mas muda a decisão de quem pega o pedido no meio.
+--
+-- Instante, não booleano: a pergunta que aparece depois é "quando isso foi separado" — para o lojista
+-- entender quanto tempo uma compra leva, e para explicar um pedido que ficou parado.
+ALTER TABLE "order_items" ADD COLUMN IF NOT EXISTS "picked_at" timestamp with time zone;

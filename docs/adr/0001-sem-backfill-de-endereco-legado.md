@@ -58,7 +58,8 @@ por heurística é pior que ausente").
 **2. `customers.default_address` é coluna morta.** Nenhum caller passa `defaultAddress` para
 `updateContactInfo` (o único uso passa apenas `email`), nada além dos arquivos de schema lê a coluna,
 e os 18 clientes de dev têm `null`. Metade do escopo da Fase 4 não tem dado para migrar. *(Se essa
-coluna deve passar a ser escrita é outra decisão, fora desta ADR.)*
+coluna deve passar a ser escrita é outra decisão, fora desta ADR — **resolvida em 2026-08-04, ver
+"Desdobramento" abaixo**.)*
 
 **3. O backfill não conseguiria produzir endereço estruturado válido.** `addressSchema` exige
 `number`, e número não é recuperável com confiança de texto livre: em `"Travessa 7, casa 2"` o número
@@ -83,3 +84,28 @@ dado em produção nos dois formatos" **não foi verificada**.
 Se produção tiver volume relevante de texto cru, o que muda é a *pergunta*, não esta resposta: rodar
 `make address-inventory ENV=<prod>` diz o tamanho do problema, e um volume grande justificaria no
 máximo uma tela para a loja **corrigir endereço à mão** — nunca adivinhar por regex.
+
+## Desdobramento — 2026-08-04
+
+**Produção não existe.** O limite acima se resolveu por constatação, não por medição: a conta Railway
+tem exatamente dois projetos (`transportada` e `financiamento-imobiliario-bot`) e nenhum `quickcart`;
+`envs/` não tem `env.prod`; e `docs/DEPLOY.md` é plano, não registro (o §webhook diz "novo app a
+criar"). Não há `ENV=<prod>` para rodar. A afirmação da spec §6 de que "os dois `jsonb` têm dado em
+produção nos dois formatos" está **refutada** — não há produção.
+
+**A razão nº 2 fechou removendo a coluna.** Novo inventário em dev, depois de a feature rodar: 13
+pedidos (6 estruturados, 1 texto cru) e **24 clientes com 24 nulos**. Seis pedidos estruturados novos
+passaram pelos dois canais sem escrever `default_address` uma única vez — a coluna não estava
+esperando ser ligada, era inerte por construção. A migração `0012` dropa `customers.default_address` e
+`customers.legacy_address_text` (esta existia só para guardar a forma legada daquela).
+`orders.legacy_address_text` **fica**: `orders.address` tem dado real e a tela de detalhe lê o campo.
+
+Por que não passar a usá-la, que era a outra saída: no WhatsApp seria duplicata de `lastOrder.address`
+— que `toRememberedCheckout` já reaproveita — criando duas fontes de verdade que podem divergir para
+endereço de entrega. Na web, onde estaria o ganho real, pré-preencher exigiria resolver o cliente pelo
+telefone **antes** do submit (hoje `upsertByPhone` roda no submit, e não existe rota de consulta de
+cliente), ou seja um endpoint não autenticado que troca telefone por endereço residencial — BOLA com
+exposição de PII (security.md §1 e §2). E o ganho seria pequeno: o checkout web já autocompleta por
+CEP via ViaCEP, então só o número da casa é digitação manual.
+
+Com conta de cliente, endereço salvo volta por migração aditiva, desenhado junto com a autorização.

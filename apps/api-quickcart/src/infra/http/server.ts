@@ -47,6 +47,7 @@ export function createRouter(): Router {
     streamController: container.conversationHttp.streamController,
     previewTranscriptController: container.conversationHttp.previewTranscriptController,
     previewMediaController: container.conversationHttp.previewMediaController,
+    previewInboundController: container.conversationHttp.previewInboundController,
     unmatchedDemandController: container.conversationHttp.unmatchedDemandController,
   })
 

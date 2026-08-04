@@ -17,10 +17,12 @@ import type { ConversationSettingsController } from './ConversationSettings.cont
 import type { ConversationStreamController } from './ConversationStream.controller'
 import type { createPreviewTranscriptController } from './PreviewTranscript.controller'
 import type { createPreviewMediaController } from './PreviewMedia.controller'
+import type { createPreviewInboundController } from './PreviewInbound.controller'
 import type { UnmatchedDemandController } from './UnmatchedDemand.controller'
 
 type PreviewTranscriptController = ReturnType<typeof createPreviewTranscriptController>
 type PreviewMediaController = ReturnType<typeof createPreviewMediaController>
+type PreviewInboundController = ReturnType<typeof createPreviewInboundController>
 
 type RegisterConversationRoutesParams = {
   readonly router: Router
@@ -29,16 +31,22 @@ type RegisterConversationRoutesParams = {
   readonly streamController: ConversationStreamController
   readonly previewTranscriptController: PreviewTranscriptController
   readonly previewMediaController: PreviewMediaController
+  readonly previewInboundController: PreviewInboundController
   readonly unmatchedDemandController: UnmatchedDemandController
 }
 
 export function registerConversationRoutes(params: RegisterConversationRoutesParams): void {
   const { router, conversationController, settingsController, streamController, previewTranscriptController } = params
-  const { previewMediaController, unmatchedDemandController } = params
+  const { previewMediaController, previewInboundController, unmatchedDemandController } = params
 
   // Demanda que a loja está perdendo. Fica em /admin porque é leitura sobre comportamento de cliente,
   // e agregada ela ainda diz quantas pessoas pediram cada item.
   router.get('/v1/admin/demands/unmatched', unmatchedDemandController.handleListAdmin)
+
+  // Antes das rotas com `:number`: "preview" casaria com o parâmetro dinâmico. Ao contrário das
+  // outras rotas de preview, esta é do painel e exige token de admin — forjar um inbound é escrever
+  // no transcript de um cliente.
+  router.post('/v1/admin/conversations/preview/inbound', previewInboundController.handleSend)
 
   router.get('/v1/admin/conversations', conversationController.handleList)
   router.get('/v1/admin/conversations/:number/messages', conversationController.handleListMessages)

@@ -652,7 +652,7 @@ export function OrderDetailView({
 
         <p className="text-xs text-muted-foreground print:hidden">
           {/* Dito na tela, e não só no código: marcação que some ao trocar de aparelho precisa avisar. */}
-          As marcações de separação ficam neste aparelho e não mudam o pedido.
+          As marcações ficam no pedido: quem abrir em outro aparelho vê a mesma separação.
         </p>
       </section>
     </div>

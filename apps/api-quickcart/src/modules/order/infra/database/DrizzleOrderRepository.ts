@@ -75,6 +75,7 @@ function toOrderItemRecord(item: OrderItem): OrderItemRecord {
     totalInCents: item.totalInCents,
     unavailableAt: item.unavailableAt,
     unavailableNotifiedAt: item.unavailableNotifiedAt,
+    pickedAt: item.pickedAt,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   }
@@ -277,6 +278,36 @@ export class DrizzleOrderRepository implements OrderRepositoryInterface {
       .returning()
 
     return notifiedNow.map(toOrderItemRecord)
+  }
+
+  async setItemPicked(params: {
+    orderId: string
+    itemId: string
+    picked: boolean
+  }): Promise<OrderDetail | undefined> {
+    await db
+      .update(orderItems)
+      .set({ pickedAt: params.picked ? new Date() : null, updatedAt: new Date() })
+      .where(and(eq(orderItems.id, params.itemId), eq(orderItems.orderId, params.orderId)))
+
+    return this.findDetailById(params.orderId)
+  }
+
+  async setAllItemsPicked(params: { orderId: string; picked: boolean }): Promise<OrderDetail | undefined> {
+    /*
+     * Ao MARCAR, item em falta fica de fora: não se separa o que não existe, e marcá-lo faria o
+     * progresso dizer que a sacola está completa. Ao LIMPAR, todos são limpos — limpar é desfazer.
+     */
+    const scope = params.picked
+      ? and(eq(orderItems.orderId, params.orderId), isNull(orderItems.unavailableAt))
+      : eq(orderItems.orderId, params.orderId)
+
+    await db
+      .update(orderItems)
+      .set({ pickedAt: params.picked ? new Date() : null, updatedAt: new Date() })
+      .where(scope)
+
+    return this.findDetailById(params.orderId)
   }
 
   async setItemUnavailable(params: {

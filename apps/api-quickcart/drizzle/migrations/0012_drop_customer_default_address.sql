@@ -1,0 +1,28 @@
+-- Remove `customers.default_address` e `customers.legacy_address_text`, ambas sem escritor.
+--
+-- `default_address` é a coluna morta que a ADR 0001 usou como razão nº 2 para cancelar o backfill.
+-- Esta migração fecha aquela pendência, com a decisão que a ADR deixou explicitamente fora do seu
+-- escopo ("se essa coluna deve passar a ser escrita é outra decisão").
+--
+-- Medido antes de dropar: nenhum caller passava `defaultAddress` para `updateContactInfo` (o único
+-- uso, em CheckoutHandler, passa apenas `email`), nada além dos arquivos de schema lia a coluna, e o
+-- inventário de dev deu 24 clientes com 24 nulos — depois de 6 pedidos estruturados novos terem
+-- passado pelos dois canais sem escrever nela uma vez. Não era coluna esperando ser ligada.
+--
+-- `legacy_address_text` de clientes cai junto porque existia só para guardar a forma legada de
+-- `default_address`: sem a coluna de origem, e com o backfill cancelado, ela não tem como receber
+-- dado. `orders.legacy_address_text` NÃO é afetada — `orders.address` tem dado real, inclusive um
+-- texto cru, e a tela de detalhe do pedido lê o campo legado.
+--
+-- Por que não passar a usar, em vez de remover: no WhatsApp seria duplicata de `lastOrder.address`,
+-- que `toRememberedCheckout` já reaproveita, criando duas fontes de verdade que podem divergir para
+-- endereço de entrega. Na web o ganho exigiria pré-preencher o endereço a partir do telefone antes do
+-- submit — um endpoint não autenticado que troca telefone por endereço residencial, ou seja
+-- exposição de PII por BOLA. Com conta de cliente, a coluna volta por migração aditiva, desenhada
+-- junto com a autorização.
+--
+-- Seguro: não existe ambiente de produção (a conta Railway não tem projeto `quickcart`; DEPLOY.md é
+-- plano, não registro), e em dev e test as duas colunas estão inteiramente nulas.
+ALTER TABLE "customers" DROP COLUMN IF EXISTS "default_address";
+--> statement-breakpoint
+ALTER TABLE "customers" DROP COLUMN IF EXISTS "legacy_address_text";

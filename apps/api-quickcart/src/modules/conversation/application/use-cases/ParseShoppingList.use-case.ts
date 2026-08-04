@@ -110,6 +110,28 @@ function segmentText(normalizedText: string): readonly string[] {
     .filter((segment) => segment.length > 0)
 }
 
+/**
+ * Verbo de intenção no começo do segmento: "QUERO 3 quilos de feijão".
+ *
+ * Todas as regexes de `extractItem` estão ancoradas no início do segmento, então uma palavra na
+ * frente derrubava todas e o segmento caía no caso final — termo com o verbo colado
+ * ("quero 3 quilos de feijao") e **quantidade 1**, perdendo os 3 quilos que o cliente pediu.
+ *
+ * Isso ficou comum com nota de voz: escrevendo as pessoas mandam "3 kg de feijão", falando dizem
+ * "quero 3 quilos de feijão" — e a transcrição é fiel. O estrago era duplo: pedido com quantidade
+ * errada, e o relatório de demanda do lojista poluído com "quero 3 quilos de feijao" como termo.
+ *
+ * Alternativas mais longas primeiro, senão `quero` casaria antes de `quero comprar` e sobraria
+ * "comprar 3 quilos". O `\s+` no fim é obrigatório para não cortar produto que começa com o verbo —
+ * "queijo" não vira "jo" — e o `$` cobre o segmento que é só o verbo, como em "quero, 2 litros de leite".
+ */
+const LEADING_INTENT_PHRASE =
+  /^(?:eu\s+)?(?:quero\s+comprar|vou\s+querer|me\s+manda|me\s+ve|gostaria|preciso|precisava|quero|queria|manda|mande|traz|traga|coloca|adiciona|poe|bota)(?:\s+de|\s+comprar)?(?:\s+|$)/
+
+function stripLeadingIntent(segment: string): string {
+  return segment.replace(LEADING_INTENT_PHRASE, '').trim()
+}
+
 function parseQuantity(rawQuantity: string): number {
   return Number.parseFloat(rawQuantity.replace(',', '.'))
 }
@@ -173,7 +195,11 @@ function extractItem(segment: string): ParsedListItem {
 
 function parseWithRegex(rawText: string): readonly ParsedListItem[] {
   const normalizedText = normalizeText(rawText)
-  return segmentText(normalizedText).map(extractItem)
+  return segmentText(normalizedText)
+    .map(stripLeadingIntent)
+    // Segmento que era só o verbo ("quero" sozinho) não é item — sobra string vazia e sai daqui.
+    .filter((segment) => segment.length > 0)
+    .map(extractItem)
 }
 
 export class ParseShoppingListUseCase {

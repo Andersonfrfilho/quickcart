@@ -44,6 +44,8 @@ export type OrderItemRecord = {
   readonly unavailableAt: Date | null
   /** `null` com `unavailableAt` preenchido = falta registrada e cliente ainda não avisado. */
   readonly unavailableNotifiedAt: Date | null
+  /** Quando foi separado. `null` = ainda não. Vem do servidor, não do aparelho de quem separa. */
+  readonly pickedAt: Date | null
   readonly createdAt: Date
   readonly updatedAt: Date
 }
@@ -150,6 +152,25 @@ export interface OrderRepositoryInterface {
     readonly itemId: string
     readonly unavailable: boolean
   }): Promise<OrderDetail | undefined>
+  /**
+   * Marca (ou desmarca) um item como separado.
+   *
+   * Não recalcula total: separar não muda o que o cliente paga — quem muda é a falta. Devolve o detalhe
+   * inteiro porque a tela precisa do progresso recontado, e recontar no cliente abriria a chance de duas
+   * verdades sobre o mesmo pedido.
+   */
+  setItemPicked(params: {
+    readonly orderId: string
+    readonly itemId: string
+    readonly picked: boolean
+  }): Promise<OrderDetail | undefined>
+  /**
+   * Marca ou limpa todos de uma vez, em uma ida ao banco.
+   *
+   * "Marcar todos" numa compra de mês seriam trinta requisições, e trinta chances de metade ficar
+   * marcada se a rede cair no meio. Item em falta fica de fora ao marcar: não se separa o que não existe.
+   */
+  setAllItemsPicked(params: { readonly orderId: string; readonly picked: boolean }): Promise<OrderDetail | undefined>
   /**
    * Muda o status, opcionalmente só se o atual for `expectedCurrentStatus`.
    *

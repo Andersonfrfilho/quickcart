@@ -52,6 +52,7 @@ import type { ObjectStorageInterface } from '@adatechnology/meta-whatsapp-contra
 import { ConversationSettingsController } from '@/modules/conversation/infra/http/ConversationSettings.controller'
 import { createPreviewTranscriptController } from '@/modules/conversation/infra/http/PreviewTranscript.controller'
 import { createPreviewMediaController } from '@/modules/conversation/infra/http/PreviewMedia.controller'
+import { createPreviewInboundController } from '@/modules/conversation/infra/http/PreviewInbound.controller'
 import { ConversationStreamController } from '@/modules/conversation/infra/http/ConversationStream.controller'
 import { conversationSseHub, conversationTicketStore } from '@/modules/conversation/infra/realtime/conversationRealtime'
 import { FlowDriver } from '@/modules/conversation/application/FlowDriver'
@@ -101,6 +102,7 @@ import { ResolveOrderDeliveryEstimateUseCase } from '@/modules/order/application
 import { ResolveCepCoordinateUseCase } from '@/modules/shared/address/ResolveCepCoordinate.use-case'
 import { DrizzleGeocodedAddressRepository } from '@/modules/shared/address/infra/DrizzleGeocodedAddressRepository'
 import { SetOrderItemUnavailableUseCase } from '@/modules/order/application/use-cases/SetOrderItemUnavailable.use-case'
+import { SetOrderItemPickedUseCase } from '@/modules/order/application/use-cases/SetOrderItemPicked.use-case'
 import { NotifyUnavailableItemsUseCase } from '@/modules/order/application/use-cases/NotifyUnavailableItems.use-case'
 import { RepeatLastOrderUseCase } from '@/modules/order/application/use-cases/RepeatLastOrder.use-case'
 import { ListOrdersUseCase } from '@/modules/order/application/use-cases/ListOrders.use-case'
@@ -248,6 +250,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     orderRepository,
     resolveOrderDeliveryEstimateUseCase,
   })
+  const setOrderItemPickedUseCase = new SetOrderItemPickedUseCase({ orderRepository })
   const setOrderItemUnavailableUseCase = new SetOrderItemUnavailableUseCase({
     orderRepository,
     unmatchedDemandRepository: new DrizzleUnmatchedDemandRepository(),
@@ -272,6 +275,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     updateOrderStatusUseCase,
     getAdminOrderDetailUseCase,
     setOrderItemUnavailableUseCase,
+    setOrderItemPickedUseCase,
     notifyUnavailableItemsUseCase,
   })
 
@@ -560,6 +564,7 @@ type ConversationHttpModule = {
   readonly streamController: ConversationStreamController
   readonly previewTranscriptController: ReturnType<typeof createPreviewTranscriptController>
   readonly previewMediaController: ReturnType<typeof createPreviewMediaController>
+  readonly previewInboundController: ReturnType<typeof createPreviewInboundController>
   readonly unmatchedDemandController: UnmatchedDemandController
 }
 
@@ -582,6 +587,7 @@ function buildConversationHttpModule(params: {
     // `undefined` quando features.previewMedia está desligado — o controller responde 404 e o
     // simulador esconde o microfone, em vez de oferecer um botão que não tem onde guardar o áudio.
     previewMediaController: createPreviewMediaController(params.metaWhatsApp.previewMedia),
+    previewInboundController: createPreviewInboundController(params.metaWhatsApp),
     unmatchedDemandController: new UnmatchedDemandController({
       unmatchedDemandRepository: new DrizzleUnmatchedDemandRepository(),
     }),

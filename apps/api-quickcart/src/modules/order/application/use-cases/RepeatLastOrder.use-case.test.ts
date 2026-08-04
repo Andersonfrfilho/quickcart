@@ -177,6 +177,14 @@ class FakeOrderRepository implements OrderRepositoryInterface {
     return this.findDetailById(params.orderId)
   }
 
+  async setItemPicked(): Promise<undefined> {
+    throw new Error('not implemented')
+  }
+
+  async setAllItemsPicked(): Promise<undefined> {
+    throw new Error('not implemented')
+  }
+
   async markUnavailableItemsNotified(_orderId: string) {
     // O fake não guarda item: os testes deste caso de uso não passam por aviso de falta.
     return []
@@ -232,6 +240,7 @@ function buildOrderItem(overrides: Partial<OrderItemRecord> = {}): OrderItemReco
     totalInCents: 5000,
     unavailableAt: null,
     unavailableNotifiedAt: null,
+        pickedAt: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
