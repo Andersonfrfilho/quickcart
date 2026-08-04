@@ -5,36 +5,8 @@ import { useRequireAdmin } from '@/modules/admin/shared/useAdminAuth.hook'
 import { useUpdateOrderStatusMutation } from '@/modules/admin/shared/mutations/useUpdateOrderStatus.mutation'
 import { useSetOrderItemUnavailableMutation } from '@/modules/admin/shared/mutations/useSetOrderItemUnavailable.mutation'
 import { useNotifyUnavailableItemsMutation } from '@/modules/admin/shared/mutations/useNotifyUnavailableItems.mutation'
+import { useSetOrderItemPickedMutation } from '@/modules/admin/shared/mutations/useSetOrderItemPicked.mutation'
 import { adminGetOrderDetail } from '@/shared/api/client'
-
-/**
- * Itens já separados, por pedido, guardados no aparelho.
- *
- * É marcação de trabalho em andamento, não estado do pedido: quem separa vai ao corredor, volta, atende
- * alguém e precisa achar onde parou. Fica no `localStorage` e não no servidor de propósito — virar
- * campo do pedido faria a marca de duas pessoas separando o mesmo pedido brigar entre si, e "separado"
- * não é um fato sobre a compra, é sobre o turno de quem está com ela na mão.
- */
-const PICKED_ITEMS_STORAGE_PREFIX = 'quickcart:picked-items:'
-
-function readPickedItems(orderId: string): readonly string[] {
-  try {
-    const raw = window.localStorage.getItem(`${PICKED_ITEMS_STORAGE_PREFIX}${orderId}`)
-    const parsed: unknown = raw ? JSON.parse(raw) : []
-    return Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === 'string') : []
-  } catch {
-    // Armazenamento indisponível ou conteúdo corrompido: começa do zero em vez de derrubar a tela.
-    return []
-  }
-}
-
-function writePickedItems(orderId: string, itemIds: readonly string[]): void {
-  try {
-    window.localStorage.setItem(`${PICKED_ITEMS_STORAGE_PREFIX}${orderId}`, JSON.stringify(itemIds))
-  } catch {
-    // Sem persistir. A marcação continua valendo nesta sessão da tela.
-  }
-}
 
 export function useAdminOrderDetailPage() {
   const token = useRequireAdmin()
@@ -50,41 +22,44 @@ export function useAdminOrderDetailPage() {
   const updateStatusMutation = useUpdateOrderStatusMutation(token)
   const setUnavailableMutation = useSetOrderItemUnavailableMutation(token)
   const notifyUnavailableMutation = useNotifyUnavailableItemsMutation(token)
+  const setPickedMutation = useSetOrderItemPickedMutation(token)
 
-  const [pickedItemIds, setPickedItemIds] = React.useState<readonly string[]>([])
   const [hidePickedItems, setHidePickedItems] = React.useState(false)
 
-  // Relê ao trocar de pedido: a marcação é por pedido, e carregar a do anterior mostraria itens
-  // separados que ninguém separou.
+  // "Esconder separados" é preferência de quem está olhando agora, não fato do pedido — continua local,
+  // e volta ao normal ao trocar de pedido.
   React.useEffect(() => {
-    setPickedItemIds(orderId ? readPickedItems(orderId) : [])
     setHidePickedItems(false)
   }, [orderId])
 
+  const order = data?.data
+  const items = order?.items ?? []
+
+  /**
+   * A marcação vem do SERVIDOR (`pickedAt`), não de estado local.
+   *
+   * Era `localStorage` por aparelho: separar no tablet do balcão e abrir no celular mostrava "0/2
+   * separados" num pedido cuja esteira já dizia "Separado", e quem chegava depois não tinha como saber
+   * qual das duas era verdade.
+   */
+  const pickedItemIds = items.filter((item) => item.pickedAt !== null).map((item) => item.id)
+  const pickedCount = pickedItemIds.length
+  const visibleItems = hidePickedItems ? items.filter((item) => item.pickedAt === null) : items
+
   function togglePicked(itemId: string) {
-    setPickedItemIds((current) => {
-      const next = current.includes(itemId) ? current.filter((id) => id !== itemId) : [...current, itemId]
-      writePickedItems(orderId, next)
-      return next
-    })
+    const item = items.find((candidate) => candidate.id === itemId)
+    if (!item) return
+    setPickedMutation.mutate({ orderId, itemId, picked: item.pickedAt === null })
   }
 
-  /** Item em falta fica fora: ele não vai na sacola, e marcá-lo como separado seria registrar mentira. */
+  /** Uma requisição para todos: o servidor deixa item em falta de fora, que é onde a regra pertence. */
   function pickAll() {
-    const availableIds = items.filter((item) => item.unavailableAt === null).map((item) => item.id)
-    setPickedItemIds(availableIds)
-    writePickedItems(orderId, availableIds)
+    setPickedMutation.mutate({ orderId, picked: true })
   }
 
   function clearPicked() {
-    setPickedItemIds([])
-    writePickedItems(orderId, [])
+    setPickedMutation.mutate({ orderId, picked: false })
   }
-
-  const order = data?.data
-  const items = order?.items ?? []
-  const pickedCount = items.filter((item) => pickedItemIds.includes(item.id)).length
-  const visibleItems = hidePickedItems ? items.filter((item) => !pickedItemIds.includes(item.id)) : items
 
   function updateStatus(status: string) {
     updateStatusMutation.mutate({ id: orderId, status })
@@ -93,18 +68,12 @@ export function useAdminOrderDetailPage() {
   function setUnavailable({ itemId, unavailable }: { itemId: string; unavailable: boolean }) {
     setUnavailableMutation.mutate({ orderId, itemId, unavailable })
 
-    // Item que acabou não fica marcado como separado: são estados que se excluem, e deixar as duas
-    // marcas juntas faria o progresso contar como pronto algo que não vai na sacola.
-    if (unavailable) togglePickedOff(itemId)
-  }
-
-  function togglePickedOff(itemId: string) {
-    setPickedItemIds((current) => {
-      if (!current.includes(itemId)) return current
-      const next = current.filter((id) => id !== itemId)
-      writePickedItems(orderId, next)
-      return next
-    })
+    /*
+     * Item que acabou não fica marcado como separado: são estados que se excluem, e deixar as duas
+     * marcas juntas faria o progresso contar como pronto algo que não vai na sacola. Vai ao servidor
+     * também, senão a contradição só desapareceria neste aparelho.
+     */
+    if (unavailable) setPickedMutation.mutate({ orderId, itemId, picked: false })
   }
 
   return {

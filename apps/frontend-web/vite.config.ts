@@ -1,9 +1,13 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
-export default defineConfig({
+/**
+ * Config como FUNÇÃO para usar `loadEnv`: o `vite.config` é avaliado ANTES de o Vite carregar os
+ * `.env`, então `process.env.VITE_*` está vazio aqui.
+ */
+export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
     tailwindcss(),
@@ -35,26 +39,34 @@ export default defineConfig({
   resolve: {
     alias: { '@': '/src' },
   },
-  /**
-   * O `exclude` de `@adatechnology/conversations-ui` saiu daqui.
+  // O SDK entra por `bun link`, apontando para o `dist` de outro repositório. Pré-bundlado, o Vite
+  // congela uma cópia em `node_modules/.vite` e NÃO a invalida quando aquele dist é reconstruído —
+  // o navegador segue recebendo a versão antiga, sem erro nenhum, e a única pista é a mudança não
+  // aparecer. Custou horas de "não funciona" que já estava corrigido. Excluir do pré-bundle troca um
+  // pouco de tempo de carga por ver sempre o build atual.
+  /*
+   * Pré-bundle do SDK: ligado quando ele vem do registry, desligado quando vem de `bun link`.
    *
-   * Ele existia para o tempo em que o pacote entrava por `bun link`: pré-bundlado, o Vite congela
-   * uma cópia em `node_modules/.vite` e não a invalida quando o `dist` do outro repositório é
-   * reconstruído. Com o pacote vindo do registry em versão fixada, o `dist` é imutável e o problema
-   * não existe.
+   * Excluir `conversations-ui` existia por um motivo real: como symlink para o fonte do SDK, o pacote
+   * pré-bundleado ficava congelado e o navegador seguia recebendo a versão antiga sem erro nenhum — a
+   * única pista era a mudança não aparecer, e isso custou horas de "não funciona" já corrigido.
    *
-   * E o contorno passou a ser a causa: fora do pré-bundle, o Vite serve o pacote cru por `/@fs/`,
-   * sem o shim de interop para as dependências CJS dele — `use-sync-external-store/shim/
-   * with-selector` quebra com "does not provide an export named 'default'", e o app não monta com a
-   * raiz vazia e o console limpo.
+   * Só que, vindo do registry, excluir QUEBRA a aplicação: o Vite serve o ESM cru do pacote e não
+   * reescreve os `import` internos dele, então a dependência CommonJS `use-sync-external-store` chega
+   * ao navegador sem `default` export — tela branca, sem erro no terminal. Pôr a dependência em
+   * `include` não resolve, porque a reescrita não acontece dentro de pacote excluído.
    *
-   * Se algum dia voltar a linkar um pacote localmente, prefira `overrides` para um tarball do
-   * `pnpm pack` — versão fixa, pré-bundle funcionando, e sem cache preso.
+   * Então a exclusão passa a ser opt-in de quem está editando o SDK: `VITE_SDK_LINKED=1 make dev-web`
+   * depois de `make link-sdk`. O padrão é pré-bundlear, que é o caminho de quem só roda o quickcart.
    */
+  optimizeDeps: {
+    exclude: process.env.VITE_SDK_LINKED === '1' ? ['@adatechnology/conversations-ui'] : [],
+  },
   server: {
     port: 5183,
     proxy: {
-      '/v1': { target: 'http://localhost:3344', changeOrigin: true },
+      /** Alvo por env para worktrees conviverem em portas diferentes. */
+      '/v1': { target: loadEnv(mode, process.cwd(), '').VITE_API_PROXY_TARGET || 'http://localhost:3344', changeOrigin: true },
     },
   },
-})
+}))

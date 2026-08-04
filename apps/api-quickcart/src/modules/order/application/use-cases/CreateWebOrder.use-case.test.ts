@@ -83,8 +83,6 @@ class FakeCustomerRepository implements CustomerRepositoryInterface {
       phone: params.phone,
       name: params.name ?? null,
       email: null,
-      defaultAddress: null,
-      legacyAddressText: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -96,8 +94,6 @@ class FakeCustomerRepository implements CustomerRepositoryInterface {
       phone: '',
       name: null,
       email: params.email ?? null,
-      defaultAddress: params.defaultAddress ?? null,
-      legacyAddressText: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -186,6 +182,7 @@ class FakeOrderRepository implements OrderRepositoryInterface {
       totalInCents: item.totalInCents,
       unavailableAt: null,
       unavailableNotifiedAt: null,
+        pickedAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }))
@@ -221,6 +218,14 @@ class FakeOrderRepository implements OrderRepositoryInterface {
   async setItemUnavailable(params: { orderId: string; itemId: string; unavailable: boolean }) {
     // O fake não guarda item: os testes deste caso de uso não passam por falta de produto.
     return this.findDetailById(params.orderId)
+  }
+
+  async setItemPicked(): Promise<undefined> {
+    throw new Error('not implemented')
+  }
+
+  async setAllItemsPicked(): Promise<undefined> {
+    throw new Error('not implemented')
   }
 
   async markUnavailableItemsNotified(_orderId: string) {

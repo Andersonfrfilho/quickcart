@@ -13,8 +13,10 @@ import { requireAdminToken } from '@/infra/http/middlewares/requireAdminToken'
 import { allowedNextStatuses } from '@/modules/order/domain/orderStatusFlow'
 import type { GetAdminOrderDetailUseCase } from '@/modules/order/application/use-cases/GetAdminOrderDetail.use-case'
 import type { SetOrderItemUnavailableUseCase } from '@/modules/order/application/use-cases/SetOrderItemUnavailable.use-case'
+import type { SetOrderItemPickedUseCase } from '@/modules/order/application/use-cases/SetOrderItemPicked.use-case'
 import type { NotifyUnavailableItemsUseCase } from '@/modules/order/application/use-cases/NotifyUnavailableItems.use-case'
 import { setOrderItemUnavailableBodySchema } from '@/modules/order/infra/http/schemas/SetOrderItemUnavailable.schema'
+import { setOrderItemPickedBodySchema } from '@/modules/order/infra/http/schemas/SetOrderItemPicked.schema'
 import { validateBody } from '@/infra/http/middlewares/validateBody'
 import { validateQuery } from '@/infra/http/middlewares/validateQuery'
 import { ValidationError } from '@/shared/errors/AppError.error'
@@ -35,6 +37,7 @@ type OrderControllerDependencies = {
   readonly updateOrderStatusUseCase: UpdateOrderStatusUseCase
   readonly getAdminOrderDetailUseCase: GetAdminOrderDetailUseCase
   readonly setOrderItemUnavailableUseCase: SetOrderItemUnavailableUseCase
+  readonly setOrderItemPickedUseCase: SetOrderItemPickedUseCase
   readonly notifyUnavailableItemsUseCase: NotifyUnavailableItemsUseCase
 }
 
@@ -107,6 +110,26 @@ export class OrderController {
     const { unavailable } = validateBody(setOrderItemUnavailableBodySchema, request.body)
 
     const detail = await this.dependencies.setOrderItemUnavailableUseCase.execute({ orderId, itemId, unavailable })
+    response.json(200, { data: { ...withAllowedTransitions(detail.order), items: detail.items } })
+  }
+
+  /**
+   * Marca um item como separado, ou todos quando a rota não traz item.
+   *
+   * Duas rotas, um handler: "marcar todos" numa compra de mês seriam trinta requisições, e trinta
+   * chances de metade ficar marcada se a rede cair no meio.
+   */
+  handleSetItemPicked: RouteHandler = async (request, response) => {
+    requireAdminToken(request)
+    const orderId = request.params[0] ?? ''
+    const itemId = request.params[1]
+    const { picked } = validateBody(setOrderItemPickedBodySchema, request.body)
+
+    const detail = await this.dependencies.setOrderItemPickedUseCase.execute({
+      orderId,
+      ...(itemId ? { itemId } : {}),
+      picked,
+    })
     response.json(200, { data: { ...withAllowedTransitions(detail.order), items: detail.items } })
   }
 

@@ -48,7 +48,6 @@ export class DrizzleCustomerRepository implements CustomerRepositoryInterface {
       .set({
         updatedAt: new Date(),
         ...(params.email !== undefined ? { email: params.email } : {}),
-        ...(params.defaultAddress !== undefined ? { defaultAddress: params.defaultAddress } : {}),
       })
       .where(eq(customers.id, params.customerId))
       .returning()

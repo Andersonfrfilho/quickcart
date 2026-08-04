@@ -17,11 +17,15 @@ import { ORDER_STATUS } from '@/modules/order/shared/Order.constant'
 import type { OrderRepositoryInterface } from '@/modules/order/domain/OrderRepository.interface'
 import type { JobQueue } from '@/modules/order/domain/JobQueue.interface'
 import type { UpdateOrderStatusParams, UpdateOrderStatusResult } from '../types/UpdateOrderStatus.types'
+import { logger } from '@/shared/logger'
+import { serializeError } from '@/shared/serializeError'
 
 type UpdateOrderStatusUseCaseDependencies = {
   readonly orderRepository: OrderRepositoryInterface
   readonly notificationQueue: JobQueue
 }
+
+const useCaseLog = logger.child('UpdateOrderStatus')
 
 export class UpdateOrderStatusUseCase {
   constructor(private readonly dependencies: UpdateOrderStatusUseCaseDependencies) {}
@@ -66,6 +70,25 @@ export class UpdateOrderStatusUseCase {
         nextStatus: params.status,
         allowedNextStatuses: allowedNextStatuses({ status: latest.status, deliveryType: latest.deliveryType }),
       })
+    }
+
+    /**
+     * "Separado" afirma que a separação terminou — então os itens ficam marcados.
+     *
+     * Sem isto, avançar o status pelo botão da lista (que é como a maioria dos pedidos anda) deixava a
+     * tela se contradizendo: a esteira dizia "Separado" e a lista de itens dizia "0/2 separados · 0%".
+     * Foi assim que o defeito apareceu num pedido real.
+     *
+     * Item em falta fica de fora — quem aplica essa parte é o repositório, e é onde ela pertence.
+     * Falhar aqui não desfaz a transição: o status já é verdade, e o pior caso é a contagem ficar
+     * atrasada até alguém marcar à mão.
+     */
+    if (params.status === ORDER_STATUS.SEPARATED) {
+      try {
+        await this.dependencies.orderRepository.setAllItemsPicked({ orderId: params.orderId, picked: true })
+      } catch (error: unknown) {
+        useCaseLog.warn('items_not_marked_picked', { orderId: params.orderId, error: serializeError(error) })
+      }
     }
 
     await this.dependencies.notificationQueue.add('order-status-changed', {

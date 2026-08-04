@@ -9,10 +9,13 @@
  *
  * Inventário das formas de endereço gravadas — SÓ LEITURA (`make address-inventory`).
  *
- * Existe porque a Fase 4 da spec de distância/ETA propunha reescrever os dois `jsonb` a partir de
- * texto livre, e a decisão de não fazer isso (docs/adr/0001) foi tomada com dados de DEV: sete
+ * Existe porque a Fase 4 da spec de distância/ETA propunha reescrever os `jsonb` de endereço a partir
+ * de texto livre, e a decisão de não fazer isso (docs/adr/0001) foi tomada com dados de DEV: sete
  * pedidos. Antes de qualquer conclusão sobre produção, é este script que mede lá — sem escrever
  * nada, então pode rodar em qualquer ambiente sem plano de rollback.
+ *
+ * Mede só `orders`. Media `customers.default_address` também, até a migração 0012 dropar a coluna:
+ * ela nunca teve escritor, e cliente não guarda endereço — o endereço de entrega vive no pedido.
  *
  * NENHUM ENDEREÇO É IMPRESSO. Endereço completo é dado pessoal (security.md §1), e um inventário
  * que despeja endereços numa saída de terminal ou log de CI vira justamente o vazamento que a regra
@@ -52,7 +55,13 @@ type AddressShapeCounts = {
   readonly comLegado: number
 }
 
-async function countShapes(table: 'orders' | 'customers', column: string): Promise<AddressShapeCounts> {
+/*
+ * `sql.raw` com nome de tabela e coluna fixos no código, nunca com valor de usuário — a exceção que
+ * database.md permite, e o motivo está aqui: identificador não é parametrizável em Postgres.
+ */
+async function countOrderAddressShapes(): Promise<AddressShapeCounts> {
+  const table = 'orders'
+  const column = 'address'
   const structuredCondition = STRUCTURED_KEYS.map((key) => `${column} ? '${key}'`).join(' and ')
 
   const result = await db.execute<Record<string, string>>(
@@ -87,13 +96,13 @@ async function countShapes(table: 'orders' | 'customers', column: string): Promi
 
 async function runInventory(): Promise<void> {
   /*
-   * `sql.raw` com nome de tabela/coluna fixo no código, nunca com valor de usuário — a exceção que
-   * database.md permite, e o motivo está aqui: identificadores não são parametrizáveis em Postgres.
+   * Só pedidos. `customers.default_address` e `customers.legacy_address_text` saíram na migração 0012
+   * — eram as colunas mortas que a ADR 0001 usou como razão nº 2 para cancelar o backfill, e a
+   * decisão sobre elas veio depois. Não há mais forma de endereço de cliente para inventariar.
    */
-  const orders = await countShapes('orders', 'address')
-  const customers = await countShapes('customers', 'default_address')
+  const orders = await countOrderAddressShapes()
 
-  log.info('address_inventory', { orders, customers })
+  log.info('address_inventory', { orders })
 }
 
 runInventory()

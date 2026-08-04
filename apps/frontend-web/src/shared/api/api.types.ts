@@ -136,6 +136,13 @@ export type OrderItem = {
   readonly unavailableAt: string | null
   /** `null` com `unavailableAt` preenchido = falta registrada e cliente ainda não avisado. */
   readonly unavailableNotifiedAt: string | null
+  /**
+   * Quando foi separado. `null` = ainda não.
+   *
+   * Vem do servidor, não do aparelho: a marcação por `localStorage` fazia a tela dizer "0/2 separados"
+   * num pedido cuja esteira já dizia "Separado", e ninguém sabia qual das duas era verdade.
+   */
+  readonly pickedAt: string | null
 }
 
 /**

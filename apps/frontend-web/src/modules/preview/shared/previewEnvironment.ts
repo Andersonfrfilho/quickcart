@@ -11,6 +11,11 @@
  * significa carregar um segredo no bundle — aceitável no docker local, inaceitável em qualquer
  * outro lugar. Por isso a habilitação exige DUAS condições independentes: build de desenvolvimento
  * E flag explícita. Uma sozinha é fácil demais de ligar por acidente.
+ *
+ * Restou APENAS para a aba do cliente (`CustomerPreview.page`), que não tem sessão de admin e por
+ * isso se autentica por HMAC. O simulador do painel não passa mais por aqui: ele manda a intenção
+ * para a API, que assina do lado do servidor. Qualquer app secret que já tenha sido publicado num
+ * bundle com este prefixo deve ser tratado como queimado e rotacionado.
  */
 
 const PREVIEW_FLAG_ENABLED = 'true'

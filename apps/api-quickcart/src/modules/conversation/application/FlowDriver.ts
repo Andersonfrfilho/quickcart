@@ -30,7 +30,7 @@ import type { AudioTranscriber } from '@adatechnology/audio-transcription-provid
 import { serializeError } from '@/shared/serializeError'
 import { MESSAGES } from '@/modules/conversation/shared/Messages.constant'
 import { matchChoiceOption } from '@/modules/conversation/application/matchChoiceOption'
-import { looksLikeShoppingList } from '@/modules/conversation/application/looksLikeShoppingList'
+import { shouldYieldToShoppingList } from '@/modules/conversation/application/shouldYieldToShoppingList'
 import { wrapChannelWithLogging } from '@/modules/conversation/application/wrapChannelWithLogging'
 
 const flowLog = logger.child('FlowDriver')
@@ -132,28 +132,6 @@ export class FlowDriver {
     return text
   }
 
-  /**
-   * Entrega a conversa à engine quando o cliente dita a lista em vez de escolher no menu.
-   *
-   * O menu diz "pode me mandar sua lista", e quem obedecia recebia o menu de novo: nenhuma opção casa
-   * com "dois quilos de arroz e um litro de leite", então o nó caía no `default` e reperguntava. O
-   * grafo tem a primeira palavra em toda mensagem, então o `GlobalHandler` — que sabe atender lista
-   * solta — nunca era alcançado.
-   *
-   * Só em nó de ESCOLHA, e só quando nenhuma opção casou. Num nó que pede um dado específico ("qual
-   * seu nome?") a resposta pertence ao nó, e sair dali perderia o que a pessoa respondeu.
-   */
-  private shouldYieldToShoppingList(message: ParsedInboundMessage, node: FlowNodeData | undefined): boolean {
-    if (message.kind !== 'text') return false
-
-    const isChoice = node?.type === 'menu' || node?.questionType === 'choice'
-    if (!isChoice || !node?.options || node.options.length === 0) return false
-
-    if (matchChoiceOption(message.body, node.options) !== undefined) return false
-
-    return looksLikeShoppingList(message.body)
-  }
-
   registerFlowAction(kind: string, handler: FlowActionHandler): void {
     this.dependencies.interpreter.registerFlowAction(kind, handler)
   }
@@ -174,7 +152,27 @@ export class FlowDriver {
     const currentNodeId = session.currentNodeId ?? graph.startNodeId
     const node = graph.nodes[currentNodeId]
 
-    if (this.shouldYieldToShoppingList(message, node)) {
+    /*
+     * O nome vem do contexto do FLUXO, não do cadastro: é ele que o nó de saudação preenche, e é o que
+     * sobrevive à expiração da sessão da engine — que zera o contexto dela mas não o do grafo.
+     */
+    const flowContext = (session.context ?? {}) as { readonly customerName?: unknown }
+
+    if (
+      shouldYieldToShoppingList({
+        messageKind: message.kind,
+        body: message.kind === 'text' ? message.body : '',
+        nodeType: node?.type,
+        nodeQuestionType: node?.questionType,
+        hasOptions: (node?.options?.length ?? 0) > 0,
+        matchedOption:
+          message.kind === 'text' && node?.options
+            ? matchChoiceOption(message.body, node.options) !== undefined
+            : false,
+        isAtStartNode: currentNodeId === graph.startNodeId,
+        hasKnownCustomerName: typeof flowContext.customerName === 'string' && flowContext.customerName.length > 0,
+      })
+    ) {
       // Solta a posição antes de sair: sem isto a próxima mensagem do cliente reentraria no menu
       // enquanto a engine está no meio da desambiguação, e as duas brigariam pela mesma resposta.
       await this.dependencies.sessionRepository.setFlowPosition(COMPANY_ID, session.whatsappNumber, null, null)

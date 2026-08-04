@@ -17,7 +17,7 @@
   "dependencies": {
     "@adatechnology/audio-transcription-provider": "0.1.0-rc.1",
     "@adatechnology/meta-whatsapp-contracts": "0.2.0-rc.9",
-    "@adatechnology/meta-whatsapp-module": "0.2.0-rc.17",
+    "@adatechnology/meta-whatsapp-module": "0.2.0-rc.18",
     "@adatechnology/meta-whatsapp-provider": "0.2.0-rc.3",
     "@adatechnology/object-storage-provider": "0.1.1",
     "@adatechnology/text-moderation": "0.2.0-rc.0",

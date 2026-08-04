@@ -92,3 +92,47 @@ describe('ParseShoppingListUseCase — número escrito', () => {
     expect(items.map((item) => item.term)).toEqual(['arroz', 'leite'])
   })
 })
+
+/**
+ * Falando, as pessoas dizem o verbo: "quero 3 quilos de feijão". Escrevendo, mandam "3 kg de feijão".
+ * A transcrição é fiel à fala, então a nota de voz trouxe esse formato para dentro do parser — e ele
+ * perdia a quantidade, não só o termo.
+ */
+describe('ParseShoppingListUseCase — verbo de intenção na frente', () => {
+  it('mantém quantidade e unidade quando o cliente diz "quero" antes', async () => {
+    const [feijao, leite] = await parse('quero 3 quilos de feijão e 2 litros de leite')
+
+    // Antes: term "quero 3 quilos de feijao" com quantidade 1 — pedido errado e demanda poluída.
+    expect(feijao?.term).toBe('feijao')
+    expect(feijao?.quantity).toBe(3)
+    expect(feijao?.unit).toBe('quilos')
+    expect(leite?.term).toBe('leite')
+    expect(leite?.quantity).toBe(2)
+  })
+
+  it('entende "preciso de", "me manda" e "eu quero comprar"', async () => {
+    const [ovos] = await parse('preciso de 6 ovos')
+    expect(ovos?.term).toBe('ovos')
+    expect(ovos?.quantity).toBe(6)
+
+    const [tomate] = await parse('me manda 1 kg de tomate')
+    expect(tomate?.term).toBe('tomate')
+    expect(tomate?.unit).toBe('kg')
+
+    const [acucar] = await parse('eu quero comprar 2 kg de açúcar')
+    expect(acucar?.term).toBe('acucar')
+    expect(acucar?.quantity).toBe(2)
+  })
+
+  it('não corta produto que começa parecido com o verbo', async () => {
+    // "queijo" começa com as letras de "queria": exigir espaço depois do verbo é o que salva.
+    const [queijo] = await parse('queijo e 2 litros de leite')
+    expect(queijo?.term).toBe('queijo')
+  })
+
+  it('não cria item de um segmento que era só o verbo', async () => {
+    const items = await parse('quero, 2 litros de leite')
+    expect(items).toHaveLength(1)
+    expect(items[0]?.term).toBe('leite')
+  })
+})

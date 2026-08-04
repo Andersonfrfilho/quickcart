@@ -21,6 +21,7 @@ import type {
   MessageTranscription,
   SSEProvider,
 } from '@adatechnology/conversations-ui'
+import type { PreviewInboundCommand } from '@adatechnology/conversations-ui/preview'
 import { getAdminToken } from '@/modules/admin/shared/useAdminAuth.hook'
 import { ApiRequestError } from '@/modules/conversations/shared/ApiRequestError'
 
@@ -134,6 +135,18 @@ export function toMessagePayload(message: ApiMessage): MessagePayload {
     // `null` (não avaliado) é distinto de avaliado-e-limpo e passa adiante; só a chave ausente cai.
     ...(message.moderation !== undefined ? { moderation: message.moderation } : {}),
   }
+}
+
+/**
+ * Fora do objeto `conversationsApi` porque não faz parte do contrato do pacote: é uma rota só de
+ * desenvolvimento. Passa pelo mesmo `request` para herdar o token de admin — a assinatura do webhook
+ * é feita no servidor, o app secret nunca chega ao navegador.
+ */
+export async function sendPreviewInbound(command: PreviewInboundCommand): Promise<void> {
+  await request('/conversations/preview/inbound', {
+    method: 'POST',
+    body: JSON.stringify(command),
+  })
 }
 
 export const conversationsApi: ConversationsApi = {
