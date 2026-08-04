@@ -73,6 +73,12 @@ dev-web: ## 🖥️ Sobe o frontend-web em modo dev
 	@echo "🖥️ Iniciando frontend-web..."
 	@cd apps/frontend-web && bun run dev
 
+ada-pins: ## 📌 Confere se os pins de @adatechnology/* batem com a tag rc publicada
+	@bun run scripts/syncAdaPins.ts
+
+ada-pins-write: ## 📌 Alinha os pins com a tag rc e pede reinstalação
+	@bun run scripts/syncAdaPins.ts --write
+
 test-msg: ## 💬 Simula um webhook Meta local (MSG="..." TEL=...)
 	@bash scripts/send-test-webhook.sh "$(MSG)" "$(TEL)"
 
