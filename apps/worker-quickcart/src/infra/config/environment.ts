@@ -26,6 +26,12 @@ const environmentSchema = z.object({
   // ── WhatsApp (Meta Cloud API) ──
   WHATSAPP_ACCESS_TOKEN: z.string().default(''),
   WHATSAPP_PHONE_NUMBER_ID: z.string().default(''),
+  /**
+   * Mesma chave da API — o hash de supressão tem de casar entre os dois processos, senão a API
+   * grava a supressão sob um hash e o worker consulta outro, e um endereço suprimido volta a
+   * receber.
+   */
+  NOTIFICATION_SUPPRESSION_KEY: z.string().min(32),
   WHATSAPP_API_VERSION: z.string().default('v21.0'),
   WHATSAPP_BASE_URL: z.string().default('https://graph.facebook.com'),
   // Tenant único do QuickCart, igual ao da api-quickcart — a retenção varre por empresa.

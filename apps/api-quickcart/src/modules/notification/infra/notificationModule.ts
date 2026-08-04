@@ -14,6 +14,7 @@
 
 import { createNotificationModule } from '@adatechnology/notification-module'
 import type { NotificationModule } from '@adatechnology/notification-module'
+import { createBullMqQueue } from '@adatechnology/notification-module/queue/bullmq'
 import type { AuthContextResolverPort } from '@adatechnology/module-http'
 import type { RecipientResolverPort, ChannelDrivers } from '@adatechnology/notification-contracts'
 import { eq } from 'drizzle-orm'
@@ -21,6 +22,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '@/infra/database/connection'
 import { customers } from '@/infra/database/schema/customers'
 import { environment } from '@/infra/config/environment'
+import { notificationDeliveryQueue } from '@/infra/queue/queues'
 
 const BEARER_PREFIX = 'Bearer '
 
@@ -63,6 +65,13 @@ export function createQuickCartNotificationModule(params: { channels: ChannelDri
       defaultTimezone: 'America/Sao_Paulo',
       suppressionHmacKey: environment.NOTIFICATION_SUPPRESSION_KEY,
     },
-    providers: { recipientResolver, authContextResolver, channels: params.channels },
+    providers: {
+      recipientResolver,
+      authContextResolver,
+      channels: params.channels,
+      // Sem isto o módulo cai na fila em processo, e a entrega nunca sai da API — o worker
+      // ficaria de pé sem nada para consumir, e o sintoma seria "notificação não chega".
+      queue: createBullMqQueue({ queue: notificationDeliveryQueue }),
+    },
   })
 }

@@ -15,7 +15,10 @@
 export const QUEUE_NAMES = {
   STT: 'stt',
   RECEIPT: 'receipt',
+  /** Fila do ProcessNotificationJob antigo. Mantida só até a última mensagem em voo drenar. */
   NOTIFICATION: 'notification',
+  /** Entregas do notification-module. Nome novo porque o formato do job é outro. */
+  NOTIFICATION_DELIVERY: 'notification-delivery',
   // Mídia recebida do cliente aguardando cópia da Meta para o storage do host.
   DOCUMENTS: 'documents',
 } as const

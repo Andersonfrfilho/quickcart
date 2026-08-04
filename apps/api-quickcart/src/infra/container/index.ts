@@ -41,6 +41,9 @@ import { DrizzleConversationSessionRepository } from '@/modules/webhook/infra/da
 import { DrizzleMessageRepository } from '@/modules/webhook/infra/database/DrizzleMessageRepository'
 import { createQuickCartWhatsAppModule } from '@/modules/webhook/infra/whatsapp/metaWhatsAppModule'
 import { createQuickCartNotificationModule } from '@/modules/notification/infra/notificationModule'
+import { createSdkOrderStatusNotifier } from '@/modules/notification/infra/SdkOrderStatusNotifier'
+import type { OrderStatusNotifier } from '@/modules/notification/domain/OrderStatusNotifier.interface'
+import type { NotificationModule } from '@adatechnology/notification-module'
 import { createWhatsAppDriverFromChannel } from '@adatechnology/notification-contracts'
 import type { MetaWhatsAppModule } from '@adatechnology/meta-whatsapp-module'
 import { ConversationController } from '@/modules/conversation/infra/http/Conversation.controller'
@@ -180,6 +183,12 @@ type OrderModuleDependencies = {
   readonly cacheProvider: CacheProvider
   /** Para avisar o cliente quando um item do pedido acabar na separação. */
   readonly whatsAppSender: WhatsAppSender
+  /**
+   * Tardio pela mesma amarração de `resolveFlowDriver`: o notificador é montado sobre o módulo de
+   * notificação, que precisa do canal de WhatsApp — e o módulo de webhook, que cria o canal, é
+   * construído depois deste.
+   */
+  readonly resolveOrderStatusNotifier: () => OrderStatusNotifier
 }
 
 type OrderModule = {
@@ -213,7 +222,12 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     orderRepository,
     customerRepository: dependencies.customerRepository,
   })
-  const updateOrderStatusUseCase = new UpdateOrderStatusUseCase({ orderRepository, notificationQueue })
+  // Adaptador estável em volta do resolver: o use-case depende da PORTA, não de um resolvedor —
+  // ele não deveria saber que a ordem de construção do container tem um nó.
+  const orderStatusNotifier: OrderStatusNotifier = {
+    notifyStatusChanged: (params) => dependencies.resolveOrderStatusNotifier().notifyStatusChanged(params),
+  }
+  const updateOrderStatusUseCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier })
   /*
    * Coordenada por CEP, cacheada em Postgres. Uma instância só do provider por processo, porque é ela
    * que guarda o instante da última chamada para respeitar o 1 req/s do Nominatim.
@@ -441,6 +455,9 @@ type WebhookModule = {
   // A mesma instância do módulo serve o webhook e as telas de conversa: são duas portas de
   // entrada para o mesmo estado, e duplicar a instância duplicaria pool e inscrições SSE.
   readonly metaWhatsApp: MetaWhatsAppModule
+  // Nascem aqui porque o módulo de notificação precisa do canal de WhatsApp, criado nesta fábrica.
+  readonly notification: NotificationModule
+  readonly orderStatusNotifier: OrderStatusNotifier
 }
 
 function buildWebhookModule(
@@ -472,6 +489,11 @@ function buildWebhookModule(
   // segunda conexão com a Graph API e um segundo lugar para o número de origem divergir.
   const notification = createQuickCartNotificationModule({
     channels: { whatsapp: createWhatsAppDriverFromChannel(metaWhatsApp.channel) },
+  })
+
+  const orderStatusNotifier = createSdkOrderStatusNotifier({
+    module: notification,
+    companyId: environment.WHATSAPP_COMPANY_ID,
   })
 
   /**
@@ -529,8 +551,7 @@ function buildWebhookModule(
 
   const controller = new WebhookController({ metaWhatsApp })
 
-  return { controller, whatsAppSender, metaWhatsApp }
-    notification,
+  return { controller, whatsAppSender, metaWhatsApp, notification, orderStatusNotifier }
 }
 
 type ConversationHttpModule = {
@@ -602,6 +623,7 @@ const orderModule = buildOrderModule({
   customerRepository: webhookRepositories.customerRepository,
   cacheProvider: webhookRepositories.cacheProvider,
   whatsAppSender: webhookRepositories.whatsAppSender,
+  resolveOrderStatusNotifier: () => webhookModule.orderStatusNotifier,
 })
 const conversationModule = buildConversationModule({
   productRepository: catalogModule.productRepository,

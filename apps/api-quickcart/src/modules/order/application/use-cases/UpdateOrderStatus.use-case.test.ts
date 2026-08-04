@@ -15,7 +15,10 @@ import { describe, expect, test } from 'bun:test'
 import { OrderNotFoundError } from '@/shared/errors/OrderErrors'
 import { ORDER_STATUS } from '@/modules/order/shared/Order.constant'
 import type { OrderItemRecord, OrderRecord, OrderRepositoryInterface } from '@/modules/order/domain/OrderRepository.interface'
-import type { JobQueue } from '@/modules/order/domain/JobQueue.interface'
+import type {
+  NotifyStatusChangedParams,
+  OrderStatusNotifier,
+} from '@/modules/notification/domain/OrderStatusNotifier.interface'
 import { UpdateOrderStatusUseCase } from './UpdateOrderStatus.use-case'
 
 class FakeOrderRepository implements OrderRepositoryInterface {
@@ -92,12 +95,11 @@ class FakeOrderRepository implements OrderRepositoryInterface {
   }
 }
 
-class FakeJobQueue implements JobQueue {
-  readonly jobs: { name: string; data: Record<string, unknown> }[] = []
+class FakeOrderStatusNotifier implements OrderStatusNotifier {
+  readonly notified: NotifyStatusChangedParams[] = []
 
-  async add(name: string, data: Record<string, unknown>): Promise<unknown> {
-    this.jobs.push({ name, data })
-    return undefined
+  async notifyStatusChanged(params: NotifyStatusChangedParams): Promise<void> {
+    this.notified.push(params)
   }
 }
 
@@ -124,20 +126,28 @@ function buildOrder(overrides: Partial<OrderRecord> = {}): OrderRecord {
 }
 
 describe('UpdateOrderStatusUseCase', () => {
-  test('atualiza status normal e enfileira notificação', async () => {
+  test('atualiza status normal e avisa o cliente com o que o template precisa', async () => {
     const stock = new Map<string, number>()
     const orderRepository = new FakeOrderRepository(stock)
     const order = buildOrder()
     orderRepository.orders.set(order.id, order)
-    const notificationQueue = new FakeJobQueue()
-    const useCase = new UpdateOrderStatusUseCase({ orderRepository, notificationQueue })
+    const orderStatusNotifier = new FakeOrderStatusNotifier()
+    const useCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier })
 
     const result = await useCase.execute({ orderId: order.id, status: ORDER_STATUS.CONFIRMED })
 
     expect(result.order.status).toBe(ORDER_STATUS.CONFIRMED)
     expect(orderRepository.stockRestoredCalls).toHaveLength(0)
-    expect(notificationQueue.jobs).toEqual([
-      { name: 'order-status-changed', data: { orderId: order.id, status: ORDER_STATUS.CONFIRMED } },
+    // `shortCode` e `customerId` vão no evento porque o notificador precisa dos dois: um é o
+    // destinatário, o outro é o que o template interpola. Antes o worker buscava o pedido de novo
+    // no banco só para descobrir isso.
+    expect(orderStatusNotifier.notified).toEqual([
+      {
+        orderId: order.id,
+        customerId: order.customerId,
+        shortCode: order.shortCode,
+        status: ORDER_STATUS.CONFIRMED,
+      },
     ])
   })
 
@@ -161,8 +171,8 @@ describe('UpdateOrderStatusUseCase', () => {
         updatedAt: new Date(),
       },
     ])
-    const notificationQueue = new FakeJobQueue()
-    const useCase = new UpdateOrderStatusUseCase({ orderRepository, notificationQueue })
+    const orderStatusNotifier = new FakeOrderStatusNotifier()
+    const useCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier })
 
     const result = await useCase.execute({ orderId: order.id, status: ORDER_STATUS.CANCELLED })
 
@@ -173,12 +183,12 @@ describe('UpdateOrderStatusUseCase', () => {
 
   test('lança OrderNotFoundError quando o pedido não existe', async () => {
     const orderRepository = new FakeOrderRepository(new Map())
-    const notificationQueue = new FakeJobQueue()
-    const useCase = new UpdateOrderStatusUseCase({ orderRepository, notificationQueue })
+    const orderStatusNotifier = new FakeOrderStatusNotifier()
+    const useCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier })
 
     await expect(useCase.execute({ orderId: 'missing', status: ORDER_STATUS.CONFIRMED })).rejects.toBeInstanceOf(
       OrderNotFoundError,
     )
-    expect(notificationQueue.jobs).toHaveLength(0)
+    expect(orderStatusNotifier.notified).toHaveLength(0)
   })
 })
