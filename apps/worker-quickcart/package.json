@@ -11,10 +11,13 @@
   },
   "dependencies": {
     "@adatechnology/audio-transcription-provider": "0.1.0-rc.1",
+    "@adatechnology/email-provider": "0.1.0-rc.1",
     "@adatechnology/fiscal-provider": "^0.2.0",
     "@adatechnology/meta-whatsapp-contracts": "0.2.0-rc.9",
     "@adatechnology/meta-whatsapp-module": "0.2.0-rc.17",
     "@adatechnology/meta-whatsapp-provider": "0.2.0-rc.3",
+    "@adatechnology/notification-contracts": "0.1.0-rc.1",
+    "@adatechnology/notification-module": "0.1.0-rc.1",
     "@adatechnology/object-storage-provider": "0.1.1",
     "@bull-board/api": "^6.5.4",
     "@bull-board/express": "^6.5.4",

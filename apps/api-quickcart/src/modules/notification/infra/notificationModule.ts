@@ -27,6 +27,20 @@ import { notificationDeliveryQueue } from '@/infra/queue/queues'
 const BEARER_PREFIX = 'Bearer '
 
 /**
+ * Identidade do operador, como UUID fixo.
+ *
+ * O quickcart não tem tabela de usuários de painel nesta fase — a autenticação do admin é um Bearer
+ * estático, então não existe id de usuário real a devolver. A primeira versão disto devolvia
+ * `userId: 'admin'`, e o efeito só apareceu com a api de pé: `recipientUserId` é UUID no contrato,
+ * então enviar dava 400 e o contador de não lidas dava 500 ao comparar a coluna `uuid` com a string
+ * `'admin'`. Nem o typecheck nem o E2E pegaram — o E2E usa cliente de verdade.
+ *
+ * Sentinela e não `randomUUID()`: precisa ser estável entre reinícios, senão a inbox do operador
+ * troca de dono a cada deploy. Quando houver usuários de painel, isto vira o id deles.
+ */
+const ADMIN_OPERATOR_USER_ID = '00000000-0000-4000-8000-0000000000ad'
+
+/**
  * O módulo não valida token: recebe identidade pronta (`security.md` §2). O quickcart tem só o
  * Bearer estático de admin nesta fase, então quem passa por aqui é o operador — e o escopo `admin`
  * é o que as rotas de template e de envio exigem.
@@ -37,13 +51,22 @@ export const notificationAuthContextResolver: AuthContextResolverPort = {
     const token = header?.startsWith(BEARER_PREFIX) ? header.slice(BEARER_PREFIX.length) : undefined
     if (!token || token !== environment.ADMIN_API_TOKEN) return undefined
 
-    return { companyId: environment.WHATSAPP_COMPANY_ID, userId: 'admin', scopes: ['admin'] }
+    return { companyId: environment.WHATSAPP_COMPANY_ID, userId: ADMIN_OPERATOR_USER_ID, scopes: ['admin'] }
   },
 }
 
-/** O módulo não conhece a tabela de clientes do host — é a razão desta porta existir. */
+/**
+ * O módulo não conhece a tabela de clientes do host — é a razão desta porta existir.
+ *
+ * `undefined` significa "não sei quem é" e o módulo recusa o envio, o que é correto. Já o operador é
+ * CONHECIDO e simplesmente não tem telefone nem e-mail: devolver objeto vazio é o que diz isso, e é
+ * o que permite a inbox dele funcionar. Devolvendo `undefined` aqui, todo aviso ao operador morria
+ * com 422 — descobri com a api de pé, tentando popular a tela.
+ */
 const recipientResolver: RecipientResolverPort = {
   async resolve({ userId }) {
+    if (userId === ADMIN_OPERATOR_USER_ID) return { displayName: 'Operador', locale: 'pt-BR' }
+
     const [customer] = await db
       .select({ phone: customers.phone, email: customers.email })
       .from(customers)

@@ -70,9 +70,30 @@ export type OrderStatusTemplate = {
   readonly key: string
   readonly channel: string
   readonly locale: string
+  readonly subject: string
   readonly body: string
   readonly active: boolean
   readonly whatsappTemplateName?: string
+}
+
+/**
+ * Título curto por status, separado do corpo.
+ *
+ * Sem `subject`, o renderer do módulo deriva o título DO corpo — e a inbox mostrava a mesma frase
+ * duas vezes em cada linha, título e texto idênticos. Só apareceu abrindo a tela.
+ *
+ * O título é o que se lê na varredura: diz o estado, e o corpo completa. No WhatsApp o `subject` é
+ * ignorado, então o corpo continua se explicando sozinho.
+ */
+const ORDER_STATUS_SUBJECT: Record<string, string> = {
+  [ORDER_STATUS.PENDING_CONFIRMATION]: 'Pedido {{shortCode}} recebido',
+  [ORDER_STATUS.CONFIRMED]: 'Pedido {{shortCode}} confirmado',
+  [ORDER_STATUS.PREPARING]: 'Pedido {{shortCode}} em separação',
+  [ORDER_STATUS.SEPARATED]: 'Pedido {{shortCode}} separado',
+  [ORDER_STATUS.OUT_FOR_DELIVERY]: 'Pedido {{shortCode}} saiu para entrega',
+  [ORDER_STATUS.READY_FOR_PICKUP]: 'Pedido {{shortCode}} pronto para retirada',
+  [ORDER_STATUS.COMPLETED]: 'Pedido {{shortCode}} concluído',
+  [ORDER_STATUS.CANCELLED]: 'Pedido {{shortCode}} cancelado',
 }
 
 /**
@@ -81,7 +102,13 @@ export type OrderStatusTemplate = {
  */
 export function buildOrderStatusTemplates(): readonly OrderStatusTemplate[] {
   return Object.entries(ORDER_STATUS_BODY).flatMap(([status, body]) => {
-    const base = { key: orderStatusTemplateKey(status), locale: 'pt-BR', body, active: true }
+    const base = {
+      key: orderStatusTemplateKey(status),
+      locale: 'pt-BR',
+      subject: ORDER_STATUS_SUBJECT[status] ?? 'Atualização do pedido {{shortCode}}',
+      body,
+      active: true,
+    }
     const metaTemplateName = META_TEMPLATE_BY_STATUS[status]
 
     return [

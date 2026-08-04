@@ -16,6 +16,8 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "types": ["bun-types"]
+    // `@types/bun` a partir da 1.3 não publica mais o pacote `bun-types` separado — os tipos vêm
+    // dele direto. Apontar para o nome antigo dá TS2688 e derruba o typecheck das duas apps.
+    "types": ["bun"]
   }
 }

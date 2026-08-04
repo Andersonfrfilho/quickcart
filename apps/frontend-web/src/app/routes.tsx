@@ -19,6 +19,7 @@ import { AdminMessagesPage } from '@/modules/messages/pages/AdminMessages.page'
 import { AdminFlowsPage } from '@/modules/flows/pages/AdminFlows.page'
 import { CustomerPreviewPage } from '@/modules/preview/pages/CustomerPreview.page'
 import { AgentPreviewPage } from '@/modules/preview/pages/AgentPreview.page'
+import { AdminNotificationsPage } from '@/modules/notifications/pages/AdminNotifications.page'
 import { IS_PREVIEW_ENABLED } from '@/modules/preview/shared/previewEnvironment'
 
 function withAdminLayout(Component: () => React.ReactElement | null) {
@@ -71,6 +72,7 @@ export const { RouterProvider, RouteRenderer } = createRouter([
   // Depois da rota fixa: exata vence parametrizada, e deixar as duas juntas mostra a hierarquia.
   { path: '/admin/orders/:id', component: withAdminLayout(AdminOrderDetailPage) },
   { path: '/admin/demands', component: withAdminLayout(AdminDemandsPage) },
+  { path: '/admin/notifications', component: withAdminLayout(AdminNotificationsPage) },
   { path: '/admin/conversations', component: withAdminLayout(AdminConversationsPage) },
   { path: '/admin/documents', component: withAdminLayout(AdminDocumentsPage) },
   { path: '/admin/messages', component: withAdminLayout(AdminMessagesPage) },

@@ -357,8 +357,23 @@ export class Router {
     if (!matched) {
       // O módulo já traz validação, autorização e filtro de erro próprios — passar pelo
       // `runWithContext`/`buildResponseHelper` daqui só reescreveria o que ele resolve melhor.
+      //
+      // CORS é a exceção, e é do host: o módulo não conhece a allowlist de origens. Sem
+      // reescrever os headers aqui, o preflight passava (é o `OPTIONS` acima, que é nosso) e a
+      // resposta real vinha sem `Access-Control-Allow-Origin` — o navegador bloqueava com
+      // "Failed to fetch" e nada aparecia no log da api, porque o 200 saiu de verdade.
       for (const moduleRouter of this.mounted) {
-        if (moduleRouter.match(request)) return moduleRouter.handle(request)
+        if (!moduleRouter.match(request)) continue
+
+        const moduleResponse = await moduleRouter.handle(request)
+        const headers = new Headers(moduleResponse.headers)
+        for (const [key, value] of buildCorsHeaders(origin)) headers.set(key, value)
+
+        return new Response(moduleResponse.body, {
+          status: moduleResponse.status,
+          statusText: moduleResponse.statusText,
+          headers,
+        })
       }
 
       if (!this.notFoundHandlerRegistered) return new Response(null, { status: 404 })

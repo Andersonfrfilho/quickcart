@@ -4,6 +4,8 @@ import { TYPOGRAPHY } from '@/shared/theme'
 import { useCartStore } from '@/modules/store/shared/cartStore'
 import { Badge } from '@/components/ui'
 import { usePendingOrdersAlert } from '@/modules/admin/hooks/usePendingOrdersAlert.hook'
+import { NotificationBell } from '@adatechnology/notification-ui'
+import { useUnreadCount } from '@adatechnology/notification-ui/headless'
 
 type NavItem = {
   label: string
@@ -16,6 +18,8 @@ type NavItem = {
    * sinal, sem precisar caçar um `if` no meio do JSX.
    */
   showsPendingOrders?: boolean
+  /** Mesma mecânica: o número vem do notification-ui e fica visível de qualquer tela. */
+  showsUnreadNotifications?: boolean
 }
 
 type NavSection = {
@@ -34,6 +38,7 @@ const ADMIN_SECTIONS: NavSection[] = [
       { label: 'Produtos', path: '/admin/products', icon: '📦' },
       { label: 'Pedidos', path: '/admin/orders', icon: '🛒', showsPendingOrders: true },
       { label: 'Demanda', path: '/admin/demands', icon: '🔎' },
+      { label: 'Notificações', path: '/admin/notifications', icon: '🔔', showsUnreadNotifications: true },
     ],
   },
   {
@@ -56,6 +61,8 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   const { currentPath, navigate } = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const { pendingCount } = usePendingOrdersAlert()
+  // Do pacote: o hook headless cuida de cache e do stream, e a sidebar só desenha o número.
+  const { data: unreadCount = 0 } = useUnreadCount()
 
   const isActive = (path: string) => currentPath.startsWith(path)
 
@@ -112,6 +119,11 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                         {pendingCount}
                       </Badge>
                     )}
+                    {item.showsUnreadNotifications && unreadCount > 0 && (
+                      <Badge variant="destructive" className="ml-auto">
+                        {unreadCount > 99 ? '99+' : unreadCount}
+                      </Badge>
+                    )}
                   </button>
                 ))}
 
@@ -142,6 +154,13 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
             </svg>
           </button>
           <span className="ml-3 font-medium">QuickCart Admin</span>
+
+          {/*
+            O sino fica só no header do celular porque no desktop não existe header — o painel
+            sinaliza pela sidebar, e é lá que a contagem aparece. Duplicar aqui e lá no monitor daria
+            dois lugares com o mesmo número disputando o olhar.
+          */}
+          <NotificationBell className="ml-auto" onClick={() => navigate('/admin/notifications')} />
         </header>
 
         {/* Sem padding no celular: 24px em cada lado tiram 13% da largura de uma tela de 375px, e
