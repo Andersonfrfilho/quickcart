@@ -31,7 +31,7 @@ const BEARER_PREFIX = 'Bearer '
  * Bearer estático de admin nesta fase, então quem passa por aqui é o operador — e o escopo `admin`
  * é o que as rotas de template e de envio exigem.
  */
-const authContextResolver: AuthContextResolverPort = {
+export const notificationAuthContextResolver: AuthContextResolverPort = {
   async resolve({ headers }) {
     const header = headers['authorization']
     const token = header?.startsWith(BEARER_PREFIX) ? header.slice(BEARER_PREFIX.length) : undefined
@@ -67,7 +67,7 @@ export function createQuickCartNotificationModule(params: { channels: ChannelDri
     },
     providers: {
       recipientResolver,
-      authContextResolver,
+      authContextResolver: notificationAuthContextResolver,
       channels: params.channels,
       // Sem isto o módulo cai na fila em processo, e a entrega nunca sai da API — o worker
       // ficaria de pé sem nada para consumir, e o sintoma seria "notificação não chega".

@@ -61,6 +61,28 @@ services:
 
   # O MinIO não cria bucket sozinho, e o provider assume que ele existe (healthCheckBucket).
   # Serviço de um tiro: cria e sai.
+  # Caixa de entrada falsa para o canal de e-mail do notification-module. Sem ela, e-mail em
+  # desenvolvimento vira "não sei se saiu": o driver reporta `sent` e não há onde conferir o que
+  # chegou, nem o HTML renderizado. Mailpit aceita qualquer credencial e não entrega nada para fora,
+  # que é exatamente o que se quer — um SMTP real em dev manda mensagem de teste para cliente real.
+  mailpit:
+    # GHCR e não Docker Hub: o Hub pede autenticação para pull anônimo depois do limite de taxa, e
+    # `make up` falhava com "authentication required" numa máquina sem `docker login`. A imagem é a
+    # mesma, publicada pelo próprio projeto.
+    image: ghcr.io/axllent/mailpit:v1.21
+    container_name: ${PROJECT_NAME:-quickcart}-${APP_ENV:-dev}-mailpit
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    ports:
+      - "${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "${MAILPIT_UI_PORT:-8025}:8025"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8025/readyz || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   minio-init:
     image: minio/mc:latest
     container_name: ${PROJECT_NAME:-quickcart}-${APP_ENV:-dev}-minio-init

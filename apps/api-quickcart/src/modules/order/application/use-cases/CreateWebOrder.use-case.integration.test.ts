@@ -25,7 +25,7 @@
  */
 
 import { afterAll, beforeEach, describe, expect, test } from 'bun:test'
-import { inArray, like } from 'drizzle-orm'
+import { and, inArray, like, notExists, sql } from 'drizzle-orm'
 import { db } from '@/infra/database/connection'
 import { categories, customers, orderItems, orders, products } from '@/infra/database/schema'
 import { RedisProvider } from '@/infra/redis/RedisProvider'
@@ -73,9 +73,26 @@ afterAll(async () => {
   }
   if (createdProductIds.length > 0) await db.delete(products).where(inArray(products.id, createdProductIds))
   if (createdCategoryIds.length > 0) await db.delete(categories).where(inArray(categories.id, createdCategoryIds))
-  // Cobre também clientes de requisições perdedoras (a use-case faz upsert do
-  // cliente antes de checar estoque, então até pedidos que falham criam um customer).
-  await db.delete(customers).where(like(customers.phone, `${TEST_PHONE_PREFIX}%`))
+  /**
+   * Cobre clientes de requisições perdedoras (a use-case faz upsert do cliente antes de checar
+   * estoque, então até pedidos que falham criam um customer).
+   *
+   * Só os SEM pedido: varrer o prefixo inteiro reivindicava a faixa de telefones toda, e os seeds
+   * de entrega criam clientes nessa mesma faixa COM pedido. Numa base recém-semeada a limpeza
+   * violava `orders_customer_id_customers_id_fk` e derrubava o arquivo inteiro — cliente com pedido
+   * não é deste teste para apagar.
+   */
+  await db.delete(customers).where(
+    and(
+      like(customers.phone, `${TEST_PHONE_PREFIX}%`),
+      notExists(
+        db
+          .select({ one: sql`1` })
+          .from(orders)
+          .where(sql`${orders.customerId} = ${customers.id}`),
+      ),
+    ),
+  )
 })
 
 async function createProduct(stockQuantity: number): Promise<string> {

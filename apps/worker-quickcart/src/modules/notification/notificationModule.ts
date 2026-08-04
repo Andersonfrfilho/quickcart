@@ -20,8 +20,10 @@
 import { createNotificationModule } from '@adatechnology/notification-module'
 import type { NotificationModule } from '@adatechnology/notification-module'
 import { createWhatsAppDriverFromChannel } from '@adatechnology/notification-contracts'
+import { createSmtpEmailProvider } from '@adatechnology/email-provider'
 import type {
   ChannelDrivers,
+  EmailDriverPort,
   RecipientResolverPort,
   WhatsAppSendingChannel,
 } from '@adatechnology/notification-contracts'
@@ -65,11 +67,28 @@ function asSendingChannel(provider: NonNullable<typeof whatsAppProvider>): Whats
   }
 }
 
+/**
+ * Canal de e-mail. Só existe se houver `NOTIFICATION_SMTP_URL` — em desenvolvimento aponta para o
+ * Mailpit (`make up`), onde a mensagem é inspecionável e não sai da máquina. Sem a variável, o
+ * fan-out não planeja e-mail; montar um driver que falha em toda tentativa só encheria
+ * `deliveries` de erro.
+ */
+function buildEmailDriver(): EmailDriverPort | undefined {
+  if (!environment.NOTIFICATION_SMTP_URL) return undefined
+  return createSmtpEmailProvider({
+    from: environment.NOTIFICATION_EMAIL_FROM,
+    smtpUrl: environment.NOTIFICATION_SMTP_URL,
+  })
+}
+
 function buildChannels(): ChannelDrivers {
-  // WhatsApp desconfigurado é estado real em desenvolvimento. Sem o canal, o fan-out simplesmente
-  // não planeja esse destino — melhor que subir o worker com um driver que falha em toda tentativa.
-  if (!whatsAppProvider) return {}
-  return { whatsapp: createWhatsAppDriverFromChannel(asSendingChannel(whatsAppProvider)) }
+  // Canal desconfigurado é estado real em desenvolvimento, e cada um entra por conta própria: sem
+  // WhatsApp mas com e-mail, o fan-out usa e-mail e ignora o outro.
+  const email = buildEmailDriver()
+  return {
+    ...(whatsAppProvider ? { whatsapp: createWhatsAppDriverFromChannel(asSendingChannel(whatsAppProvider)) } : {}),
+    ...(email ? { email } : {}),
+  }
 }
 
 export function createWorkerNotificationModule(): NotificationModule {

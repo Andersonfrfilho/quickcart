@@ -32,6 +32,12 @@ const environmentSchema = z.object({
    * receber.
    */
   NOTIFICATION_SUPPRESSION_KEY: z.string().min(32),
+  /**
+   * Ausente, o canal de e-mail não é montado — e o fan-out simplesmente não o planeja. Melhor que
+   * montar um driver que falha em toda tentativa e enche a tabela de `deliveries` de erro.
+   */
+  NOTIFICATION_SMTP_URL: z.string().optional(),
+  NOTIFICATION_EMAIL_FROM: z.string().email().default('nao-responda@quickcart.local'),
   WHATSAPP_API_VERSION: z.string().default('v21.0'),
   WHATSAPP_BASE_URL: z.string().default('https://graph.facebook.com'),
   // Tenant único do QuickCart, igual ao da api-quickcart — a retenção varre por empresa.

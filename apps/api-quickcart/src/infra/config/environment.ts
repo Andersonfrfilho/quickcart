@@ -40,6 +40,12 @@ const environmentSchema = z.object({
    * claro — ela existe para não enviar, não para virar cadastro de contatos (`security.md` §1).
    */
   NOTIFICATION_SUPPRESSION_KEY: z.string().min(32),
+  /**
+   * Ausente, o canal de e-mail não é montado — e o fan-out simplesmente não o planeja. Melhor que
+   * montar um driver que falha em toda tentativa e enche a tabela de `deliveries` de erro.
+   */
+  NOTIFICATION_SMTP_URL: z.string().optional(),
+  NOTIFICATION_EMAIL_FROM: z.string().email().default('nao-responda@quickcart.local'),
 
   // ── Moderação de conteúdo ──
   // Desligada por padrão: marcar mensagem de cliente é decisão de operação, não default técnico.

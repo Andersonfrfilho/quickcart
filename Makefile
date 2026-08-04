@@ -31,7 +31,7 @@ up: ## 🚀 Sobe postgres + redis + wiremock + minio
 		$(COMPOSE) exec -T postgres pg_isready -U quickcart 2>/dev/null && break; \
 		sleep 2; \
 	done
-	@echo "✅ Infra no ar (postgres, redis, wiremock, minio)."
+	@echo "✅ Infra no ar (postgres, redis, wiremock, minio, mailpit)."
 
 down: ## 🛑 Derruba a infraestrutura local
 	@echo "🛑 Derrubando infraestrutura ($(PROJECT_NAME)-$(ENV))..."
@@ -48,6 +48,14 @@ logs: ## 📜 Segue os logs da infra local
 migrate: ## 🧱 Roda as migrations do Drizzle
 	@echo "🧱 Rodando migrations ($(ENV))..."
 	@cd apps/api-quickcart && bun --env-file=../../$(ENV_FILE) $(ENV_LOCAL_ARG) run db:migrate
+
+notification-migrate: ## 🔔 Roda as migrations do notification-module (schema próprio, journal próprio)
+	@echo "🔔 Migrations de notificação ($(ENV))..."
+	@cd apps/api-quickcart && bun --env-file=../../$(ENV_FILE) $(ENV_LOCAL_ARG) run db:migrate-notification
+
+mail-ui: ## 📬 Abre a caixa de entrada falsa do Mailpit
+	@echo "📬 Mailpit em http://localhost:$${MAILPIT_UI_PORT:-8025}"
+	@open "http://localhost:$${MAILPIT_UI_PORT:-8025}" 2>/dev/null || true
 
 address-inventory: ## 🔍 Conta as formas de endereço gravadas (SÓ LEITURA, seguro em qualquer ambiente)
 	@echo "🔍 Inventariando endereços ($(ENV))..."
