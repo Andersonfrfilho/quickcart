@@ -107,7 +107,15 @@ unlink-sdk: ## 🔓 Volta a consumir os pacotes publicados do registry
 watch-sdk: ## 👀 Rebuilda o conversations-ui a cada edição (par do link-sdk)
 	@cd $(SDK_PATH)/packages/frontend/conversations-ui && bun run build:watch
 
-test: ## 🧪 Roda os testes de todos os apps (unitários, sem infra)
+test: ## 🧪 Roda os testes de todos os apps (migra o banco de teste antes, se ele estiver de pé)
+	@# Migra antes de testar porque parte da suite é de integração (Postgres + Redis reais), e banco de
+	@# teste atrasado falha com "column X does not exist" — erro que parece regressão de código e não é.
+	@# Aconteceu duas vezes em 04/08/2026. Migração é idempotente e custa ~1s.
+	@#
+	@# Sem infra de pé, o migrate falha e a suite roda de qualquer forma: os testes unitários não
+	@# dependem de banco, e travar todos eles por causa disso seria pior que o aviso.
+	@$(MAKE) --no-print-directory migrate ENV=test >/dev/null 2>&1 \
+		|| echo "⚠️  banco de teste não migrado (infra fora?) — testes de integração podem falhar"
 	@echo "🧪 Testes api-quickcart..."
 	@cd apps/api-quickcart && bun run test
 	@echo "🧪 Testes worker-quickcart..."

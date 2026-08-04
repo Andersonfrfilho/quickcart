@@ -31,6 +31,7 @@ import { serializeError } from '@/shared/serializeError'
 import { MESSAGES } from '@/modules/conversation/shared/Messages.constant'
 import { matchChoiceOption } from '@/modules/conversation/application/matchChoiceOption'
 import { shouldYieldToShoppingList } from '@/modules/conversation/application/shouldYieldToShoppingList'
+import { looksLikeShoppingList } from '@/modules/conversation/application/looksLikeShoppingList'
 import { wrapChannelWithLogging } from '@/modules/conversation/application/wrapChannelWithLogging'
 
 const flowLog = logger.child('FlowDriver')
@@ -76,6 +77,17 @@ export type FlowDriverDependencies = {
       }) => Promise<readonly (readonly [string, string])[]>)
     | undefined
 }
+
+/**
+ * O que o grafo decidiu sobre a mensagem.
+ *
+ * `handled: false` com `replayMessage` é o caso da lista guardada: o grafo atendeu a mensagem atual (o
+ * nome), e o que a engine precisa tratar agora é a lista que o cliente havia ditado ANTES de o bot
+ * saber quem ele era. Sem este campo, a engine receberia o nome como se fosse a lista.
+ */
+export type HandleInboundResult =
+  | { readonly handled: true }
+  | { readonly handled: false; readonly replayMessage?: ParsedInboundMessage }
 
 export type HandleInboundParams = {
   readonly session: ModuleSession
@@ -138,7 +150,7 @@ export class FlowDriver {
 
   // Devolve false quando não havia grafo para atender — o chamador então cai na engine TS, que
   // continua sendo o caminho de quem já está no meio de um carrinho ou checkout.
-  async handleInbound(params: HandleInboundParams): Promise<boolean> {
+  async handleInbound(params: HandleInboundParams): Promise<HandleInboundResult> {
     const { session, message } = params
 
     // Conversa parada num nó retoma dali; conversa nova entra pelo início do fluxo principal.
@@ -146,7 +158,7 @@ export class FlowDriver {
     const graph = await this.dependencies.loadFlow(flowKey)
     if (!graph) {
       flowLog.warn('flow_not_found', { flowKey })
-      return false
+      return { handled: false }
     }
 
     const currentNodeId = session.currentNodeId ?? graph.startNodeId
@@ -157,6 +169,7 @@ export class FlowDriver {
      * sobrevive à expiração da sessão da engine — que zera o contexto dela mas não o do grafo.
      */
     const flowContext = (session.context ?? {}) as { readonly customerName?: unknown }
+    const hasName = typeof flowContext.customerName === 'string' && flowContext.customerName.length > 0
 
     if (
       shouldYieldToShoppingList({
@@ -170,14 +183,44 @@ export class FlowDriver {
             ? matchChoiceOption(message.body, node.options) !== undefined
             : false,
         isAtStartNode: currentNodeId === graph.startNodeId,
-        hasKnownCustomerName: typeof flowContext.customerName === 'string' && flowContext.customerName.length > 0,
+        hasKnownCustomerName: hasName,
       })
     ) {
       // Solta a posição antes de sair: sem isto a próxima mensagem do cliente reentraria no menu
       // enquanto a engine está no meio da desambiguação, e as duas brigariam pela mesma resposta.
       await this.dependencies.sessionRepository.setFlowPosition(COMPANY_ID, session.whatsappNumber, null, null)
       flowLog.info('flow_yielded_to_shopping_list', { nodeId: currentNodeId })
-      return false
+      return { handled: false }
+    }
+
+    /*
+     * Lista ditada por quem o bot ainda não conhece: guarda e pede o nome primeiro.
+     *
+     * Sem isto, o cliente novo mandava "quero 3 quilos de feijão" e recebia só "como você se chama?" —
+     * a lista ia para o lixo e ele tinha de repetir. Ceder direto era pior: pularia a coleta de nome e
+     * o pedido nasceria "Sem nome" para sempre.
+     *
+     * Guardada no contexto do grafo, ao lado do `customerName` que está a caminho.
+     */
+    const isNewCustomerWithList =
+      currentNodeId === graph.startNodeId &&
+      message.kind === 'text' &&
+      !hasName &&
+      looksLikeShoppingList(message.body)
+
+    if (isNewCustomerWithList && message.kind === 'text') {
+      /*
+       * Diz que anotou, antes de o nó pedir o nome.
+       *
+       * Sem esta frase o cliente manda a lista e recebe só "como você se chama?" — a lista parece
+       * ignorada, e é justamente o que ele veio fazer. Vai pelo canal decorado para aparecer na thread
+       * do atendente junto do resto.
+       */
+      await this.wrapChannelWithLogging(session.whatsappNumber).sendText(
+        session.whatsappNumber,
+        MESSAGES.LIST_SAVED_ASK_NAME_FIRST,
+      )
+      flowLog.info('flow_list_saved_until_name', {})
     }
 
     const answer = this.resolveAnswer(message, node)
@@ -186,7 +229,16 @@ export class FlowDriver {
       graph,
       currentNodeId,
       ...(answer !== undefined ? { userAnswer: answer } : {}),
-      context: session.context ?? {},
+      /*
+       * A lista pendente viaja DENTRO do contexto do run, não numa escrita à parte.
+       *
+       * Gravar por fora antes do run não funciona: o interpretador persiste o contexto que RECEBEU, e
+       * a escrita paralela era sobrescrita no mesmo request — a lista sumia em silêncio e o cliente
+       * respondia o nome para nada.
+       */
+      context: isNewCustomerWithList && message.kind === 'text'
+        ? { ...(session.context ?? {}), pendingShoppingList: message.body }
+        : (session.context ?? {}),
       session,
       // Canal decorado: o interpretador manda pelo adaptador cru, que fala com a Graph API e
       // não grava nada. Sem isto tudo que o grafo diz sumiria da thread — o atendente veria a
@@ -196,6 +248,41 @@ export class FlowDriver {
 
     await this.persistPosition({ session, flowKey, graph, result })
 
+    /*
+     * O nome chegou e havia lista guardada: agora ela vale, e a engine é quem monta o carrinho.
+     *
+     * Lê o contexto DEPOIS do interpretador porque é ele que grava o `customerName` — antes dele o
+     * nome ainda não existe. Limpa a pendência na mesma escrita: lista retomada duas vezes viraria
+     * carrinho em dobro.
+     */
+    const sessionAfterRun = await this.dependencies.sessionRepository.getContext(COMPANY_ID, session.whatsappNumber)
+    const contextAfterRun = (sessionAfterRun?.context ?? {}) as {
+      readonly pendingShoppingList?: unknown
+      readonly customerName?: unknown
+    }
+    const pendingList = contextAfterRun.pendingShoppingList
+    const nameNowKnown =
+      typeof contextAfterRun.customerName === 'string' && contextAfterRun.customerName.length > 0
+
+    if (typeof pendingList === 'string' && pendingList.length > 0 && nameNowKnown) {
+      const contextWithoutPending = { ...contextAfterRun }
+      delete (contextWithoutPending as { pendingShoppingList?: unknown }).pendingShoppingList
+      await this.dependencies.sessionRepository.setState(
+        COMPANY_ID,
+        session.whatsappNumber,
+        sessionAfterRun?.currentState ?? session.currentState,
+        contextWithoutPending,
+      )
+      // Solta a posição: a engine assume a conversa a partir daqui, e o grafo reentraria no menu.
+      await this.dependencies.sessionRepository.setFlowPosition(COMPANY_ID, session.whatsappNumber, null, null)
+      flowLog.info('flow_replayed_saved_list', {})
+
+      return {
+        handled: false,
+        replayMessage: { kind: 'text', from: session.whatsappNumber, waMessageId: message.waMessageId, body: pendingList },
+      }
+    }
+
     if (result.kind === 'max-steps-exceeded') {
       // Ciclo no grafo desenhado pelo lojista. Não dá para deixar a conversa presa: solta a
       // posição para a próxima mensagem recomeçar do início em vez de repetir o laço.
@@ -203,7 +290,7 @@ export class FlowDriver {
       await this.dependencies.sessionRepository.setFlowPosition(COMPANY_ID, session.whatsappNumber, null, null)
     }
 
-    return true
+    return { handled: true }
   }
 
   // O interpretador para em `awaiting-answer` e NÃO envia a pergunta — ele devolve em que nó

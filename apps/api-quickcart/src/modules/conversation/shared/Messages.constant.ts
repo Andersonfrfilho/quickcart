@@ -213,6 +213,14 @@ export const MESSAGES = {
    * própria, e um endereço antigo aplicado em silêncio entrega compra na casa errada.
    */
   CHECKOUT_SAME_AS_LAST: 'Da última vez foi assim:\n\n{resumo}\n\nMantenho igual?',
+  /**
+   * Lista ditada por quem o bot ainda não conhece: anota antes de pedir o nome.
+   *
+   * Sem esta frase, o cliente manda "quero 3 quilos de feijão" e recebe "como você se chama?" — a
+   * lista parece ignorada, e é justamente o que ele veio fazer. Dizer que foi anotada é o que compra
+   * a paciência para responder o nome primeiro.
+   */
+  LIST_SAVED_ASK_NAME_FIRST: '📝 Já anotei sua lista!',
   CHECKOUT_ASK_DELIVERY_TYPE: 'Como você prefere receber seu pedido?',
   /**
    * CEP primeiro (spec §8 Q1): pede 8 dígitos, não o endereço inteiro — rua/bairro/cidade/UF vêm
