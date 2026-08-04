@@ -85,6 +85,13 @@
       "when": 1784464063867,
       "tag": "0011_drop_unused_stores",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1784464064867,
+      "tag": "0012_drop_customer_default_address",
+      "breakpoints": true
     }
   ]
 }

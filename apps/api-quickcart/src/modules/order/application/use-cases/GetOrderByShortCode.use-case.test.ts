@@ -39,8 +39,6 @@ class FakeCustomerRepository implements CustomerRepositoryInterface {
       phone: params.phone,
       name: params.name ?? null,
       email: null,
-      defaultAddress: null,
-      legacyAddressText: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -52,8 +50,6 @@ class FakeCustomerRepository implements CustomerRepositoryInterface {
       phone: '',
       name: null,
       email: params.email ?? null,
-      defaultAddress: params.defaultAddress ?? null,
-      legacyAddressText: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -164,8 +160,6 @@ describe('GetOrderByShortCodeUseCase', () => {
       phone: '5511999999999',
       name: 'Maria',
       email: null,
-      defaultAddress: null,
-      legacyAddressText: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -187,8 +181,6 @@ describe('GetOrderByShortCodeUseCase', () => {
       phone: '5511999999999',
       name: 'Maria',
       email: null,
-      defaultAddress: null,
-      legacyAddressText: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }

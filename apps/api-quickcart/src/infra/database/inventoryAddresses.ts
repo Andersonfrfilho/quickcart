@@ -55,7 +55,13 @@ type AddressShapeCounts = {
   readonly comLegado: number
 }
 
-async function countShapes(table: 'orders', column: string): Promise<AddressShapeCounts> {
+/*
+ * `sql.raw` com nome de tabela e coluna fixos no código, nunca com valor de usuário — a exceção que
+ * database.md permite, e o motivo está aqui: identificador não é parametrizável em Postgres.
+ */
+async function countOrderAddressShapes(): Promise<AddressShapeCounts> {
+  const table = 'orders'
+  const column = 'address'
   const structuredCondition = STRUCTURED_KEYS.map((key) => `${column} ? '${key}'`).join(' and ')
 
   const result = await db.execute<Record<string, string>>(
@@ -90,17 +96,11 @@ async function countShapes(table: 'orders', column: string): Promise<AddressShap
 
 async function runInventory(): Promise<void> {
   /*
-   * `sql.raw` com nome de tabela/coluna fixo no código, nunca com valor de usuário — a exceção que
-   * database.md permite, e o motivo está aqui: identificadores não são parametrizáveis em Postgres.
+   * Só pedidos. `customers.default_address` e `customers.legacy_address_text` saíram na migração 0012
+   * — eram as colunas mortas que a ADR 0001 usou como razão nº 2 para cancelar o backfill, e a
+   * decisão sobre elas veio depois. Não há mais forma de endereço de cliente para inventariar.
    */
-  /*
-   * Só pedidos.
-   *
-   * `customers.default_address` e `customers.legacy_address_text` saíram na migração 0012 — eram as
-   * colunas mortas que a ADR 0001 usou como razão nº 2 para cancelar o backfill, e a decisão sobre
-   * elas foi tomada depois. Não há mais forma de endereço de cliente para inventariar.
-   */
-  const orders = await countShapes('orders', 'address')
+  const orders = await countOrderAddressShapes()
 
   log.info('address_inventory', { orders })
 }
