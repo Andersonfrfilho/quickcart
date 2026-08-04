@@ -50,6 +50,13 @@ export const orderItems = pgTable('order_items', {
    * sabe", que é o que a tela precisa mostrar para alguém decidir avisar.
    */
   unavailableNotifiedAt: timestamp('unavailable_notified_at', { withTimezone: true }),
+  /**
+   * Quando alguém separou este item. `null` = ainda não separado.
+   *
+   * No servidor, e não no aparelho de quem separa: a marcação decide o que a tela conta para a próxima
+   * pessoa, e por aparelho a esteira dizia "Separado" enquanto a lista dizia 0%.
+   */
+  pickedAt: timestamp('picked_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })

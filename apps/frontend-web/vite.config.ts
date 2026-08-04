@@ -42,6 +42,15 @@ export default defineConfig({
   // pouco de tempo de carga por ver sempre o build atual.
   optimizeDeps: {
     exclude: ['@adatechnology/conversations-ui'],
+    /*
+     * A dependência CJS de dentro do pacote excluído precisa ser pré-bundleada à parte.
+     *
+     * Excluir `conversations-ui` faz o navegador receber o ESM dele cru — e aí o `import` interno de
+     * `use-sync-external-store/shim/with-selector` (CommonJS) falha com "does not provide an export
+     * named 'default'", sem nada renderizar e sem erro no terminal. Só apareceu quando o pacote passou
+     * a vir do registry: como symlink para o fonte do SDK, o Vite já resolvia a cadeia.
+     */
+    include: ['use-sync-external-store/shim/with-selector'],
   },
   server: {
     port: 5183,

@@ -96,6 +96,7 @@ import { ResolveOrderDeliveryEstimateUseCase } from '@/modules/order/application
 import { ResolveCepCoordinateUseCase } from '@/modules/shared/address/ResolveCepCoordinate.use-case'
 import { DrizzleGeocodedAddressRepository } from '@/modules/shared/address/infra/DrizzleGeocodedAddressRepository'
 import { SetOrderItemUnavailableUseCase } from '@/modules/order/application/use-cases/SetOrderItemUnavailable.use-case'
+import { SetOrderItemPickedUseCase } from '@/modules/order/application/use-cases/SetOrderItemPicked.use-case'
 import { NotifyUnavailableItemsUseCase } from '@/modules/order/application/use-cases/NotifyUnavailableItems.use-case'
 import { RepeatLastOrderUseCase } from '@/modules/order/application/use-cases/RepeatLastOrder.use-case'
 import { ListOrdersUseCase } from '@/modules/order/application/use-cases/ListOrders.use-case'
@@ -232,6 +233,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     orderRepository,
     resolveOrderDeliveryEstimateUseCase,
   })
+  const setOrderItemPickedUseCase = new SetOrderItemPickedUseCase({ orderRepository })
   const setOrderItemUnavailableUseCase = new SetOrderItemUnavailableUseCase({
     orderRepository,
     unmatchedDemandRepository: new DrizzleUnmatchedDemandRepository(),
@@ -256,6 +258,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     updateOrderStatusUseCase,
     getAdminOrderDetailUseCase,
     setOrderItemUnavailableUseCase,
+    setOrderItemPickedUseCase,
     notifyUnavailableItemsUseCase,
   })
 

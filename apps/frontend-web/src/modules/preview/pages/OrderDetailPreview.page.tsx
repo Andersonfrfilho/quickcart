@@ -66,6 +66,7 @@ function buildPreviewItems(): OrderItem[] {
     // existe para mostrar o caso difícil, não o feliz.
     unavailableAt: null,
     unavailableNotifiedAt: null,
+    pickedAt: null,
   }))
 }
 
@@ -198,6 +199,8 @@ export function OrderDetailPreviewPage() {
         ...item,
         unavailableAt: unavailableItemIds.includes(item.id) ? new Date().toISOString() : null,
         unavailableNotifiedAt: notifiedItemIds.includes(item.id) ? new Date().toISOString() : null,
+        // No produto quem marca é o servidor (`pickedAt`); aqui o estado local faz o papel dele.
+        pickedAt: pickedItemIds.includes(item.id) ? new Date().toISOString() : null,
       })),
     [unavailableItemIds, notifiedItemIds],
   )

@@ -196,6 +196,23 @@ export async function adminSetOrderItemUnavailable(
   )
 }
 
+/**
+ * Marca item separado no servidor. Sem `itemId`, marca (ou limpa) todos de uma vez.
+ *
+ * A marcação era `localStorage`: separar no tablet do balcão e abrir no celular mostrava zero separado
+ * num pedido que a esteira já dava como separado. Em lote numa requisição porque trinta itens seriam
+ * trinta chances de metade ficar marcada se a rede cair no meio.
+ */
+export async function adminSetOrderItemPicked(
+  token: string,
+  params: { readonly orderId: string; readonly itemId?: string | undefined; readonly picked: boolean },
+): Promise<ApiItemResponse<OrderDetail>> {
+  const path = params.itemId
+    ? `/v1/admin/orders/${params.orderId}/items/${params.itemId}/picked`
+    : `/v1/admin/orders/${params.orderId}/items/picked`
+  return apiClient.patch(path, { picked: params.picked }, { headers: { Authorization: `Bearer ${token}` } })
+}
+
 export type NotifyUnavailableItemsResponse = {
   readonly data: OrderDetail
   readonly meta: { readonly notifiedCount: number }
