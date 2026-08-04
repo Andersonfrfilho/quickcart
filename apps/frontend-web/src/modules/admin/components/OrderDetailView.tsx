@@ -278,18 +278,35 @@ export function OrderDetailView({
             minute: '2-digit',
           })}
         </span>
-        {/* Cancelar sai do topo: é ação rara e destrutiva, e no cabeçalho disputava espaço com o que se
-            usa toda hora. Aqui, discreto, continua a um toque de distância. */}
+        {/*
+          Cancelar segue fora do topo — é ação rara e destrutiva, e no cabeçalho disputava espaço com
+          o que se usa toda hora. Mas era um link sublinhado no meio da frase do cliente, e link não
+          parece clicável o bastante para uma ação que desfaz o pedido: quem precisa cancelar
+          procurava.
+
+          Botão de verdade, no fim da linha e à direita (`ml-auto`). Contorno em vez de vermelho
+          maciço: sólido, disputaria atenção com o botão primário do cabeçalho a cada vez que a tela
+          abre, e essa ênfase é para quem já decidiu cancelar. O vermelho vem inteiro no hover, que é
+          quando a intenção já existe.
+
+          `flex-wrap` no container: no celular ele desce para a própria linha e o `ml-auto` continua
+          colando à direita.
+
+          `h-11` no celular porque `size="sm"` dá 36px e o mínimo de toque é 44px (`web.md` §10) —
+          medido, não presumido. E `mt-2` porque com o `gap-y-1` do container sobravam 4px entre ele
+          e o link `tel:` do cliente: 4px é distância de erro de dedo, e o erro aqui cancela o pedido.
+        */}
         {nextStatuses.includes('cancelled') && (
-          <button
-            type="button"
+          <Button
+            variant="outline"
+            size="sm"
             disabled={isUpdatingStatus}
             onClick={() => onUpdateStatus('cancelled')}
-            className="text-destructive underline-offset-2 hover:underline print:hidden"
+            className="ml-auto mt-2 h-11 border-destructive/30 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground sm:mt-0 sm:h-9 print:hidden"
           >
-            <Icon>❌</Icon>
+            <Icon>{ORDER_ACTION_ICONS.cancelled ?? '❌'}</Icon>
             {ORDER_ACTION_LABELS.cancelled}
-          </button>
+          </Button>
         )}
       </p>
 
