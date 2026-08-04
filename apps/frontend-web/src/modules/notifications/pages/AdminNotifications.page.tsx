@@ -16,16 +16,25 @@
 
 import { NotificationList, PreferencesPanel } from '@adatechnology/notification-ui'
 
-import { Card } from '@/components/ui'
+import { buttonVariants, Card } from '@/components/ui'
+import { Link } from '@/app/router'
 
 export function AdminNotificationsPage() {
   return (
     <div className="mx-auto max-w-5xl space-y-4 p-4 lg:space-y-6 lg:p-6">
-      <header>
-        <h1 className="text-xl font-semibold">Notificações</h1>
-        <p className="mt-0.5 text-sm text-muted-foreground">
-          O que foi avisado ao cliente, e por quais canais o painel avisa.
-        </p>
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold">Notificações</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            O que foi avisado ao cliente, e por quais canais o painel avisa.
+          </p>
+        </div>
+        <Link
+          to="/admin/notifications/settings"
+          className={`${buttonVariants({ variant: 'outline', size: 'sm' })} gap-2`}
+        >
+          Configurações
+        </Link>
       </header>
 
       {/*
