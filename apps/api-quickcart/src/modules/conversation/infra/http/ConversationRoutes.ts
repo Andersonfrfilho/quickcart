@@ -72,11 +72,15 @@ export function registerConversationRoutes(params: RegisterConversationRoutesPar
   router.get('/v1/admin/documents', conversationController.handleListAllDocuments)
   router.get('/v1/admin/documents/:uploadId/url', conversationController.handleGetDocumentUrl)
 
-  // Fora de /v1/admin de propósito: não passa pelo token de admin, e sim por assinatura HMAC do app
-  // secret — ver PreviewTranscript.controller. Responde 404 quando a flag está desligada.
+  // Fora de /v1/admin de propósito: a aba do preview do cliente não tem sessão. Quem autoriza é a
+  // flag de servidor `PREVIEW_TRANSCRIPT_ENABLED` — ver PreviewTranscript.controller. Todas
+  // respondem 404 quando ela está desligada, que é o padrão em staging e produção.
   router.get('/v1/preview/conversations/:number/messages', previewTranscriptController.handleListMessages)
   // Guarda o áudio gravado no simulador. 404 quando o recurso está desligado — ver o controller.
   router.post('/v1/preview/media', previewMediaController.handleUpload)
+  // Entrega o inbound da aba do cliente. A assinatura do webhook é gerada no servidor: é o que tirou
+  // o app secret do bundle do frontend.
+  router.post('/v1/preview/inbound', previewInboundController.handleSendFromPreview)
 
   router.get('/v1/admin/whatsapp/settings', settingsController.handleGetSettings)
   router.put('/v1/admin/whatsapp/settings', settingsController.handleSaveSettings)

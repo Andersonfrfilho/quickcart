@@ -7,14 +7,17 @@
  *
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  *
- * Preview cliente: você digita como o cliente e o bot responde. A mensagem sai assinada para o
- * webhook REAL — mesma rota, mesma validação de HMAC de staging e produção. Não há rota de dev
- * nem bypass; o que muda é apenas quem assina.
+ * Preview cliente: você digita como o cliente e o bot responde.
+ *
+ * O navegador manda a INTENÇÃO (`{ kind: 'text', text }`) para a rota de preview da API; é ela que
+ * monta o payload da Meta, assina com o app secret e entrega no webhook REAL, com a mesma validação
+ * de HMAC de staging e produção. Nada de segredo no bundle: assinar aqui exigiria `VITE_*`, que é
+ * literal inlinado no JavaScript servido — publicar o app secret para quem baixasse a página.
  */
 
 import { useMemo } from 'react'
 import '@adatechnology/conversations-ui/styles.css'
-import { ConversationPreview, createPreviewWebhookClient } from '@adatechnology/conversations-ui/preview'
+import { ConversationPreview, createPreviewBridgeClient } from '@adatechnology/conversations-ui/preview'
 import { readPreviewEnvironment } from '@/modules/preview/shared/previewEnvironment'
 import { fetchPreviewTranscript } from '@/modules/preview/shared/previewTranscript'
 
@@ -43,9 +46,8 @@ export function CustomerPreviewPage() {
   const environment = useMemo(() => readPreviewEnvironment(), [])
   const client = useMemo(
     () =>
-      createPreviewWebhookClient({
-        webhookUrl: environment.webhookUrl,
-        appSecret: environment.appSecret,
+      createPreviewBridgeClient({
+        endpointUrl: environment.inboundUrl,
         from: environment.customerPhone,
       }),
     [environment],
@@ -56,7 +58,7 @@ export function CustomerPreviewPage() {
       <header className="border-b px-4 py-3">
         <h1 className="text-lg font-semibold">Preview do cliente</h1>
         <p className="text-sm text-gray-500">
-          Enviando como {environment.customerPhone} — webhook real, assinatura real.
+          Enviando como {environment.customerPhone} — webhook real, assinado pelo servidor.
         </p>
 
       </header>
