@@ -48,6 +48,18 @@ import { toContextEntries } from '@/modules/conversations/shared/conversationCon
 import { downloadConversation } from '@/modules/conversations/shared/conversationsExport'
 import { fileToAttachment } from '@/modules/conversations/shared/fileToAttachment'
 
+/**
+ * A partir da rc.27 o SDK devolve `tone` (nome semântico) no lugar de `dotClass` (classe Tailwind):
+ * o pacote não distribui mais classe de framework de estilo do consumidor. A cor do ponto passa a
+ * ser decisão daqui.
+ */
+const WINDOW_TONE_DOT_CLASS: Readonly<Record<string, string>> = {
+  fresh: 'bg-green-500',
+  warning: 'bg-yellow-500',
+  critical: 'bg-red-500',
+  expired: 'bg-gray-400',
+}
+
 type ConversationPaneProps = {
   conversation: ConversationSummary
   now: number
@@ -316,7 +328,9 @@ function Inbox() {
                     inbox.windowFilter === filter.value ? 'bg-gray-200 dark:bg-gray-700' : ''
                   }`}
                 >
-                  {filter.dotClass ? <span className={`h-2 w-2 rounded-full ${filter.dotClass}`} /> : null}
+                  {WINDOW_TONE_DOT_CLASS[filter.tone] ? (
+                    <span className={`h-2 w-2 rounded-full ${WINDOW_TONE_DOT_CLASS[filter.tone]}`} />
+                  ) : null}
                   {filter.label}
                 </button>
               ))}
