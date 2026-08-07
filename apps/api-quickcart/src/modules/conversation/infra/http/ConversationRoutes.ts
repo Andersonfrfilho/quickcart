@@ -70,6 +70,7 @@ export function registerConversationRoutes(params: RegisterConversationRoutesPar
   // Ambas fora de /conversations: a biblioteca é da empresa e a URL assinada é endereçada pelo
   // objeto, não pela conversa.
   router.get('/v1/admin/documents', conversationController.handleListAllDocuments)
+  router.post('/v1/admin/documents', conversationController.handleUploadDocument)
   router.get('/v1/admin/documents/:uploadId/url', conversationController.handleGetDocumentUrl)
 
   // Fora de /v1/admin de propósito: não passa pelo token de admin, e sim por assinatura HMAC do app

@@ -15,6 +15,7 @@
  * (companyId + whatsappNumber). Usar o id da sessão obrigaria um lookup extra em toda rota.
  */
 
+import { randomUUID } from 'node:crypto'
 import JSZip from 'jszip'
 import type { MetaWhatsAppModule } from '@adatechnology/meta-whatsapp-module'
 import type { MessageRow } from '@adatechnology/meta-whatsapp-module'
@@ -56,6 +57,9 @@ const MAX_CONCURRENT_ARCHIVES = 1
 let archiveInFlight = 0
 const DEFAULT_DOCUMENTS_PER_PAGE = 10
 const MAX_DOCUMENTS_PER_PAGE = 50
+// Base64 infla o binário em ~33%; equivale a uns 15MB de arquivo, acima de qualquer comprovante e
+// bem abaixo do que derrubaria o processo — mesmo teto de propósito do preview de mídia.
+const MAX_UPLOAD_BASE64_LENGTH = 20_000_000
 const DEFAULT_MESSAGE_LIMIT = 50
 const MAX_MESSAGE_LIMIT = 100
 
@@ -235,6 +239,61 @@ export class ConversationController {
     })
 
     response.json(200, { data: result })
+  }
+
+  /**
+   * Upload manual pra biblioteca, fora do fluxo de webhook. `whatsappNumber` é obrigatório porque
+   * `documentRepository.link` exige um `sessionId` — mesma amarra de mensagem inbound/outbound, só
+   * que aqui é o atendente quem escolhe a que conversa o arquivo pertence.
+   */
+  handleUploadDocument: RouteHandler = async (request, response) => {
+    requireAdminToken(request)
+
+    const storage = this.dependencies.objectStorage
+    if (!storage) throw new NotFoundError('Biblioteca de documentos indisponível', CONVERSATION_NOT_FOUND)
+
+    const body = request.body as {
+      filename?: unknown
+      mimeType?: unknown
+      base64?: unknown
+      whatsappNumber?: unknown
+    }
+    const filename = typeof body.filename === 'string' ? body.filename : ''
+    const mimeType = typeof body.mimeType === 'string' ? body.mimeType : ''
+    const base64 = typeof body.base64 === 'string' ? body.base64 : ''
+    const whatsappNumber = typeof body.whatsappNumber === 'string' ? body.whatsappNumber : ''
+
+    if (!filename || !mimeType || !whatsappNumber) {
+      throw new ValidationError('Campos `filename`, `mimeType` e `whatsappNumber` são obrigatórios', VALIDATION_ERROR)
+    }
+    if (base64.length === 0 || base64.length > MAX_UPLOAD_BASE64_LENGTH) {
+      throw new ValidationError('Arquivo ausente ou grande demais', VALIDATION_ERROR)
+    }
+
+    const buffer = Buffer.from(base64, 'base64')
+    const key = `meta-whatsapp/${COMPANY_ID}/manual/${randomUUID()}`
+    const { uploadId } = await storage.upload({ buffer, mimeType, key })
+
+    // `getOrCreate` porque o atendente pode querer anexar um arquivo antes de o cliente ter mandado
+    // a primeira mensagem — mesma convenção de estado inicial do `FlowDriver`.
+    const session = await this.dependencies.metaWhatsApp.conversations.repository.getOrCreate(
+      COMPANY_ID,
+      whatsappNumber,
+      CONVERSATION_STATE.GREETING,
+    )
+
+    const document = await this.dependencies.metaWhatsApp.conversations.documentRepository.link({
+      companyId: COMPANY_ID,
+      sessionId: session.id,
+      messageId: null,
+      uploadId,
+      filename,
+      mimeType,
+      sizeBytes: buffer.byteLength,
+      source: 'agent',
+    })
+
+    response.json(201, { data: document })
   }
 
   handleListDocuments: RouteHandler = async (request, response) => {
