@@ -1,6 +1,18 @@
 import { formatPhone } from '@adatechnology/conversations-ui'
 import { ORDER_URGENCY, formatWaitingFor, resolveOrderUrgency } from '@/modules/admin/shared/orderUrgency'
-import { Badge, Button, Card, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui'
+import { buildMapsDestination, buildMapsUrl, isStructuredAddress } from '@/modules/admin/shared/orderMapsLink'
+import {
+  Badge,
+  Button,
+  buttonVariants,
+  Card,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui'
 import { PICKING_STATE, resolvePickingState } from '@/modules/admin/shared/orderTransitions'
 import { orderStatusBadgeClass, orderStatusLabel } from '@/modules/admin/shared/orderStatusStyle'
 import {
@@ -11,8 +23,6 @@ import {
 } from '@/modules/admin/shared/orderLabels'
 import { OrderStatusSteps } from '@/modules/admin/components/OrderStatusSteps'
 import { ORDER_STATUS, type OrderDetail, type OrderItem } from '@/shared/api/api.types'
-
-
 
 const RECEIPT_LABELS: Record<string, string> = { whatsapp: '📱 WhatsApp', email: '📧 E-mail', both: '📱📧 Ambos' }
 
@@ -29,34 +39,6 @@ function formatMoney(totalInCents: number): string {
 function formatDistanceKm(distanceKm: number): string {
   if (distanceKm < 1) return `${Math.round(distanceKm * 1000)} m`
   return `${distanceKm.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km`
-}
-
-/**
- * O endereço estruturado (`Address.schema.ts` no backend) reconhecido pela FORMA, não por uma
- * versão ou flag: `street`, `number`, `neighborhood`, `city` e `state` são os campos obrigatórios
- * do schema, e nenhum formato antigo (string crua, `{ street: "..." }` do checkout velho) tem os
- * cinco juntos.
- */
-type StructuredAddress = {
-  readonly street: string
-  readonly number: string
-  readonly complement?: string
-  readonly neighborhood: string
-  readonly city: string
-  readonly state: string
-  readonly reference?: string
-}
-
-function isStructuredAddress(address: unknown): address is StructuredAddress {
-  if (!address || typeof address !== 'object') return false
-  const candidate = address as Record<string, unknown>
-  return (
-    typeof candidate.street === 'string' &&
-    typeof candidate.number === 'string' &&
-    typeof candidate.neighborhood === 'string' &&
-    typeof candidate.city === 'string' &&
-    typeof candidate.state === 'string'
-  )
 }
 
 /**
@@ -79,6 +61,28 @@ function formatAddress(address: unknown, legacyAddressText: string | null): stri
   if (typeof address === 'string' && address.trim().length > 0) return address.trim()
   if (address && typeof address === 'object') return Object.values(address).filter(Boolean).join(', ')
   return undefined
+}
+
+/**
+ * Alfinete de mapa em SVG, e não emoji: emoji não herda `currentColor` — não acompanharia o
+ * `hover` nem a variante do botão — e renderiza diferente em cada sistema operacional.
+ */
+function MapPinIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+    >
+      <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
+      <circle cx="12" cy="10" r="3" />
+    </svg>
+  )
 }
 
 export type OrderDetailViewProps = {
@@ -149,6 +153,15 @@ export function OrderDetailView({
   onBack,
 }: OrderDetailViewProps) {
   const address = formatAddress(order.address, order.legacyAddressText)
+  // Retirada não tem para onde ir: o cliente vem à loja, e um botão de rota até a própria loja é
+  // ruído na tela de quem separa.
+  const mapsDestination =
+    order.deliveryType === 'pickup'
+      ? undefined
+      : buildMapsDestination({
+          address: order.address,
+          fallbackText: formatAddress(order.address, order.legacyAddressText),
+        })
   const urgency = resolveOrderUrgency({ status: order.status, createdAt: order.createdAt, now: Date.now() })
   const isLate = urgency === ORDER_URGENCY.LATE
   /**
@@ -265,18 +278,35 @@ export function OrderDetailView({
             minute: '2-digit',
           })}
         </span>
-        {/* Cancelar sai do topo: é ação rara e destrutiva, e no cabeçalho disputava espaço com o que se
-            usa toda hora. Aqui, discreto, continua a um toque de distância. */}
+        {/*
+          Cancelar segue fora do topo — é ação rara e destrutiva, e no cabeçalho disputava espaço com
+          o que se usa toda hora. Mas era um link sublinhado no meio da frase do cliente, e link não
+          parece clicável o bastante para uma ação que desfaz o pedido: quem precisa cancelar
+          procurava.
+
+          Botão de verdade, no fim da linha e à direita (`ml-auto`). Contorno em vez de vermelho
+          maciço: sólido, disputaria atenção com o botão primário do cabeçalho a cada vez que a tela
+          abre, e essa ênfase é para quem já decidiu cancelar. O vermelho vem inteiro no hover, que é
+          quando a intenção já existe.
+
+          `flex-wrap` no container: no celular ele desce para a própria linha e o `ml-auto` continua
+          colando à direita.
+
+          `h-11` no celular porque `size="sm"` dá 36px e o mínimo de toque é 44px (`web.md` §10) —
+          medido, não presumido. E `mt-2` porque com o `gap-y-1` do container sobravam 4px entre ele
+          e o link `tel:` do cliente: 4px é distância de erro de dedo, e o erro aqui cancela o pedido.
+        */}
         {nextStatuses.includes('cancelled') && (
-          <button
-            type="button"
+          <Button
+            variant="outline"
+            size="sm"
             disabled={isUpdatingStatus}
             onClick={() => onUpdateStatus('cancelled')}
-            className="text-destructive underline-offset-2 hover:underline print:hidden"
+            className="ml-auto mt-2 h-11 border-destructive/30 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground sm:mt-0 sm:h-9 print:hidden"
           >
-            <Icon>❌</Icon>
+            <Icon>{ORDER_ACTION_ICONS.cancelled ?? '❌'}</Icon>
             {ORDER_ACTION_LABELS.cancelled}
-          </button>
+          </Button>
         )}
       </p>
 
@@ -333,6 +363,25 @@ export function OrderDetailView({
             <p className="mt-1 text-sm font-medium text-amber-700 dark:text-amber-400">
               <span aria-hidden="true">⚠️ </span>Fora da área de entrega habitual
             </p>
+          )}
+
+          {/*
+            `<a>` e não `<button>`: isto é navegação, e só o link dá abrir-em-nova-aba pelo meio do
+            mouse, copiar endereço e o menu de contexto do celular — que é justamente como quem vai
+            entregar manda a rota para o próprio telefone. `buttonVariants` mantém o visual do botão.
+
+            Escondido na impressão: um link não clicável no papel é tinta gasta.
+          */}
+          {mapsDestination && (
+            <a
+              href={buildMapsUrl(mapsDestination)}
+              target="_blank"
+              rel="noreferrer"
+              className={`${buttonVariants({ variant: 'outline', size: 'sm' })} mt-2.5 w-full gap-2 print:hidden`}
+            >
+              <MapPinIcon />
+              Abrir no Maps
+            </a>
           )}
         </Card>
 

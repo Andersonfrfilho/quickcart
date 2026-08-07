@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "typecheck": "tsc --noEmit",
-    "build": "tsc --noEmit && vite build"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "build": "bun run typecheck && vite build",
+    "test": "bun test"
   },
   "dependencies": {
     "@adatechnology/conversations-ui": "0.1.0-rc.26",
