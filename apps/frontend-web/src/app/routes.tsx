@@ -17,6 +17,7 @@ import { AdminConversationsPage } from '@/modules/conversations/pages/AdminConve
 import { AdminDocumentsPage } from '@/modules/conversations/pages/AdminDocuments.page'
 import { AdminMessagesPage } from '@/modules/messages/pages/AdminMessages.page'
 import { AdminFlowsPage } from '@/modules/flows/pages/AdminFlows.page'
+import { AdminTemplatesPage } from '@/modules/conversations/pages/AdminTemplates.page'
 import { CustomerPreviewPage } from '@/modules/preview/pages/CustomerPreview.page'
 import { AgentPreviewPage } from '@/modules/preview/pages/AgentPreview.page'
 import { AdminNotificationsPage } from '@/modules/notifications/pages/AdminNotifications.page'
@@ -80,5 +81,6 @@ export const { RouterProvider, RouteRenderer } = createRouter([
   { path: '/admin/documents', component: withAdminLayout(AdminDocumentsPage) },
   { path: '/admin/messages', component: withAdminLayout(AdminMessagesPage) },
   { path: '/admin/flows', component: withAdminLayout(AdminFlowsPage) },
+  { path: '/admin/templates', component: withAdminLayout(AdminTemplatesPage) },
   ...previewRoutes,
 ])

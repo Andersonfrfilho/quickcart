@@ -48,6 +48,7 @@ const ADMIN_SECTIONS: NavSection[] = [
       { label: 'Documentos', path: '/admin/documents', icon: '📎' },
       { label: 'Mensagens', path: '/admin/messages', icon: '✉️' },
       { label: 'Fluxo do bot', path: '/admin/flows', icon: '🔀' },
+      { label: 'Templates', path: '/admin/templates', icon: '📄' },
     ],
   },
 ]
