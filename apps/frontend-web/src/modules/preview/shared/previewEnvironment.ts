@@ -7,15 +7,13 @@
  *
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  *
- * Portão do preview de conversa. O preview cliente assina o webhook com o app secret de dev, o que
- * significa carregar um segredo no bundle — aceitável no docker local, inaceitável em qualquer
- * outro lugar. Por isso a habilitação exige DUAS condições independentes: build de desenvolvimento
- * E flag explícita. Uma sozinha é fácil demais de ligar por acidente.
+ * Portão do preview de conversa. Nenhum segredo mora aqui: o bundle não carrega mais o app secret,
+ * porque toda assinatura do webhook é gerada no servidor. O que resta é configuração pública — de
+ * que número o preview envia — e a habilitação, que exige DUAS condições independentes (build de
+ * desenvolvimento E flag explícita), porque a rota de preview escreve no transcript de um cliente.
  *
- * Restou APENAS para a aba do cliente (`CustomerPreview.page`), que não tem sessão de admin e por
- * isso se autentica por HMAC. O simulador do painel não passa mais por aqui: ele manda a intenção
- * para a API, que assina do lado do servidor. Qualquer app secret que já tenha sido publicado num
- * bundle com este prefixo deve ser tratado como queimado e rotacionado.
+ * Um app secret que já tenha sido publicado num bundle com prefixo `VITE_` está queimado e precisa
+ * ser rotacionado — `VITE_*` é literal inlinado no JavaScript entregue.
  */
 
 const PREVIEW_FLAG_ENABLED = 'true'
@@ -24,8 +22,7 @@ export const IS_PREVIEW_ENABLED =
   import.meta.env.DEV && import.meta.env.VITE_PREVIEW_ENABLED === PREVIEW_FLAG_ENABLED
 
 export type PreviewEnvironment = {
-  readonly webhookUrl: string
-  readonly appSecret: string
+  readonly inboundUrl: string
   readonly customerPhone: string
 }
 
@@ -37,21 +34,19 @@ export class PreviewConfigurationError extends Error {
 }
 
 /**
- * Falha alto em vez de assinar com string vazia: um segredo ausente produziria assinatura inválida
- * e um 401 genérico, mandando quem depura investigar o webhook em vez do próprio .env.
+ * Falha alto em vez de enviar com número vazio: sem o número, o webhook criaria uma conversa órfã e
+ * quem depura iria investigar o motor em vez do próprio .env.
  */
 export function readPreviewEnvironment(): PreviewEnvironment {
-  const appSecret = import.meta.env.VITE_PREVIEW_APP_SECRET
-  if (!appSecret) throw new PreviewConfigurationError('VITE_PREVIEW_APP_SECRET')
-
   const customerPhone = import.meta.env.VITE_PREVIEW_PHONE
   if (!customerPhone) throw new PreviewConfigurationError('VITE_PREVIEW_PHONE')
 
   const apiBaseUrl = import.meta.env.VITE_API_URL ?? ''
 
+  // Não é o webhook direto: a rota de preview da API monta o payload e assina com o app secret que
+  // só o servidor tem. O navegador manda a intenção, não a assinatura.
   return {
-    webhookUrl: `${apiBaseUrl}/v1/webhook/whatsapp`,
-    appSecret,
+    inboundUrl: `${apiBaseUrl}/v1/preview/inbound`,
     customerPhone,
   }
 }

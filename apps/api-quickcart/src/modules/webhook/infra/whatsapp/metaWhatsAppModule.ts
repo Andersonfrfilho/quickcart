@@ -218,14 +218,25 @@ export function createQuickCartWhatsAppModule(params: CreateQuickCartWhatsAppMod
           // O grafo tem a primeira palavra. Ele devolve false quando não havia fluxo para
           // atender, e aí a engine assume — que é o caso de quem já está no meio de um
           // carrinho ou checkout, fora do grafo.
+          /*
+           * `replayMessage` é a lista que o cliente ditou ANTES de o bot saber o nome dele: o grafo
+           * atendeu a mensagem atual (o nome) e devolve a lista guardada para a engine montar o
+           * carrinho. Sem isso, a engine receberia o nome no lugar da lista.
+           */
+          let messageForEngine = parsed
+
           if (driver && session.flowKey !== null) {
-            if (await driver.handleInbound({ session, message: parsed })) return
+            const result = await driver.handleInbound({ session, message: parsed })
+            if (result.handled) return
+            if (result.replayMessage) messageForEngine = result.replayMessage
           }
-          if (driver && session.currentState === CONVERSATION_STATE.GREETING) {
-            if (await driver.handleInbound({ session, message: parsed })) return
+          if (driver && messageForEngine === parsed && session.currentState === CONVERSATION_STATE.GREETING) {
+            const result = await driver.handleInbound({ session, message: parsed })
+            if (result.handled) return
+            if (result.replayMessage) messageForEngine = result.replayMessage
           }
 
-          await params.resolveConversationEngine().handle(parsed)
+          await params.resolveConversationEngine().handle(messageForEngine)
         })().catch((error: unknown) => {
           webhookLog.error(LOG_EVENTS.CONVERSATION_ENGINE_FAILED, {
             waMessageId: message.id,

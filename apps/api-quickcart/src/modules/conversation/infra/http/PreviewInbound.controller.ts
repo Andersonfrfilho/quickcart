@@ -13,9 +13,14 @@
  * navegador, o que exigia `VITE_PREVIEW_APP_SECRET` — e `VITE_*` é literal inlinado no bundle, ou
  * seja, o app secret ia junto com o JavaScript para qualquer um que baixasse a página.
  *
- * Diferente das outras rotas de preview (transcript e mídia), que existem para a aba do cliente sem
- * sessão e por isso se autenticam por HMAC, esta é do PAINEL: quem chama já tem token de admin, e é
- * ele que autoriza. Forjar um inbound é escrever no transcript de um cliente.
+ * São dois handlers, com autorização diferente porque quem chama é diferente:
+ *
+ * - `handleSend` é do PAINEL: quem chama tem token de admin, e é ele que autoriza. Forjar um inbound
+ *   é escrever no transcript de um cliente.
+ * - `handleSendFromPreview` é da aba do cliente (`CustomerPreview.page`), que não tem sessão — a
+ *   guarda é `PREVIEW_TRANSCRIPT_ENABLED`, desligada em staging e produção, igual às demais rotas
+ *   de preview. Antes essa aba assinava no navegador, o que exigia o app secret no bundle; a chave
+ *   publicada não protegia rota nenhuma, já que quem baixava a página conseguia assinar.
  *
  * De lá a entrega passa pelo mesmo webhook de verdade, com a mesma verificação de assinatura e a
  * mesma guarda de replay: um caminho paralelo testaria outra coisa.
@@ -64,15 +69,13 @@ function buildPayload(command: PreviewInboundCommand) {
 }
 
 export function createPreviewInboundController(metaWhatsApp: MetaWhatsAppModule) {
-  const handleSend: RouteHandler = async (request, response) => {
+  async function deliver(request: Parameters<RouteHandler>[0], response: Parameters<RouteHandler>[1]) {
     const appSecret = environment.WHATSAPP_APP_SECRET
     // 404 e não 403, como as demais rotas de preview: desligada, ela não se anuncia.
     if (!environment.PREVIEW_TRANSCRIPT_ENABLED || !appSecret) {
       response.json(404, NOT_FOUND)
       return
     }
-
-    requireAdminToken(request)
 
     const command = previewInboundCommandSchema.parse(request.body)
     const rawBody = serializeWebhookPayload(buildPayload(command))
@@ -87,5 +90,15 @@ export function createPreviewInboundController(metaWhatsApp: MetaWhatsAppModule)
     response.json(202, { data: { status: 'accepted' } })
   }
 
-  return { handleSend }
+  const handleSend: RouteHandler = async (request, response) => {
+    requireAdminToken(request)
+    await deliver(request, response)
+  }
+
+  // Sem token: a aba do cliente não tem sessão. Quem autoriza é a flag de servidor.
+  const handleSendFromPreview: RouteHandler = async (request, response) => {
+    await deliver(request, response)
+  }
+
+  return { handleSend, handleSendFromPreview }
 }

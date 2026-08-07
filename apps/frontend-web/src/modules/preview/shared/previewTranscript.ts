@@ -7,28 +7,21 @@
  *
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  *
- * Leitura do transcript no simulador, assinada com o app secret em vez de token de admin.
+ * Leitura do transcript no simulador, sem token de admin e sem assinatura.
  *
  * O simulador roda numa aba sem sessão — `sessionStorage` é por aba —, então ler pela API de admin
- * devolvia 401 e a conversa nunca aparecia. Ele já prova identidade para ENTREGAR a mensagem
- * (HMAC no webhook); agora prova do mesmo jeito para LER.
+ * devolvia 401 e a conversa nunca aparecia. A rota de preview existe para isso, e quem a autoriza é
+ * a flag `PREVIEW_TRANSCRIPT_ENABLED` do servidor: nada aqui precisa de segredo.
  */
 
-import { signPreviewPayload } from '@adatechnology/conversations-ui/preview'
 import type { MessagePayload } from '@adatechnology/conversations-ui'
 import { toMessagePayload, type ApiMessage } from '@/modules/conversations/shared/conversationsApi'
-import { readPreviewEnvironment } from '@/modules/preview/shared/previewEnvironment'
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
 
 export async function fetchPreviewTranscript(conversationId: string): Promise<MessagePayload[]> {
-  const { appSecret } = readPreviewEnvironment()
-  // A assinatura cobre o número pedido: capturada, não serve para ler outra conversa.
-  const signature = await signPreviewPayload({ rawBody: conversationId, appSecret })
-
   const response = await fetch(
     `${API_BASE_URL}/v1/preview/conversations/${encodeURIComponent(conversationId)}/messages`,
-    { headers: { 'x-preview-signature': signature } },
   )
 
   if (!response.ok) {
