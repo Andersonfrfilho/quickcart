@@ -70,6 +70,7 @@ export function registerConversationRoutes(params: RegisterConversationRoutesPar
   // Ambas fora de /conversations: a biblioteca é da empresa e a URL assinada é endereçada pelo
   // objeto, não pela conversa.
   router.get('/v1/admin/documents', conversationController.handleListAllDocuments)
+  router.post('/v1/admin/documents', conversationController.handleUploadDocument)
   router.get('/v1/admin/documents/:uploadId/url', conversationController.handleGetDocumentUrl)
 
   // Fora de /v1/admin de propósito: a aba do preview do cliente não tem sessão. Quem autoriza é a
@@ -84,6 +85,9 @@ export function registerConversationRoutes(params: RegisterConversationRoutesPar
 
   router.get('/v1/admin/whatsapp/settings', settingsController.handleGetSettings)
   router.put('/v1/admin/whatsapp/settings', settingsController.handleSaveSettings)
+
+  router.get('/v1/admin/whatsapp/templates', settingsController.handleListTemplates)
+  router.post('/v1/admin/whatsapp/templates', settingsController.handleCreateTemplate)
 
   router.get('/v1/admin/flows', settingsController.handleListFlows)
   router.post('/v1/admin/flows', settingsController.handleCreateFlow)

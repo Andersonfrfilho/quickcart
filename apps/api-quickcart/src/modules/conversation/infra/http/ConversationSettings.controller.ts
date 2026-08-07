@@ -12,9 +12,11 @@
  * é a razão de a mensagem de boas-vindas não ser mais uma constante no código.
  */
 
+import { z } from 'zod'
 import type { MetaWhatsAppModule } from '@adatechnology/meta-whatsapp-module'
 import type { FlowGraphData, TranscriptionMode, WhatsAppSettings } from '@adatechnology/meta-whatsapp-contracts'
 import { OptimisticLockError } from '@adatechnology/meta-whatsapp-module'
+import type { WhatsAppTemplateProvider } from '@adatechnology/meta-whatsapp-provider'
 import type { RouteHandler } from '@/infra/http/router'
 import { requireAdminToken } from '@/infra/http/middlewares/requireAdminToken'
 import { environment } from '@/infra/config/environment'
@@ -25,7 +27,18 @@ const COMPANY_ID = environment.WHATSAPP_COMPANY_ID
 
 type ConversationSettingsControllerDependencies = {
   readonly metaWhatsApp: MetaWhatsAppModule
+  readonly templates: WhatsAppTemplateProvider
 }
+
+const createTemplateSchema = z.object({
+  name: z.string().min(1).max(255),
+  category: z.enum(['UTILITY', 'MARKETING']),
+  language: z.string().min(2).max(20),
+  headerType: z.enum(['NONE', 'TEXT']),
+  headerText: z.string().max(60).optional(),
+  bodyText: z.string().min(1).max(1024),
+  footerText: z.string().max(60).optional(),
+})
 
 function requireFlows(module: MetaWhatsAppModule) {
   // `flows` é undefined quando features.flowEngine está desligado. Uma rota que devolvesse 500
@@ -116,6 +129,30 @@ export class ConversationSettingsController {
       ...parseTranscriptionPolicy(body),
     })
     response.json(200, { data: settings })
+  }
+
+  // Templates vêm da Meta a cada leitura, não de cópia local: quem aprova/reprova é a Meta, e um
+  // cache aqui mostraria como disponível um template já rejeitado.
+  handleListTemplates: RouteHandler = async (request, response) => {
+    requireAdminToken(request)
+    const templates = await this.dependencies.templates.listTemplates()
+    response.json(200, { data: templates })
+  }
+
+  handleCreateTemplate: RouteHandler = async (request, response) => {
+    requireAdminToken(request)
+    const parsed = createTemplateSchema.safeParse(request.body)
+    if (!parsed.success) {
+      throw new ValidationError('Validation failed', VALIDATION_ERROR)
+    }
+
+    const { headerText, footerText, ...template } = parsed.data
+    const result = await this.dependencies.templates.createTemplate({
+      ...template,
+      ...(headerText !== undefined ? { headerText } : {}),
+      ...(footerText !== undefined ? { footerText } : {}),
+    })
+    response.json(201, { data: result })
   }
 
   handleListFlows: RouteHandler = async (request, response) => {

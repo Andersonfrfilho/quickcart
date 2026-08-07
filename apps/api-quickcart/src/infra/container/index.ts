@@ -65,6 +65,7 @@ import { wrapChannelWithLogging } from '@/modules/conversation/application/wrapC
 import { createMenuOptionsFilter } from '@/modules/conversation/application/createMenuOptionsFilter'
 import { MAIN_FLOW_SEED } from '@/modules/conversation/shared/MainFlow.seed'
 import { logger } from '@/shared/logger'
+import { WhatsAppTemplateProvider } from '@adatechnology/meta-whatsapp-provider'
 import { environment } from '@/infra/config/environment'
 import { WebhookController } from '@/modules/webhook/infra/http/Webhook.controller'
 import { WhatsAppSender } from '@/modules/webhook/infra/whatsapp/WhatsAppSender'
@@ -578,7 +579,14 @@ function buildConversationHttpModule(params: {
       ...(params.objectStorage ? { objectStorage: params.objectStorage } : {}),
       ...(quickCartObjectStorage ? { objectStorageProvider: quickCartObjectStorage.provider } : {}),
     }),
-    settingsController: new ConversationSettingsController({ metaWhatsApp: params.metaWhatsApp }),
+    settingsController: new ConversationSettingsController({
+      metaWhatsApp: params.metaWhatsApp,
+      templates: new WhatsAppTemplateProvider({
+        accessToken: environment.WHATSAPP_ACCESS_TOKEN,
+        ...(environment.WHATSAPP_BUSINESS_ACCOUNT_ID ? { wabaId: environment.WHATSAPP_BUSINESS_ACCOUNT_ID } : {}),
+        apiVersion: environment.WHATSAPP_API_VERSION,
+      }),
+    }),
     streamController: new ConversationStreamController({
       sseHub: conversationSseHub,
       ticketStore: conversationTicketStore,
