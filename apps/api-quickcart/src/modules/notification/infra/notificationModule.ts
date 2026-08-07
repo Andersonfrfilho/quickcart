@@ -24,6 +24,8 @@ import { customers } from '@/infra/database/schema/customers'
 import { environment } from '@/infra/config/environment'
 import { notificationDeliveryQueue } from '@/infra/queue/queues'
 
+import { withBullMqSafeJobId } from './bullMqJobIdSafeQueue'
+
 const BEARER_PREFIX = 'Bearer '
 
 /**
@@ -94,7 +96,8 @@ export function createQuickCartNotificationModule(params: { channels: ChannelDri
       channels: params.channels,
       // Sem isto o módulo cai na fila em processo, e a entrega nunca sai da API — o worker
       // ficaria de pé sem nada para consumir, e o sintoma seria "notificação não chega".
-      queue: createBullMqQueue({ queue: notificationDeliveryQueue }),
+      // `withBullMqSafeJobId` é remendo com data de saída — ver o cabeçalho do arquivo.
+      queue: createBullMqQueue({ queue: withBullMqSafeJobId(notificationDeliveryQueue) }),
     },
   })
 }
