@@ -35,6 +35,17 @@ const environmentSchema = z.object({
   // Este UUID fixo é o tenant único — existe para satisfazer a chave do módulo, não porque
   // haja mais de um inquilino. Vira configurável no dia em que houver.
   WHATSAPP_COMPANY_ID: z.string().uuid().default('00000000-0000-4000-8000-000000000001'),
+  /**
+   * Chave do HMAC da lista de supressão de notificações. A lista guarda hash, nunca o endereço em
+   * claro — ela existe para não enviar, não para virar cadastro de contatos (`security.md` §1).
+   */
+  NOTIFICATION_SUPPRESSION_KEY: z.string().min(32),
+  /**
+   * Ausente, o canal de e-mail não é montado — e o fan-out simplesmente não o planeja. Melhor que
+   * montar um driver que falha em toda tentativa e enche a tabela de `deliveries` de erro.
+   */
+  NOTIFICATION_SMTP_URL: z.string().optional(),
+  NOTIFICATION_EMAIL_FROM: z.string().email().default('nao-responda@quickcart.local'),
 
   // ── Moderação de conteúdo ──
   // Desligada por padrão: marcar mensagem de cliente é decisão de operação, não default técnico.

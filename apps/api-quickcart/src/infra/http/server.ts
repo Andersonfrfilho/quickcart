@@ -21,6 +21,10 @@ import { registerOrderRoutes } from '@/modules/order/infra/http/OrderRoutes'
 import { registerWebhookRoutes } from '@/modules/webhook/infra/http/WebhookRoutes'
 import { registerInternalRoutes } from '@/modules/internal/infra/http/InternalRoutes'
 import { registerConversationRoutes } from '@/modules/conversation/infra/http/ConversationRoutes'
+import { createNotificationRoutes } from '@adatechnology/notification-module'
+import { createModuleFetchRouter } from '@adatechnology/module-http/fetch'
+import { registerOpenApiRoutes } from '@/modules/notification/infra/http/OpenApiRoutes'
+import { notificationAuthContextResolver } from '@/modules/notification/infra/notificationModule'
 
 export function createRouter(): Router {
   const router = new Router()
@@ -46,6 +50,23 @@ export function createRouter(): Router {
     previewInboundController: container.conversationHttp.previewInboundController,
     unmatchedDemandController: container.conversationHttp.unmatchedDemandController,
   })
+
+  // Notificação inteira — inbox, SSE do sino, devices, preferências e templates — em três linhas.
+  // O módulo traz validação, autorização por objeto e filtro de erro; não há controller a escrever.
+  // UMA tabela, dois consumidores: o adaptador que serve e o documento que descreve. Derivar os
+  // dois da mesma variável é o que impede a documentação de descrever uma rota que não existe.
+  const notificationRoutes = createNotificationRoutes({ module: container.notification })
+
+  router.mount(
+    createModuleFetchRouter({
+      routes: notificationRoutes,
+      basePath: '/v1',
+      // O resolvedor é do HOST, não do módulo — o pacote recebe identidade pronta e não a produz.
+      authResolver: notificationAuthContextResolver,
+    }),
+  )
+
+  registerOpenApiRoutes({ router, notificationRoutes })
 
   router.registerNotFoundHandler()
 

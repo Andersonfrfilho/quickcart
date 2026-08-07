@@ -44,6 +44,20 @@ export const notificationQueue = new Queue(QUEUE_NAMES.NOTIFICATION, {
   },
 })
 
+/**
+ * Entregas do `notification-module`. O `attempts` fica em 1 de propósito — o retry é decidido por
+ * `applyDeliveryOutcome`, que distingue `retriable` de `permanent`. Deixar o BullMQ retentar
+ * duplicaria a política e reenviaria também o que é definitivo.
+ */
+export const notificationDeliveryQueue = new Queue(QUEUE_NAMES.NOTIFICATION_DELIVERY, {
+  connection: queueConnection,
+  defaultJobOptions: {
+    attempts: 1,
+    removeOnComplete: { age: 24 * 3600, count: 1000 },
+    removeOnFail: { age: 7 * 24 * 3600, count: 2000 },
+  },
+})
+
 // Cópia de mídia da Meta para o storage. A URL de download da Meta expira, então tentar de novo
 // tarde demais não recupera nada — daí backoff curto e poucas tentativas, em vez do escalonamento
 // longo do recibo. O use case é idempotente por sourceMediaId, então reentrega não duplica objeto.

@@ -2,7 +2,9 @@ import { Worker } from 'bullmq'
 import { queueConnection } from '@/infra/queue/connection'
 import { QUEUE_NAMES } from '@/infra/queue/queues.constant'
 import { processSttJob } from '@/modules/stt/infra/processors/SttProcessor'
-import { processNotificationJob } from '@/modules/notification/infra/processors/NotificationProcessor'
+import { createNotificationWorker } from '@adatechnology/notification-module'
+import { createBullMqQueue } from '@adatechnology/notification-module/queue/bullmq'
+import { createWorkerNotificationModule } from '@/modules/notification/notificationModule'
 import { processReceiptJob } from '@/modules/receipt/infra/processors/ReceiptProcessor'
 import { processDocumentsJob, PURGE_EXPIRED_JOB } from '@/modules/documents/infra/processors/DocumentsProcessor'
 import { Queue } from 'bullmq'
@@ -13,19 +15,14 @@ const workersLog = logger.child('Workers')
 
 export function startWorkers(): Worker[] {
   const sttWorker = new Worker(QUEUE_NAMES.STT, processSttJob, { connection: queueConnection })
-  const notificationWorker = new Worker(QUEUE_NAMES.NOTIFICATION, processNotificationJob, { connection: queueConnection })
   const receiptWorker = new Worker(QUEUE_NAMES.RECEIPT, processReceiptJob, { connection: queueConnection })
   const documentsWorker = new Worker(QUEUE_NAMES.DOCUMENTS, processDocumentsJob, { connection: queueConnection })
 
   sttWorker.on('ready', () => workersLog.info('worker_ready', { queue: QUEUE_NAMES.STT }))
-  notificationWorker.on('ready', () => workersLog.info('worker_ready', { queue: QUEUE_NAMES.NOTIFICATION }))
   receiptWorker.on('ready', () => workersLog.info('worker_ready', { queue: QUEUE_NAMES.RECEIPT }))
   documentsWorker.on('ready', () => workersLog.info('worker_ready', { queue: QUEUE_NAMES.DOCUMENTS }))
 
   sttWorker.on('failed', (job, error) => workersLog.error('job_failed', { queue: QUEUE_NAMES.STT, jobId: job?.id, error: String(error) }))
-  notificationWorker.on('failed', (job, error) =>
-    workersLog.error('job_failed', { queue: QUEUE_NAMES.NOTIFICATION, jobId: job?.id, error: String(error) }),
-  )
   receiptWorker.on('failed', (job, error) =>
     workersLog.error('job_failed', { queue: QUEUE_NAMES.RECEIPT, jobId: job?.id, error: String(error) }),
   )
@@ -58,5 +55,32 @@ export function startWorkers(): Worker[] {
       .catch((error: unknown) => workersLog.error('retention_schedule_failed', { error: String(error) }))
   }
 
-  return [sttWorker, notificationWorker, receiptWorker, documentsWorker]
+  // Notificação em fila PRÓPRIA (`QUEUE_NAMES.NOTIFICATION_DELIVERY`), e não na `notification`
+  // antiga: o job do SDK tem outro formato (`{ notificationId, deliveryId, channel, attempt }`
+  // contra `{ orderId, status }`). Reaproveitar o nome faria o worker novo receber job antigo
+  // ainda na fila durante o deploy, e falhar em cima de dado que ele não sabe ler.
+  const notificationQueue = new Queue(QUEUE_NAMES.NOTIFICATION_DELIVERY, { connection: queueConnection })
+  // `createWorker` é fábrica, não instância: o módulo constrói o Worker com o handler DELE, e a
+  // conexão continua sendo do host — o pacote não abre conexão própria.
+  let notificationWorker: Worker | undefined
+  const notificationQueuePort = createBullMqQueue({
+    queue: notificationQueue,
+    createWorker: (handler) => {
+      notificationWorker = new Worker(QUEUE_NAMES.NOTIFICATION_DELIVERY, async (job) => handler(job.data), {
+        connection: queueConnection,
+      })
+      return notificationWorker
+    },
+  })
+  void createNotificationWorker({
+    module: createWorkerNotificationModule(),
+    queue: notificationQueuePort,
+    logger: workersLog,
+  }).start()
+
+  notificationWorker?.on('ready', () =>
+    workersLog.info('worker_ready', { queue: QUEUE_NAMES.NOTIFICATION_DELIVERY }),
+  )
+
+  return [sttWorker, receiptWorker, documentsWorker, ...(notificationWorker ? [notificationWorker] : [])]
 }

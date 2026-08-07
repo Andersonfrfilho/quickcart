@@ -26,6 +26,18 @@ const environmentSchema = z.object({
   // ── WhatsApp (Meta Cloud API) ──
   WHATSAPP_ACCESS_TOKEN: z.string().default(''),
   WHATSAPP_PHONE_NUMBER_ID: z.string().default(''),
+  /**
+   * Mesma chave da API — o hash de supressão tem de casar entre os dois processos, senão a API
+   * grava a supressão sob um hash e o worker consulta outro, e um endereço suprimido volta a
+   * receber.
+   */
+  NOTIFICATION_SUPPRESSION_KEY: z.string().min(32),
+  /**
+   * Ausente, o canal de e-mail não é montado — e o fan-out simplesmente não o planeja. Melhor que
+   * montar um driver que falha em toda tentativa e enche a tabela de `deliveries` de erro.
+   */
+  NOTIFICATION_SMTP_URL: z.string().optional(),
+  NOTIFICATION_EMAIL_FROM: z.string().email().default('nao-responda@quickcart.local'),
   WHATSAPP_API_VERSION: z.string().default('v21.0'),
   WHATSAPP_BASE_URL: z.string().default('https://graph.facebook.com'),
   // Tenant único do QuickCart, igual ao da api-quickcart — a retenção varre por empresa.

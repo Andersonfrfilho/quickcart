@@ -1,4 +1,8 @@
 [install]
-# Lockfile binário, como o repositório sempre usou. O bun 1.2+ grava texto por padrão, então um
-# `rm bun.lockb` seguido de install troca o formato sem ninguém decidir.
+# Lockfile binário, como o repositório sempre usou.
+#
+# O bun 1.2+ passou a gravar `bun.lock` (texto) por padrão, então um `rm bun.lockb` seguido de
+# install troca o formato sem ninguém decidir — e o arquivo novo entra num commit de feature por
+# tabela. Texto tem a vantagem de ser revisável em PR, e trocar é uma decisão legítima: só não deve
+# acontecer por acidente.
 saveTextLockfile = false

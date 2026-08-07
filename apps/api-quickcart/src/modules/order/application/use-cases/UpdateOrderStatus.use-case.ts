@@ -15,14 +15,14 @@ import { OrderInvalidStatusTransitionError, OrderNotFoundError } from '@/shared/
 import { allowedNextStatuses, canTransitionTo } from '@/modules/order/domain/orderStatusFlow'
 import { ORDER_STATUS } from '@/modules/order/shared/Order.constant'
 import type { OrderRepositoryInterface } from '@/modules/order/domain/OrderRepository.interface'
-import type { JobQueue } from '@/modules/order/domain/JobQueue.interface'
+import type { OrderStatusNotifier } from '@/modules/notification/domain/OrderStatusNotifier.interface'
 import type { UpdateOrderStatusParams, UpdateOrderStatusResult } from '../types/UpdateOrderStatus.types'
 import { logger } from '@/shared/logger'
 import { serializeError } from '@/shared/serializeError'
 
 type UpdateOrderStatusUseCaseDependencies = {
   readonly orderRepository: OrderRepositoryInterface
-  readonly notificationQueue: JobQueue
+  readonly orderStatusNotifier: OrderStatusNotifier
 }
 
 const useCaseLog = logger.child('UpdateOrderStatus')
@@ -72,7 +72,7 @@ export class UpdateOrderStatusUseCase {
       })
     }
 
-    /**
+/**
      * "Separado" afirma que a separação terminou — então os itens ficam marcados.
      *
      * Sem isto, avançar o status pelo botão da lista (que é como a maioria dos pedidos anda) deixava a
@@ -91,8 +91,10 @@ export class UpdateOrderStatusUseCase {
       }
     }
 
-    await this.dependencies.notificationQueue.add('order-status-changed', {
+    await this.dependencies.orderStatusNotifier.notifyStatusChanged({
       orderId: order.id,
+      customerId: order.customerId,
+      shortCode: order.shortCode,
       status: order.status,
     })
 

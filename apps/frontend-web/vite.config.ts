@@ -4,8 +4,10 @@ import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
 /**
- * Config como FUNÇÃO para usar `loadEnv`: o `vite.config` é avaliado ANTES de o Vite carregar os
- * `.env`, então `process.env.VITE_*` está vazio aqui.
+ * Config como FUNÇÃO para poder usar `loadEnv`: o `vite.config` é avaliado ANTES de o Vite carregar
+ * os `.env`, então `process.env.VITE_*` está vazio aqui. Sem isto o alvo do proxy caía no default e
+ * as chamadas iam para a api errada — 404 na tela, com a requisição aparecendo no painel de rede
+ * como se estivesse tudo certo.
  */
 export default defineConfig(({ mode }) => ({
   plugins: [
@@ -65,7 +67,10 @@ export default defineConfig(({ mode }) => ({
   server: {
     port: 5183,
     proxy: {
-      /** Alvo por env para worktrees conviverem em portas diferentes. */
+      /**
+       * Alvo por env para worktrees conviverem: cada um sobe a api numa porta e aponta o proxy pela
+       * própria `.env.local`, sem editar (e comitar) este arquivo.
+       */
       '/v1': { target: loadEnv(mode, process.cwd(), '').VITE_API_PROXY_TARGET || 'http://localhost:3344', changeOrigin: true },
     },
   },
