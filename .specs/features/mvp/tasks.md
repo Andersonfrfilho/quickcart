@@ -151,7 +151,7 @@
 - [x] T12.3 Página **Mensagens**: `WelcomeFarewellForm` sobre `/v1/admin/whatsapp/settings`
 - [x] T12.4 Página **Fluxo do bot**: `FlowMapCanvas` sobre `/v1/admin/flows`, lendo `meta_whatsapp.flow_graphs`; `@xyflow/react` adicionado como peer
 - [x] T12.5 `ADMIN_NAV` com os três itens novos + rotas
-- [ ] T12.6 **Documentos/upload** — bloqueado: não existe backend (sem tabela, sem rota; o adapter já devolve lista vazia e rejeita download). Precisa de decisão de storage antes da tela
+- [x] T12.6 **Documentos/upload** — desbloqueado e entregue em `feat/conversation-documents` (`791b121`, `bd1b7e8`, `86d4db6`), depois da decisão de storage. Backend: `/v1/admin/conversations/:number/documents`, `.../documents/archive` (POST, porque a seleção de ids não cabe em query string), `/v1/admin/documents` (biblioteca da empresa, GET e POST) e `/v1/admin/documents/:uploadId/url`. Storage S3-compatível por env (`STORAGE_*`), bucket privado, entrega só por URL assinada de 300s e teto de 25 MB por objeto; retenção pelo job `purge-expired-documents` na fila `documents`, que também ingere a mídia inbound. Tela sobre o `DocumentsWorkspace` do SDK — `DocumentsWorkspace` e não `DocumentsLibrary` porque o upload manual precisa dizer a que conversa o arquivo pertence, e `renderFilters` é o único ponto onde o host injeta o número do WhatsApp sem o pacote conhecer esse vocabulário
 
 **Quatro defeitos pré-existentes corrigidos ao montar** (todos invisíveis enquanto nenhuma tela consumia a API):
 1. Token gravado em `sessionStorage` pelo login e lido de `localStorage` pelo cliente — toda chamada saía sem credencial

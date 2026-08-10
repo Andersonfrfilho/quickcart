@@ -13,7 +13,7 @@ import { z } from 'zod'
 const booleanFromString = (defaultValue: 'true' | 'false') =>
   z.string().default(defaultValue).transform((value) => value === 'true')
 
-const environmentSchema = z.object({
+export const environmentSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().int().positive().default(3333),
 
@@ -28,7 +28,10 @@ const environmentSchema = z.object({
   WHATSAPP_APP_SECRET: z.string().default(''),
   // Leitura do transcript pelo simulador, sem sessão de admin. Fica FALSO por padrão: só o ambiente
   // local liga, e staging/produção não definem a variável.
-  PREVIEW_TRANSCRIPT_ENABLED: z.coerce.boolean().default(false),
+  //
+  // `booleanFromString` e não `z.coerce.boolean()`: coerção é `Boolean(valor)`, então a string
+  // "false" ligaria a flag — desligar a mão abriria as rotas de preview em vez de fechá-las.
+  PREVIEW_TRANSCRIPT_ENABLED: booleanFromString('false'),
   WHATSAPP_API_VERSION: z.string().default('v21.0'),
   WHATSAPP_BASE_URL: z.string().default('https://graph.facebook.com'),
   // O meta-whatsapp-module é multiempresa por construção; o QuickCart atende uma loja só.
