@@ -31,6 +31,7 @@ default que não serve em produção**. A segunda lista é a perigosa: sobe, fic
 | `ADMIN_API_TOKEN` | ✅ | — | |
 | `INTERNAL_API_TOKEN` | ✅ | ✅ | mesmo valor nos dois |
 | `API_BASE_URL` | — | ✅ | URL interna da api; é por onde o worker retoma a conversa |
+| `BULL_BOARD_USER` / `BULL_BOARD_PASSWORD` | — | ✅ | o painel de filas sobe junto com o worker; credencial vazia autenticaria requisição sem credencial |
 
 ### Têm default, e o default está errado em produção
 
@@ -45,7 +46,6 @@ default que não serve em produção**. A segunda lista é a perigosa: sobe, fic
 | `STORAGE_*` (endpoint, bucket, chaves) | MinIO local | com `STORAGE_ENABLED=true` e estes no default, a gravação vai para lugar nenhum. Bucket **privado** — a entrega é só por URL assinada (`STORAGE_DOWNLOAD_URL_TTL_SECONDS`, 300s) |
 | `STORE_CEP` | ausente | é o interruptor de distância/ETA: sem ele, nenhum pedido mostra previsão de chegada |
 | `STORE_NAME` | `QuickCart` | sai no recibo do cliente |
-| `BULL_BOARD_USER` / `BULL_BOARD_PASSWORD` | `''` | ⚠️ painel de filas sem credencial. `security.md` §2 exige falha no boot nesse caso — hoje o schema aceita, então **defina os dois** ou não exponha a porta `BULL_BOARD_PORT` |
 | `DOCUMENTS_RETENTION_DAYS` | `0` (desligado) | arquivo de conversa fica para sempre; a política de retenção de dado pessoal é decisão do negócio |
 
 ### Ficam desligadas até alguém decidir (custo ou PII)

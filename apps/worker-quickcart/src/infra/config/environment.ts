@@ -119,9 +119,13 @@ const environmentSchema = z.object({
   STORE_ADDRESS: z.string().optional(),
 
   // ── Bull Board ──
+  //
+  // Sem default: o painel sobe sempre, e credencial vazia vira `basicAuth({ users: { '': '' } })`,
+  // que autentica requisição sem credencial nenhuma — as filas ficam abertas a quem achar a porta.
+  // `security.md` §2 exige falhar no boot em vez disso.
   BULL_BOARD_PORT: z.coerce.number().int().positive().default(3010),
-  BULL_BOARD_USER: z.string().default(''),
-  BULL_BOARD_PASSWORD: z.string().default(''),
+  BULL_BOARD_USER: z.string().min(1),
+  BULL_BOARD_PASSWORD: z.string().min(1),
 
   // ── Observabilidade ──
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
