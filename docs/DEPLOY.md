@@ -14,11 +14,48 @@ Padrão copiado de `financiamento-imobiliario-bot` (railway.toml raiz + por app,
 
 ## Variáveis (dashboard Railway)
 
-Todas de `.specs/features/mvp/spec.md` §9. Mínimo para subir:
-`DATABASE_URL`, `REDIS_URL`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`,
-`WHATSAPP_WEBHOOK_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET`, `ADMIN_API_TOKEN`,
-`INTERNAL_API_TOKEN`, `ALLOWED_ORIGINS`, `STORE_NAME`. Opcionais: `GROQ_API_KEY`,
-`SMTP_*`, `FISCAL_*`, `SENTRY_DSN`.
+Fonte da verdade são os dois schemas — `apps/api-quickcart/src/infra/config/environment.ts` e
+`apps/worker-quickcart/src/infra/config/environment.ts` —, não esta tabela: `environmentSchema.parse`
+roda no import, então variável faltando derruba o processo no boot, antes de servir.
+
+A distinção que importa não é "obrigatória x opcional", é **o que derruba o boot** x **o que tem
+default que não serve em produção**. A segunda lista é a perigosa: sobe, fica verde, e falha calado.
+
+### Derrubam o boot quando faltam (sem default)
+
+| Variável | api | worker | Nota |
+|---|:---:|:---:|---|
+| `DATABASE_URL` | ✅ | ✅ | |
+| `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | ✅ | — | o valor que a Meta ecoa no handshake do webhook |
+| `NOTIFICATION_SUPPRESSION_KEY` | ✅ | ✅ | ≥32 chars, **o mesmo valor nos dois** — chaves diferentes fazem a API gravar a supressão sob um hash e o worker consultar outro, e endereço suprimido volta a receber |
+| `ADMIN_API_TOKEN` | ✅ | — | |
+| `INTERNAL_API_TOKEN` | ✅ | ✅ | mesmo valor nos dois |
+| `API_BASE_URL` | — | ✅ | URL interna da api; é por onde o worker retoma a conversa |
+
+### Têm default, e o default está errado em produção
+
+| Variável | Default | O que acontece se ficar assim |
+|---|---|---|
+| `REDIS_URL` | `redis://localhost:6379` | api e worker sobem e não acham a fila |
+| `ALLOWED_ORIGINS` | `http://localhost:5183` | o `quickcart-web` toma CORS em toda chamada |
+| `WHATSAPP_ACCESS_TOKEN` | `''` | nenhuma mensagem sai |
+| `WHATSAPP_PHONE_NUMBER_ID` | `''` | idem |
+| `WHATSAPP_APP_SECRET` | `''` | assinatura do webhook sem segredo configurado |
+| `STORAGE_ENABLED` | `false` | mídia da conversa não é ingerida e a biblioteca de documentos fica vazia, sem erro |
+| `STORAGE_*` (endpoint, bucket, chaves) | MinIO local | com `STORAGE_ENABLED=true` e estes no default, a gravação vai para lugar nenhum. Bucket **privado** — a entrega é só por URL assinada (`STORAGE_DOWNLOAD_URL_TTL_SECONDS`, 300s) |
+| `STORE_CEP` | ausente | é o interruptor de distância/ETA: sem ele, nenhum pedido mostra previsão de chegada |
+| `STORE_NAME` | `QuickCart` | sai no recibo do cliente |
+| `BULL_BOARD_USER` / `BULL_BOARD_PASSWORD` | `''` | ⚠️ painel de filas sem credencial. `security.md` §2 exige falha no boot nesse caso — hoje o schema aceita, então **defina os dois** ou não exponha a porta `BULL_BOARD_PORT` |
+| `DOCUMENTS_RETENTION_DAYS` | `0` (desligado) | arquivo de conversa fica para sempre; a política de retenção de dado pessoal é decisão do negócio |
+
+### Ficam desligadas até alguém decidir (custo ou PII)
+
+`TRANSCRIPTION_ENABLED` (cota do Groq), `MODERATION_ENABLED`, `FISCAL_ENABLED` (+ todo o bloco
+`FISCAL_*` e o certificado), `SMTP_*` / `NOTIFICATION_SMTP_URL` (sem elas o canal de e-mail nem é
+montado), `GROQ_API_KEY`, `SENTRY_DSN`.
+
+`PREVIEW_TRANSCRIPT_ENABLED` **não se define em staging nem em produção**: liga rotas de preview que
+leem transcript de cliente sem sessão de admin. O default é `false` e é assim que deve ficar.
 
 ## Registro do webhook no app Meta (novo app a criar)
 
