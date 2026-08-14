@@ -7,13 +7,14 @@
  *
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  *
- * Unit test com fakes em memória — cobre a atualização normal de status, o cancelamento
- * (que precisa devolver o estoque via cancelAndRestoreStock) e pedido inexistente.
+ * Unit test com fakes em memória — cobre a atualização normal de status, o trajeto da entrega, a
+ * ocorrência com motivo, o cancelamento (que devolve estoque, exceto no extraviado) e pedido
+ * inexistente.
  */
 
 import { describe, expect, test } from 'bun:test'
-import { OrderNotFoundError } from '@/shared/errors/OrderErrors'
-import { ORDER_STATUS } from '@/modules/order/shared/Order.constant'
+import { OrderInvalidStatusTransitionError, OrderNotFoundError } from '@/shared/errors/OrderErrors'
+import { DELIVERY_FAILURE_REASON, ORDER_STATUS } from '@/modules/order/shared/Order.constant'
 import type { OrderItemRecord, OrderRecord, OrderRepositoryInterface } from '@/modules/order/domain/OrderRepository.interface'
 import type {
   NotifyStatusChangedParams,
@@ -25,6 +26,8 @@ class FakeOrderRepository implements OrderRepositoryInterface {
   readonly orders = new Map<string, OrderRecord>()
   readonly itemsByOrder = new Map<string, OrderItemRecord[]>()
   readonly stockRestoredCalls: string[] = []
+  readonly cancelCalls: { orderId: string; restoreStock: boolean }[] = []
+  readonly statusWrites: { status: string; deliveryFailureReason: string | null | undefined }[] = []
 
   constructor(private readonly stock: Map<string, number>) {}
 
@@ -80,25 +83,52 @@ class FakeOrderRepository implements OrderRepositoryInterface {
     return { items: [], total: 0 }
   }
 
-  async updateStatus(id: string, status: string): Promise<OrderRecord | undefined> {
-    const order = this.orders.get(id)
+  async updateStatus(params: {
+    orderId: string
+    status: string
+    deliveryFailureReason?: string | null | undefined
+  }): Promise<OrderRecord | undefined> {
+    const order = this.orders.get(params.orderId)
     if (!order) return undefined
-    const updated = { ...order, status, updatedAt: new Date() }
-    this.orders.set(id, updated)
+
+    this.statusWrites.push({ status: params.status, deliveryFailureReason: params.deliveryFailureReason })
+
+    const updated = {
+      ...order,
+      status: params.status,
+      // `undefined` mantém o que já estava — é o repositório real omitindo a coluna do `set`.
+      ...(params.deliveryFailureReason === undefined
+        ? {}
+        : { deliveryFailureReason: params.deliveryFailureReason }),
+      updatedAt: new Date(),
+    }
+    this.orders.set(params.orderId, updated)
     return updated
   }
 
-  async cancelAndRestoreStock(id: string): Promise<OrderRecord | undefined> {
-    const order = this.orders.get(id)
+  async startCustomerDecision(): Promise<undefined> {
+    throw new Error('not implemented')
+  }
+
+  async markCustomerDecisionReminded(): Promise<undefined> {
+    throw new Error('not implemented')
+  }
+
+  async cancel(params: { orderId: string; restoreStock: boolean }): Promise<OrderRecord | undefined> {
+    const order = this.orders.get(params.orderId)
     if (!order) return undefined
 
-    this.stockRestoredCalls.push(id)
-    for (const item of this.itemsByOrder.get(id) ?? []) {
-      this.stock.set(item.productId, (this.stock.get(item.productId) ?? 0) + item.quantity)
+    this.cancelCalls.push({ orderId: params.orderId, restoreStock: params.restoreStock })
+
+    if (params.restoreStock) {
+      this.stockRestoredCalls.push(params.orderId)
+      for (const item of this.itemsByOrder.get(params.orderId) ?? []) {
+        this.stock.set(item.productId, (this.stock.get(item.productId) ?? 0) + item.quantity)
+      }
     }
 
     const updated = { ...order, status: ORDER_STATUS.CANCELLED, updatedAt: new Date() }
-    this.orders.set(id, updated)
+    this.orders.set(params.orderId, updated)
     return updated
   }
 }
@@ -127,6 +157,9 @@ function buildOrder(overrides: Partial<OrderRecord> = {}): OrderRecord {
     receiptPreference: 'email',
     fiscalDocumentId: null,
     notes: null,
+    deliveryFailureReason: null,
+    customerDecisionAskedAt: null,
+    customerDecisionRemindedAt: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
@@ -159,7 +192,7 @@ describe('UpdateOrderStatusUseCase', () => {
     ])
   })
 
-  test('cancelamento devolve o estoque via cancelAndRestoreStock', async () => {
+  test('cancelamento devolve o estoque', async () => {
     const stock = new Map<string, number>([['product-1', 3]])
     const orderRepository = new FakeOrderRepository(stock)
     const order = buildOrder()
@@ -188,6 +221,109 @@ describe('UpdateOrderStatusUseCase', () => {
     expect(result.order.status).toBe(ORDER_STATUS.CANCELLED)
     expect(orderRepository.stockRestoredCalls).toEqual([order.id])
     expect(stock.get('product-1')).toBe(5)
+  })
+
+  test('ocorrência grava o motivo junto do status, numa escrita só', async () => {
+    const orderRepository = new FakeOrderRepository(new Map())
+    const order = buildOrder({ status: ORDER_STATUS.IN_TRANSIT })
+    orderRepository.orders.set(order.id, order)
+    const orderStatusNotifier = new FakeOrderStatusNotifier()
+    const useCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier })
+
+    const result = await useCase.execute({
+      orderId: order.id,
+      status: ORDER_STATUS.DELIVERY_FAILED,
+      deliveryFailureReason: DELIVERY_FAILURE_REASON.CUSTOMER_ABSENT,
+    })
+
+    expect(result.order.status).toBe(ORDER_STATUS.DELIVERY_FAILED)
+    expect(result.order.deliveryFailureReason).toBe(DELIVERY_FAILURE_REASON.CUSTOMER_ABSENT)
+    expect(orderRepository.statusWrites).toEqual([
+      { status: ORDER_STATUS.DELIVERY_FAILED, deliveryFailureReason: DELIVERY_FAILURE_REASON.CUSTOMER_ABSENT },
+    ])
+  })
+
+  test('nova tentativa apaga o motivo da viagem anterior', async () => {
+    const orderRepository = new FakeOrderRepository(new Map())
+    const order = buildOrder({
+      status: ORDER_STATUS.DELIVERY_FAILED,
+      deliveryFailureReason: DELIVERY_FAILURE_REASON.CUSTOMER_ABSENT,
+    })
+    orderRepository.orders.set(order.id, order)
+    const orderStatusNotifier = new FakeOrderStatusNotifier()
+    const useCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier })
+
+    const result = await useCase.execute({ orderId: order.id, status: ORDER_STATUS.OUT_FOR_DELIVERY })
+
+    // Sem isto a tela mostraria "cliente ausente" num pedido que está de novo na rua.
+    expect(result.order.deliveryFailureReason).toBeNull()
+  })
+
+  test('extraviado cancela sem devolver ao estoque', async () => {
+    const stock = new Map<string, number>([['product-1', 3]])
+    const orderRepository = new FakeOrderRepository(stock)
+    const order = buildOrder({
+      status: ORDER_STATUS.DELIVERY_FAILED,
+      deliveryFailureReason: DELIVERY_FAILURE_REASON.LOST,
+    })
+    orderRepository.orders.set(order.id, order)
+    const orderStatusNotifier = new FakeOrderStatusNotifier()
+    const useCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier })
+
+    const result = await useCase.execute({ orderId: order.id, status: ORDER_STATUS.CANCELLED })
+
+    expect(result.order.status).toBe(ORDER_STATUS.CANCELLED)
+    // A sacola não voltou para a prateleira: repor criaria estoque de um produto que ninguém tem.
+    expect(orderRepository.cancelCalls).toEqual([{ orderId: order.id, restoreStock: false }])
+    expect(stock.get('product-1')).toBe(3)
+  })
+
+  test('devolvido cancela devolvendo ao estoque', async () => {
+    const stock = new Map<string, number>([['product-1', 3]])
+    const orderRepository = new FakeOrderRepository(stock)
+    const order = buildOrder({
+      status: ORDER_STATUS.DELIVERY_FAILED,
+      deliveryFailureReason: DELIVERY_FAILURE_REASON.RETURNED,
+    })
+    orderRepository.orders.set(order.id, order)
+    orderRepository.itemsByOrder.set(order.id, [
+      {
+        id: 'item-1',
+        orderId: order.id,
+        productId: 'product-1',
+        productName: 'Arroz',
+        unitPriceInCents: 2500,
+        quantity: 2,
+        totalInCents: 5000,
+        unavailableAt: null,
+        unavailableNotifiedAt: null,
+        pickedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ])
+    const orderStatusNotifier = new FakeOrderStatusNotifier()
+    const useCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier })
+
+    await useCase.execute({ orderId: order.id, status: ORDER_STATUS.CANCELLED })
+
+    expect(stock.get('product-1')).toBe(5)
+  })
+
+  test('recusa avançar de ocorrência finalizante para nova entrega', async () => {
+    const orderRepository = new FakeOrderRepository(new Map())
+    const order = buildOrder({
+      status: ORDER_STATUS.DELIVERY_FAILED,
+      deliveryFailureReason: DELIVERY_FAILURE_REASON.REFUSED,
+    })
+    orderRepository.orders.set(order.id, order)
+    const orderStatusNotifier = new FakeOrderStatusNotifier()
+    const useCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier })
+
+    await expect(
+      useCase.execute({ orderId: order.id, status: ORDER_STATUS.OUT_FOR_DELIVERY }),
+    ).rejects.toBeInstanceOf(OrderInvalidStatusTransitionError)
+    expect(orderStatusNotifier.notified).toHaveLength(0)
   })
 
   test('lança OrderNotFoundError quando o pedido não existe', async () => {

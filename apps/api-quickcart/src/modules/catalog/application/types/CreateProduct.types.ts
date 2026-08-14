@@ -21,6 +21,7 @@ export type CreateProductParams = {
   readonly stockQuantity: number
   readonly isAvailable: boolean
   readonly imageUrl?: string | undefined
+  readonly aisle?: string | undefined
   readonly aliases: readonly string[]
   readonly barcode?: string | undefined
 }

@@ -21,6 +21,7 @@ export const updateProductSchema = z.object({
   priceInCents: z.number().int().nonnegative().optional(),
   isAvailable: z.boolean().optional(),
   imageUrl: z.string().url().nullable().optional(),
+  aisle: z.string().max(60).nullable().optional(),
   aliases: z.array(z.string().min(1)).optional(),
   barcode: z.string().max(14).nullable().optional(),
 })

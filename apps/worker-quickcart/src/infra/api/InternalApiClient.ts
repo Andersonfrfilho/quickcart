@@ -7,7 +7,7 @@
  *
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  *
- * Cliente HTTP para a única rota interna que o worker chama (docs/API.md — Interno).
+ * Cliente HTTP para as rotas internas que o worker chama (docs/API.md — Interno).
  * Uma resposta não-2xx propaga como erro para o processor acionar o retry do BullMQ —
  * ao contrário do webhook da Meta, aqui não há motivo para engolir a falha.
  */
@@ -25,18 +25,35 @@ class InternalApiError extends Error {
   }
 }
 
-export async function resumeConversation(params: ResumeConversationParams): Promise<void> {
-  const response = await fetch(`${environment.API_BASE_URL}/v1/internal/conversation/resume`, {
+async function postInternal(params: { readonly path: string; readonly body: unknown; readonly operation: string }): Promise<void> {
+  const response = await fetch(`${environment.API_BASE_URL}${params.path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${environment.INTERNAL_API_TOKEN}`,
     },
-    body: JSON.stringify(params),
+    body: JSON.stringify(params.body),
   })
 
   if (!response.ok) {
     const body = await response.text()
-    throw new InternalApiError(`resume_conversation_failed: ${response.status} - ${body}`, response.status)
+    throw new InternalApiError(`${params.operation}_failed: ${response.status} - ${body}`, response.status)
   }
+}
+
+export async function resumeConversation(params: ResumeConversationParams): Promise<void> {
+  await postInternal({ path: '/v1/internal/conversation/resume', body: params, operation: 'resume_conversation' })
+}
+
+/**
+ * Cobra a decisão do cliente. Vai pela API, e não direto no banco, porque a cobrança precisa do mesmo
+ * texto, dos mesmos botões e do mesmo carimbo condicional que o aviso original — regra de negócio que
+ * mora na API. Duplicá-la aqui seria a segunda implementação que erra.
+ */
+export async function remindCustomerDecision(params: { readonly orderId: string }): Promise<void> {
+  await postInternal({
+    path: `/v1/internal/orders/${params.orderId}/decision-reminder`,
+    body: {},
+    operation: 'remind_customer_decision',
+  })
 }

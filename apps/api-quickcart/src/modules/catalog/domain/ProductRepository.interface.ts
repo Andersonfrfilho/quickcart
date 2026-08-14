@@ -22,6 +22,7 @@ export type CreateProductRecordParams = {
   readonly stockQuantity: number
   readonly isAvailable: boolean
   readonly imageUrl?: string | undefined
+  readonly aisle?: string | undefined
   readonly aliases: readonly string[]
   readonly barcode?: string | undefined
 }
@@ -36,6 +37,7 @@ export type UpdateProductRecordParams = {
   readonly priceInCents?: number | undefined
   readonly isAvailable?: boolean | undefined
   readonly imageUrl?: string | null | undefined
+  readonly aisle?: string | null | undefined
   readonly aliases?: readonly string[] | undefined
   readonly barcode?: string | null | undefined
 }

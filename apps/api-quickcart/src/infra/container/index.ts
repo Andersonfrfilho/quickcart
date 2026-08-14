@@ -42,6 +42,7 @@ import { DrizzleMessageRepository } from '@/modules/webhook/infra/database/Drizz
 import { createQuickCartWhatsAppModule } from '@/modules/webhook/infra/whatsapp/metaWhatsAppModule'
 import { createQuickCartNotificationModule } from '@/modules/notification/infra/notificationModule'
 import { createSdkOrderStatusNotifier } from '@/modules/notification/infra/SdkOrderStatusNotifier'
+import { buildOrderStatusTemplates } from '@/modules/notification/shared/orderStatusTemplates.constant'
 import type { OrderStatusNotifier } from '@/modules/notification/domain/OrderStatusNotifier.interface'
 import type { NotificationModule } from '@adatechnology/notification-module'
 import { createWhatsAppDriverFromChannel } from '@adatechnology/notification-contracts'
@@ -110,7 +111,11 @@ import { ListOrdersUseCase } from '@/modules/order/application/use-cases/ListOrd
 import { OrderController } from '@/modules/order/infra/http/Order.controller'
 import { ResumeConversationUseCase } from '@/modules/webhook/application/use-cases/ResumeConversation.use-case'
 import { InternalController } from '@/modules/internal/infra/http/Internal.controller'
-import { sttQueue, receiptQueue, notificationQueue } from '@/infra/queue/queues'
+import { sttQueue, receiptQueue, notificationQueue, orderDecisionQueue } from '@/infra/queue/queues'
+import { ORDER_DECISION_REMINDER_JOB } from '@/infra/queue/queues.constant'
+import { RemindCustomerDecisionUseCase } from '@/modules/order/application/use-cases/RemindCustomerDecision.use-case'
+import { ResolveCustomerDecisionUseCase } from '@/modules/order/application/use-cases/ResolveCustomerDecision.use-case'
+import type { AskCustomerDecision } from '@/modules/order/shared/customerDecisionMessage'
 
 type HealthModule = {
   readonly controller: HealthController
@@ -201,6 +206,8 @@ type OrderModule = {
   readonly getOrderByShortCodeUseCase: GetOrderByShortCodeUseCase
   readonly updateOrderStatusUseCase: UpdateOrderStatusUseCase
   readonly repeatLastOrderUseCase: RepeatLastOrderUseCase
+  readonly resolveCustomerDecisionUseCase: ResolveCustomerDecisionUseCase
+  readonly remindCustomerDecisionUseCase: RemindCustomerDecisionUseCase
   readonly listOrdersUseCase: ListOrdersUseCase
   readonly orderController: OrderController
 }
@@ -256,11 +263,40 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     orderRepository,
     unmatchedDemandRepository: new DrizzleUnmatchedDemandRepository(),
   })
+  // Mesmo remetente do resto do produto: o recado entra no transcript da conversa, então o atendente vê
+  // o que o cliente já ouviu e não repete.
+  const askCustomerDecision: AskCustomerDecision = ({ whatsappNumber, body, buttons }) =>
+    dependencies.whatsAppSender.sendInteractiveButtons(whatsappNumber, body, buttons)
+
   const notifyUnavailableItemsUseCase = new NotifyUnavailableItemsUseCase({
     orderRepository,
-    // Mesmo remetente do resto do produto: o recado entra no transcript da conversa, então o atendente vê
-    // o que o cliente já ouviu e não repete.
+    askCustomer: askCustomerDecision,
     notifyCustomer: ({ whatsappNumber, body }) => dependencies.whatsAppSender.sendText(whatsappNumber, body),
+    /**
+     * A cobrança única vira job atrasado. `jobId` pelo pedido para o BullMQ recusar a segunda cópia:
+     * dois avisos no mesmo pedido não podem virar duas cobranças.
+     *
+     * `-` e não `:` no separador — o BullMQ recusa `:` em jobId (o mesmo tropeço do notification-module).
+     * Falhar aqui não desfaz o aviso, que já saiu: fica logado e a loja continua vendo o pedido parado.
+     */
+    scheduleDecisionReminder: async ({ orderId }) => {
+      await orderDecisionQueue.add(
+        ORDER_DECISION_REMINDER_JOB,
+        { orderId },
+        {
+          jobId: `${ORDER_DECISION_REMINDER_JOB}-${orderId}`,
+          delay: environment.CUSTOMER_DECISION_REMINDER_HOURS * 60 * 60 * 1000,
+        },
+      )
+    },
+  })
+  const remindCustomerDecisionUseCase = new RemindCustomerDecisionUseCase({
+    orderRepository,
+    askCustomer: askCustomerDecision,
+  })
+  const resolveCustomerDecisionUseCase = new ResolveCustomerDecisionUseCase({
+    orderRepository,
+    updateOrderStatusUseCase,
   })
   const repeatLastOrderUseCase = new RepeatLastOrderUseCase({
     orderRepository,
@@ -287,6 +323,8 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     getOrderByShortCodeUseCase,
     updateOrderStatusUseCase,
     repeatLastOrderUseCase,
+    resolveCustomerDecisionUseCase,
+    remindCustomerDecisionUseCase,
     listOrdersUseCase,
     orderController,
   }
@@ -333,6 +371,7 @@ type ConversationModuleDependencies = {
   readonly updateCartItemQuantityUseCase: UpdateCartItemQuantityUseCase
   readonly createOrderFromCartUseCase: CreateOrderFromCartUseCase
   readonly repeatLastOrderUseCase: RepeatLastOrderUseCase
+  readonly resolveCustomerDecisionUseCase: ResolveCustomerDecisionUseCase
   readonly orderRepository: OrderRepositoryInterface
 }
 
@@ -354,6 +393,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     updateCartItemQuantityUseCase,
     createOrderFromCartUseCase,
     repeatLastOrderUseCase,
+    resolveCustomerDecisionUseCase,
     orderRepository,
   } = dependencies
 
@@ -424,6 +464,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     cartRepository,
     productRepository,
     repeatLastOrderUseCase,
+    resolveCustomerDecisionUseCase,
     // O mesmo handler do estado `awaiting_list`: lista ditada fora de hora precisa dar no mesmo lugar.
     listHandler,
   })
@@ -607,6 +648,7 @@ type InternalModuleDependencies = {
   readonly messageRepository: MessageRepositoryInterface
   readonly whatsAppSender: WhatsAppSender
   readonly conversationEngine: ConversationEngine
+  readonly remindCustomerDecisionUseCase: RemindCustomerDecisionUseCase
 }
 
 type InternalModule = {
@@ -614,7 +656,13 @@ type InternalModule = {
 }
 
 function buildInternalModule(dependencies: InternalModuleDependencies): InternalModule {
-  const { conversationSessionRepository, messageRepository, whatsAppSender, conversationEngine } = dependencies
+  const {
+    conversationSessionRepository,
+    messageRepository,
+    whatsAppSender,
+    conversationEngine,
+    remindCustomerDecisionUseCase,
+  } = dependencies
 
   const resumeConversationUseCase = new ResumeConversationUseCase({
     conversationSessionRepository,
@@ -623,7 +671,7 @@ function buildInternalModule(dependencies: InternalModuleDependencies): Internal
     conversationEngine,
   })
 
-  const controller = new InternalController({ resumeConversationUseCase })
+  const controller = new InternalController({ resumeConversationUseCase, remindCustomerDecisionUseCase })
 
   return { controller }
 }
@@ -652,6 +700,7 @@ const conversationModule = buildConversationModule({
   updateCartItemQuantityUseCase: cartModule.updateCartItemQuantityUseCase,
   createOrderFromCartUseCase: orderModule.createOrderFromCartUseCase,
   repeatLastOrderUseCase: orderModule.repeatLastOrderUseCase,
+  resolveCustomerDecisionUseCase: orderModule.resolveCustomerDecisionUseCase,
   orderRepository: orderModule.orderRepository,
 })
 
@@ -685,6 +734,31 @@ export async function seedMainFlow(): Promise<void> {
   logger.child('FlowSeed').info('main_flow_seeded', { key: MAIN_FLOW_SEED.key })
 }
 
+/**
+ * Também chamada pelo boot depois das migrations, e pela mesma razão do `seedMainFlow`.
+ *
+ * `buildOrderStatusTemplates()` existia sem nenhum chamador em produção — só o E2E semeava. Com a
+ * tabela vazia, o `sendNotification` estourava `Template não encontrado` e o operador via 500 ao
+ * confirmar um pedido que JÁ tinha mudado de status.
+ *
+ * Só semeia o que falta: `seedDefaultTemplates` é upsert e apagaria o texto que o lojista editou
+ * pela rota de templates. A comparação é por (chave, canal, locale), que é a identidade do template
+ * — assim um status novo no código nasce semeado sem tocar nos que já existem.
+ */
+export async function seedOrderStatusTemplates(): Promise<void> {
+  const companyId = environment.WHATSAPP_COMPANY_ID
+  const existing = await webhookModule.notification.useCases.listTemplates.execute({ companyId })
+  const existingIdentities = new Set(existing.map((template) => `${template.key}|${template.channel}|${template.locale}`))
+
+  const missing = buildOrderStatusTemplates().filter(
+    (template) => !existingIdentities.has(`${template.key}|${template.channel}|${template.locale}`),
+  )
+  if (missing.length === 0) return
+
+  await webhookModule.notification.useCases.seedDefaultTemplates.execute({ companyId, templates: missing })
+  logger.child('TemplateSeed').info('order_status_templates_seeded', { count: missing.length })
+}
+
 export const container = {
   health: buildHealthModule(),
   notification: webhookModule.notification,
@@ -714,5 +788,6 @@ export const container = {
     messageRepository: webhookRepositories.messageRepository,
     whatsAppSender: webhookRepositories.whatsAppSender,
     conversationEngine: conversationModule.conversationEngine,
+    remindCustomerDecisionUseCase: orderModule.remindCustomerDecisionUseCase,
   }),
 }

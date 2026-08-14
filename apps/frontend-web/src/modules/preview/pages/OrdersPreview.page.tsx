@@ -27,6 +27,7 @@ const ORDER_SAMPLES: readonly {
   readonly deliveryType: string
   readonly totalInCents: number
   readonly allowedNextStatuses: readonly string[]
+  readonly deliveryFailureReason?: string
 }[] = [
   {
     shortCode: 'QC-1001',
@@ -117,6 +118,24 @@ const ORDER_SAMPLES: readonly {
     allowedNextStatuses: [],
   },
   {
+    /*
+     * Ocorrência: a linha que mostra que a coluna de ações NÃO oferece nova tentativa aqui.
+     *
+     * Sair de novo para a rua e cancelar dependem do motivo, e registrar ocorrência exige escolher um —
+     * por isso os dois passos moram na tela do pedido, e esta linha existe para provar que a lista não os
+     * desenha por engano.
+     */
+    shortCode: 'QC-1010',
+    customerName: 'Rita Nogueira',
+    customerPhone: '5511955554444',
+    minutesAgo: 47,
+    status: 'delivery_failed',
+    deliveryType: 'delivery',
+    totalInCents: 9840,
+    allowedNextStatuses: ['out_for_delivery', 'cancelled'],
+    deliveryFailureReason: 'customer_absent',
+  },
+  {
     shortCode: 'QC-1009',
     customerName: 'Carla Dias',
     customerPhone: '5511900009999',
@@ -140,6 +159,7 @@ function buildPreviewOrders(now: number): Order[] {
     createdAt: new Date(now - sample.minutesAgo * MINUTE).toISOString(),
     totalInCents: sample.totalInCents,
     allowedNextStatuses: sample.allowedNextStatuses,
+    deliveryFailureReason: (sample.deliveryFailureReason ?? null) as Order['deliveryFailureReason'],
   }))
 }
 

@@ -107,6 +107,22 @@ export const GLOBAL_TRIGGER = {
   EXIT_WORDS: ['sair', 'cancelar'],
 } as const
 
+/**
+ * A decisão do cliente sobre um pedido com item em falta. O id carrega o pedido: `order_continue:<uuid>`.
+ *
+ * Carrega porque a pergunta pode ficar sem resposta por horas, e nesse meio-tempo a pessoa conversa sobre
+ * outra coisa — um id solto (`continue`) seria aplicado ao pedido que a sessão achasse "atual", que pode
+ * não ser o da pergunta. Com o id dentro do botão, a resposta vale para o pedido que a produziu, sempre.
+ */
+export const ORDER_DECISION_BUTTON_PREFIX = {
+  /** Segue com o que sobrou. */
+  CONTINUE: 'order_continue:',
+  /** Desiste do pedido. Cancela na hora — a loja é avisada, não consultada. */
+  CANCEL: 'order_cancel:',
+  /** Só existe quando NADA sobrou: cancela este e abre a conversa para uma lista nova. */
+  NEW_LIST: 'order_new_list:',
+} as const
+
 export const MESSAGES = {
   WELCOME:
     '👋 Olá! Eu sou o assistente de compras do QuickCart. Me manda sua lista (texto ou áudio) que eu já monto seu carrinho, ou escolha uma opção abaixo:',
@@ -186,9 +202,33 @@ export const MESSAGES = {
    * receber "o novo total é R$ 0,00" e ficar esperando uma entrega vazia.
    */
   ORDER_ALL_ITEMS_UNAVAILABLE:
-    '😕 Infelizmente todos os itens do seu pedido acabaram no estoque:\n\n{itens}\n\nNão vai dar para entregar nada assim. Quer montar outra lista ou prefere cancelar? Me diz por aqui.',
+    '😕 Acabou tudo do seu pedido *{codigo}*:\n\n{itens}\n\nNão sobrou nada para entregar. Quer montar outra lista?',
   ORDER_ITEMS_UNAVAILABLE:
-    '😕 Alguns itens do seu pedido acabaram no estoque e não vão na entrega:\n\n{itens}\n\nO novo total é {total}. Se quiser trocar por outra coisa ou cancelar, me diz por aqui.',
+    '😕 Faltou item no seu pedido *{codigo}*:\n\n{itens}\n\nO novo total fica *{total}*. Seguimos com o resto?',
+  /**
+   * O mesmo aviso, sem pergunta: a loja decidiu seguir e está informando, não consultando.
+   *
+   * Sem botão de propósito. Botão pede resposta, e resposta que ninguém vai esperar é pior que aviso
+   * nenhum — o cliente clica, o pedido já saiu para entrega, e o clique não muda nada. Aqui ele fica
+   * sabendo e tem um convite claro para falar com a loja se quiser mudar algo.
+   */
+  ORDER_ITEMS_UNAVAILABLE_NOTICE:
+    '😕 Faltou item no seu pedido *{codigo}*:\n\n{itens}\n\nSigo com o restante e o novo total fica *{total}*. Se quiser mudar alguma coisa, é só me chamar por aqui.',
+  /**
+   * A cobrança única, colada na frente da MESMA pergunta.
+   *
+   * Repetir o texto inteiro é de propósito: horas depois o cliente não rola a conversa para relembrar o
+   * que faltava, e uma cobrança sem o conteúdo ("e aí?") pede decisão sobre algo que ele não tem à vista.
+   */
+  ORDER_DECISION_REMINDER_PREFIX: '⏳ Ainda preciso da sua resposta para seguir com a compra.\n\n',
+  ORDER_DECISION_CONTINUE_ACK:
+    '✅ Combinado! Seguimos com o restante do pedido *{codigo}*. Te aviso quando estiver pronto.',
+  ORDER_DECISION_CANCELLED_ACK:
+    '❌ Pedido *{codigo}* cancelado, e a loja já foi avisada. Quando quiser comprar de novo é só me chamar!',
+  ORDER_DECISION_NEW_LIST_ACK:
+    '🛒 Cancelei o pedido *{codigo}*. Me manda a nova lista (texto ou áudio) que eu já monto seu carrinho.',
+  /** Chegou uma resposta para um pedido que já andou — a loja resolveu antes, ou o botão foi tocado duas vezes. */
+  ORDER_DECISION_ALREADY_RESOLVED: 'Esse pedido já foi resolvido — não precisa responder de novo 🙂',
   ORDER_HISTORY_EMPTY: 'Você ainda não tem compra fechada por aqui. Quando tiver, ela aparece nesta opção.',
   ORDER_HISTORY_HEADER: '📜 Suas últimas compras:',
   LIST_INTENT_DETECTED: '📝 Entendi que é uma lista! Já vou montar seu carrinho…',

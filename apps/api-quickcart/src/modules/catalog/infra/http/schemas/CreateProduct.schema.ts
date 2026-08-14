@@ -22,6 +22,7 @@ export const createProductSchema = z.object({
   stockQuantity: z.number().int().nonnegative().default(0),
   isAvailable: z.boolean().default(true),
   imageUrl: z.string().url().optional(),
+  aisle: z.string().max(60).optional(),
   aliases: z.array(z.string().min(1)).default([]),
   barcode: z.string().max(14).optional(),
 })

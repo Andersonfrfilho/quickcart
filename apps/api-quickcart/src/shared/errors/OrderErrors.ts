@@ -19,6 +19,7 @@ import {
   ORDER_CART_EMPTY,
   ORDER_NO_PREVIOUS_ORDER,
   ORDER_INVALID_STATUS_TRANSITION,
+  ORDER_CUSTOMER_APPROVAL_REQUIRED,
 } from '@/shared/errors/codes'
 
 const ORDER_DOMAIN = 'order'
@@ -57,6 +58,23 @@ export class OrderPhoneMismatchError extends OrderError {
 export class OrderEmptyCartError extends OrderError {
   constructor(cartId: string) {
     super('O carrinho está vazio.', 400, ORDER_CART_EMPTY, { cartId })
+  }
+}
+
+/**
+ * "Avisar e seguir" num pedido onde não sobrou nada para seguir.
+ *
+ * 409 e não 400: o corpo é válido, o que impede é o ESTADO do pedido — todos os itens caíram, e seguir
+ * sem perguntar entregaria uma sacola vazia. Aqui a decisão é do cliente, não da loja.
+ */
+export class OrderCustomerApprovalRequiredError extends OrderError {
+  constructor(orderId: string) {
+    super(
+      'Nenhum item restou no pedido: o cliente precisa decidir entre montar outra lista ou cancelar.',
+      409,
+      ORDER_CUSTOMER_APPROVAL_REQUIRED,
+      { orderId },
+    )
   }
 }
 

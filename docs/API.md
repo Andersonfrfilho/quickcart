@@ -38,7 +38,21 @@ Envelope: sucesso `{ "data": ... }` · lista `{ "data": [...], "pagination": { t
 | PUT | `/v1/admin/products/:id` | |
 | PATCH | `/v1/admin/products/:id/stock` | `{ stockQuantity }` ou `{ delta }` |
 | GET | `/v1/admin/orders` | `status` (valores separados por vírgula), `page`, `perPage`, `sortBy` (`createdAt`,`totalInCents`,`status`), `sortDirection` |
-| PATCH | `/v1/admin/orders/:id/status` | transições válidas; dispara notificação WhatsApp; cancel devolve estoque |
+| PATCH | `/v1/admin/orders/:id/status` | transições válidas; dispara notificação WhatsApp; cancel devolve estoque, exceto depois de ocorrência `lost` |
+
+### Esteira do pedido
+
+`pending_confirmation` → `confirmed` → `preparing` → `separated` → entrega
+(`out_for_delivery` → `in_transit` → `arrived_at_customer` → `completed`) ou retirada
+(`ready_for_pickup` → `completed`). O trajeto aceita pular degrau para frente, nunca para trás.
+`awaiting_customer_decision` é desvio da separação; `cancelled` é fim de linha.
+
+Da rua o pedido pode cair em `delivery_failed`, e aí o corpo exige `deliveryFailureReason`
+(`customer_absent`, `wrong_address`, `returned`, `refused`, `lost`) — a rota recusa a ocorrência sem
+motivo e recusa motivo com qualquer outro status. O motivo decide o que vem depois: os três primeiros
+admitem `out_for_delivery` de novo, `refused` e `lost` só permitem `cancelled`. E decide o estoque:
+todo cancelamento devolve os itens, menos o que vem de `lost` — a sacola não voltou para a prateleira.
+Sair de novo para a rua limpa o motivo. Cada resposta traz `allowedNextStatuses` já resolvido.
 
 ## Códigos de erro (em `shared/errors/codes.ts`)
 

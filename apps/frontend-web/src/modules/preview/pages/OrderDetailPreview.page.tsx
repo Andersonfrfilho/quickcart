@@ -54,6 +54,23 @@ const PRODUCT_SAMPLES: readonly (readonly [name: string, quantity: number, price
   ['Carne Moída Patinho kg', 1, 3990],
 ]
 
+/**
+ * Corredores de mentira, com buraco proposital.
+ *
+ * A loja de verdade não mapeia o catálogo inteiro, então o desenho que precisa ser conferido é o da
+ * lista MISTA — item com corredor ao lado de item sem — e não o da lista toda preenchida, que é
+ * justamente a que nunca acontece.
+ */
+const PREVIEW_AISLES: ReadonlyArray<string | null> = [
+  'Corredor 1',
+  'Corredor 3',
+  null,
+  'Hortifruti',
+  'Corredor 7',
+  null,
+  'Câmara fria',
+]
+
 function buildPreviewItems(): OrderItem[] {
   return PRODUCT_SAMPLES.map(([productName, quantity, unitPriceInCents], index) => ({
     id: `preview-item-${index}`,
@@ -67,6 +84,7 @@ function buildPreviewItems(): OrderItem[] {
     unavailableAt: null,
     unavailableNotifiedAt: null,
     pickedAt: null,
+    productAisle: PREVIEW_AISLES[index % PREVIEW_AISLES.length] ?? null,
   }))
 }
 
@@ -84,8 +102,15 @@ function previewAllowedNextStatuses(status: string, deliveryType: string): reado
     confirmed: ['preparing', 'cancelled'],
     preparing: ['separated', 'cancelled'],
     separated: [deliveryType === 'pickup' ? 'ready_for_pickup' : 'out_for_delivery', 'cancelled'],
-    out_for_delivery: ['completed'],
+    out_for_delivery: ['in_transit', 'arrived_at_customer', 'completed', 'delivery_failed'],
+    in_transit: ['arrived_at_customer', 'completed', 'delivery_failed'],
+    arrived_at_customer: ['completed', 'delivery_failed'],
     ready_for_pickup: ['completed'],
+    /*
+     * Motivo que admite outra viagem. O terminal (recusa, extravio) só ofereceria `cancelled`, e o
+     * espelho não distingue os dois — quem distingue é a API, com o motivo gravado no pedido.
+     */
+    delivery_failed: ['out_for_delivery', 'cancelled'],
   }
   return byStatus[status] ?? []
 }
@@ -143,11 +168,15 @@ const PREVIEW_ORDER: OrderDetail = {
   receiptPreference: 'whatsapp',
   ...resolvePreviewAddressCase('structured'),
   notes: 'Se não tiver banana prata, pode trocar por nanica. Interfone quebrado, ligar ao chegar.',
+  // Nenhuma pergunta em aberto: em `preparing`, o painel de espera pelo cliente não faz parte da tela.
+  customerDecisionAskedAt: null,
   // Uma hora atrás: cai na faixa de atraso, que é o estado em que a tela mais precisa funcionar.
   createdAt: new Date(Date.now() - 62 * 60 * 1000).toISOString(),
   totalInCents: PREVIEW_ITEMS.reduce((total, item) => total + item.totalInCents, 0),
   items: PREVIEW_ITEMS,
   allowedNextStatuses: [],
+  // A esteira só mostra ocorrência com `status = delivery_failed`, e o preview base está separando.
+  deliveryFailureReason: null,
 }
 
 /**
@@ -218,6 +247,16 @@ export function OrderDetailPreviewPage() {
     status: status as OrderDetail['status'],
     deliveryType: deliveryType as OrderDetail['deliveryType'],
     allowedNextStatuses: previewAllowedNextStatuses(status, deliveryType),
+    /*
+     * `?status=delivery_failed&reason=lost` mostra a esteira parada com o motivo escrito.
+     *
+     * Amarrado ao status porque é assim que o servidor grava: motivo sem ocorrência não existe, e a
+     * tela que desenhasse os dois soltos ensinaria um estado que a rota recusa.
+     */
+    deliveryFailureReason:
+      status === 'delivery_failed'
+        ? ((searchParams.get('reason') ?? 'customer_absent') as OrderDetail['deliveryFailureReason'])
+        : null,
     /*
      * Retirada não tem endereço: mostrar um faria a tela ensinar errado. Fora disso, o caso vem de
      * `?address=`, para testar estruturado, legado e cru sem precisar editar a fixture.

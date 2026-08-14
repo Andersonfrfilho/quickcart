@@ -186,6 +186,9 @@ class FakeOrderRepository implements OrderRepositoryInterface {
       receiptPreference: params.receiptPreference,
       fiscalDocumentId: null,
       notes: params.notes ?? null,
+      deliveryFailureReason: null,
+      customerDecisionAskedAt: null,
+      customerDecisionRemindedAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -260,26 +263,36 @@ class FakeOrderRepository implements OrderRepositoryInterface {
     return { items: [], total: 0 }
   }
 
-  async updateStatus(id: string, status: string): Promise<OrderRecord | undefined> {
-    const order = this.orders.get(id)
+  async updateStatus(params: { orderId: string; status: string }): Promise<OrderRecord | undefined> {
+    const order = this.orders.get(params.orderId)
     if (!order) return undefined
-    const updated = { ...order, status, updatedAt: new Date() }
-    this.orders.set(id, updated)
+    const updated = { ...order, status: params.status, updatedAt: new Date() }
+    this.orders.set(params.orderId, updated)
     return updated
   }
 
-  async cancelAndRestoreStock(id: string): Promise<OrderRecord | undefined> {
-    const order = this.orders.get(id)
+  async startCustomerDecision(): Promise<undefined> {
+    throw new Error('not implemented')
+  }
+
+  async markCustomerDecisionReminded(): Promise<undefined> {
+    throw new Error('not implemented')
+  }
+
+  async cancel(params: { orderId: string; restoreStock: boolean }): Promise<OrderRecord | undefined> {
+    const order = this.orders.get(params.orderId)
     if (!order) return undefined
     if (order.status === 'cancelled') return order
 
-    for (const item of this.itemsByOrder.get(id) ?? []) {
-      const product = this.products.get(item.productId)
-      if (product) product.stockQuantity += item.quantity
+    if (params.restoreStock) {
+      for (const item of this.itemsByOrder.get(params.orderId) ?? []) {
+        const product = this.products.get(item.productId)
+        if (product) product.stockQuantity += item.quantity
+      }
     }
 
     const updated = { ...order, status: 'cancelled', updatedAt: new Date() }
-    this.orders.set(id, updated)
+    this.orders.set(params.orderId, updated)
     return updated
   }
 }
@@ -306,6 +319,7 @@ function buildProduct(overrides: Partial<Product> = {}): Product {
     stockQuantity: 10,
     isAvailable: true,
     imageUrl: null,
+    aisle: null,
     aliases: [],
     barcode: null,
     createdAt: new Date(),

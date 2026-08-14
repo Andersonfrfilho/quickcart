@@ -59,6 +59,9 @@ function toOrderRecord(order: Order): OrderRecord {
     receiptPreference: order.receiptPreference,
     fiscalDocumentId: order.fiscalDocumentId,
     notes: order.notes,
+    deliveryFailureReason: order.deliveryFailureReason,
+    customerDecisionAskedAt: order.customerDecisionAskedAt,
+    customerDecisionRemindedAt: order.customerDecisionRemindedAt,
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
   }
@@ -256,11 +259,32 @@ export class DrizzleOrderRepository implements OrderRepositoryInterface {
 
     if (!row) return undefined
 
-    const items = await db.select().from(orderItems).where(eq(orderItems.orderId, id))
+    /*
+     * `leftJoin` e não `innerJoin`: a linha do pedido é snapshot e sobrevive ao produto sumir do
+     * catálogo — um inner faria o item DESAPARECER da lista de separação, que é o pior desfecho
+     * possível para quem está montando a sacola.
+     */
+    const items = await db
+      .select({
+        item: orderItems,
+        productImageUrl: products.imageUrl,
+        productBrand: products.brand,
+        productUnitSize: products.unitSize,
+        productAisle: products.aisle,
+      })
+      .from(orderItems)
+      .leftJoin(products, eq(products.id, orderItems.productId))
+      .where(eq(orderItems.orderId, id))
 
     return {
       order: { ...toOrderRecord(row.order), customerName: row.customerName, customerPhone: row.customerPhone },
-      items: items.map(toOrderItemRecord),
+      items: items.map((row) => ({
+        ...toOrderItemRecord(row.item),
+        productImageUrl: row.productImageUrl,
+        productBrand: row.productBrand,
+        productUnitSize: row.productUnitSize,
+        productAisle: row.productAisle,
+      })),
     }
   }
 
@@ -351,33 +375,82 @@ export class DrizzleOrderRepository implements OrderRepositoryInterface {
     return this.findDetailById(params.orderId)
   }
 
-  async updateStatus(id: string, status: string, expectedCurrentStatus?: string): Promise<OrderRecord | undefined> {
-    const where = expectedCurrentStatus
-      ? and(eq(orders.id, id), eq(orders.status, expectedCurrentStatus))
-      : eq(orders.id, id)
+  async updateStatus(params: {
+    orderId: string
+    status: string
+    expectedCurrentStatus?: string | undefined
+    deliveryFailureReason?: string | null | undefined
+  }): Promise<OrderRecord | undefined> {
+    const where = params.expectedCurrentStatus
+      ? and(eq(orders.id, params.orderId), eq(orders.status, params.expectedCurrentStatus))
+      : eq(orders.id, params.orderId)
 
-    const [order] = await db.update(orders).set({ status, updatedAt: new Date() }).where(where).returning()
+    // `undefined` não é "limpar": omitir a chave deixa o motivo como está, e é o que a maioria das
+    // transições quer. Quem precisa apagar manda `null` explícito.
+    const reason = params.deliveryFailureReason === undefined ? {} : { deliveryFailureReason: params.deliveryFailureReason }
+
+    const [order] = await db
+      .update(orders)
+      .set({ status: params.status, ...reason, updatedAt: new Date() })
+      .where(where)
+      .returning()
     return order ? toOrderRecord(order) : undefined
   }
 
-  async cancelAndRestoreStock(id: string): Promise<OrderRecord | undefined> {
+  async startCustomerDecision(params: {
+    orderId: string
+    allowedCurrentStatuses: readonly string[]
+  }): Promise<OrderRecord | undefined> {
+    const [order] = await db
+      .update(orders)
+      .set({
+        status: ORDER_STATUS.AWAITING_CUSTOMER_DECISION,
+        customerDecisionAskedAt: new Date(),
+        customerDecisionRemindedAt: null,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(orders.id, params.orderId), inArray(orders.status, [...params.allowedCurrentStatuses])))
+      .returning()
+
+    return order ? toOrderRecord(order) : undefined
+  }
+
+  async markCustomerDecisionReminded(orderId: string): Promise<OrderRecord | undefined> {
+    const [order] = await db
+      .update(orders)
+      .set({ customerDecisionRemindedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(orders.id, orderId),
+          eq(orders.status, ORDER_STATUS.AWAITING_CUSTOMER_DECISION),
+          isNull(orders.customerDecisionRemindedAt),
+        ),
+      )
+      .returning()
+
+    return order ? toOrderRecord(order) : undefined
+  }
+
+  async cancel(params: { orderId: string; restoreStock: boolean }): Promise<OrderRecord | undefined> {
     return await db.transaction(async (tx) => {
-      const [order] = await tx.select().from(orders).where(eq(orders.id, id)).limit(1)
+      const [order] = await tx.select().from(orders).where(eq(orders.id, params.orderId)).limit(1)
       if (!order) return undefined
       if (order.status === ORDER_STATUS.CANCELLED) return toOrderRecord(order)
 
-      const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, id))
-      for (const item of items) {
-        await tx
-          .update(products)
-          .set({ stockQuantity: sql`${products.stockQuantity} + ${Number(item.quantity)}`, updatedAt: new Date() })
-          .where(eq(products.id, item.productId))
+      if (params.restoreStock) {
+        const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, params.orderId))
+        for (const item of items) {
+          await tx
+            .update(products)
+            .set({ stockQuantity: sql`${products.stockQuantity} + ${Number(item.quantity)}`, updatedAt: new Date() })
+            .where(eq(products.id, item.productId))
+        }
       }
 
       const [updated] = await tx
         .update(orders)
         .set({ status: ORDER_STATUS.CANCELLED, updatedAt: new Date() })
-        .where(eq(orders.id, id))
+        .where(eq(orders.id, params.orderId))
         .returning()
 
       return toOrderRecord(updated!)

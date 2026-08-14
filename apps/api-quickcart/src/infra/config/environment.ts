@@ -145,6 +145,13 @@ export const environmentSchema = z.object({
   STORE_PREPARATION_MINUTES: z.coerce.number().nonnegative().default(20),
   /** Alimenta um AVISO ao operador, nunca uma trava na venda (spec §8 Q2) — a coordenada vem de CEP e erra. */
   STORE_DELIVERY_RADIUS_KM: z.coerce.number().positive().default(8),
+  /**
+   * Quanto tempo esperar antes de cobrar UMA vez a decisão sobre item em falta.
+   *
+   * Duas horas por padrão: menos que isso cobra quem está no trabalho e ainda vai responder no almoço;
+   * muito mais e a sacola fica parada no balcão a tarde inteira antes de alguém da loja perceber.
+   */
+  CUSTOMER_DECISION_REMINDER_HOURS: z.coerce.number().positive().default(2),
 })
 
 export const environment = environmentSchema.parse(process.env)

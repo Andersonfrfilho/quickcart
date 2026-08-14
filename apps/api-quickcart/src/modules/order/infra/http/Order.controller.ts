@@ -16,6 +16,7 @@ import type { SetOrderItemUnavailableUseCase } from '@/modules/order/application
 import type { SetOrderItemPickedUseCase } from '@/modules/order/application/use-cases/SetOrderItemPicked.use-case'
 import type { NotifyUnavailableItemsUseCase } from '@/modules/order/application/use-cases/NotifyUnavailableItems.use-case'
 import { setOrderItemUnavailableBodySchema } from '@/modules/order/infra/http/schemas/SetOrderItemUnavailable.schema'
+import { notifyUnavailableItemsBodySchema } from '@/modules/order/infra/http/schemas/NotifyUnavailableItems.schema'
 import { setOrderItemPickedBodySchema } from '@/modules/order/infra/http/schemas/SetOrderItemPicked.schema'
 import { validateBody } from '@/infra/http/middlewares/validateBody'
 import { validateQuery } from '@/infra/http/middlewares/validateQuery'
@@ -48,12 +49,21 @@ type OrderControllerDependencies = {
  * front) é o servidor dizer quais são. Antes o front tinha o mapa próprio, e qualquer mudança de fluxo
  * precisava ser feita nos dois lugares — divergir era questão de tempo.
  */
-function withAllowedTransitions<TOrder extends { readonly status: string; readonly deliveryType: string }>(
-  order: TOrder,
-): TOrder & { readonly allowedNextStatuses: readonly string[] } {
+function withAllowedTransitions<
+  TOrder extends {
+    readonly status: string
+    readonly deliveryType: string
+    readonly deliveryFailureReason?: string | null
+  },
+>(order: TOrder): TOrder & { readonly allowedNextStatuses: readonly string[] } {
   return {
     ...order,
-    allowedNextStatuses: allowedNextStatuses({ status: order.status, deliveryType: order.deliveryType }),
+    allowedNextStatuses: allowedNextStatuses({
+      status: order.status,
+      deliveryType: order.deliveryType,
+      // Numa ocorrência é o motivo que decide se ainda cabe outra tentativa ou só o cancelamento.
+      deliveryFailureReason: order.deliveryFailureReason,
+    }),
   }
 }
 
@@ -136,7 +146,11 @@ export class OrderController {
   handleNotifyUnavailableItems: RouteHandler = async (request, response) => {
     requireAdminToken(request)
     const orderId = request.params[0] ?? ''
-    const result = await this.dependencies.notifyUnavailableItemsUseCase.execute({ orderId })
+    const { requiresCustomerApproval } = validateBody(notifyUnavailableItemsBodySchema, request.body)
+    const result = await this.dependencies.notifyUnavailableItemsUseCase.execute({
+      orderId,
+      requiresCustomerApproval,
+    })
 
     // `notifiedCount` no corpo para a tela dizer o que aconteceu: zero significa que não havia nada novo,
     // e um "avisado!" nesse caso seria mentira.
@@ -149,8 +163,12 @@ export class OrderController {
   handleUpdateStatus: RouteHandler = async (request, response) => {
     requireAdminToken(request)
     const id = request.params[0] ?? ''
-    const { status } = validateBody(updateOrderStatusBodySchema, request.body)
-    const result = await this.dependencies.updateOrderStatusUseCase.execute({ orderId: id, status })
-    response.json(200, { data: result.order })
+    const { status, deliveryFailureReason } = validateBody(updateOrderStatusBodySchema, request.body)
+    const result = await this.dependencies.updateOrderStatusUseCase.execute({
+      orderId: id,
+      status,
+      deliveryFailureReason,
+    })
+    response.json(200, { data: withAllowedTransitions(result.order) })
   }
 }

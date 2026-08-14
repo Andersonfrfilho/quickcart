@@ -29,6 +29,12 @@ import { looksLikeShoppingList } from '@/modules/conversation/application/looksL
 import { sendCartSummary } from '@/modules/conversation/application/handlers/support/CartSummary'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import { GLOBAL_TRIGGER, MENU_BUTTON_ID, MESSAGES } from '@/modules/conversation/shared/Messages.constant'
+import {
+  ORDER_DECISION,
+  parseOrderDecisionButtonId,
+  type OrderDecision,
+} from '@/modules/conversation/shared/orderDecisionButton'
+import type { ResolveCustomerDecisionUseCase } from '@/modules/order/application/use-cases/ResolveCustomerDecision.use-case'
 import { CHANNEL } from '@/modules/shared/shared.constant'
 import { OrderNoPreviousOrderError } from '@/shared/errors/OrderErrors'
 
@@ -57,6 +63,8 @@ export type GlobalHandlerDependencies = {
   readonly cartRepository: CartRepositoryInterface
   readonly productRepository: ProductRepositoryInterface
   readonly repeatLastOrderUseCase: RepeatLastOrderUseCase
+  /** Quem aplica o toque no botão da pergunta de item em falta. */
+  readonly resolveCustomerDecisionUseCase: ResolveCustomerDecisionUseCase
   /**
    * Quem monta carrinho a partir de texto. É o MESMO handler do estado `awaiting_list`.
    *
@@ -83,6 +91,23 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
       return true
     }
 
+    /**
+     * A resposta sobre item em falta vem antes de tudo, e vale em QUALQUER estado.
+     *
+     * Não virou estado de conversa de propósito: a pergunta pode ficar horas sem resposta, e nesse meio-tempo
+     * a pessoa monta outro carrinho, navega no catálogo ou some. Prender a sessão em "aguardando decisão"
+     * bloquearia todo o resto do produto por um pedido; o id dentro do botão resolve sem prender nada.
+     */
+    const decision = message.kind === 'button_reply' ? parseOrderDecisionButtonId(message.buttonId) : undefined
+    if (decision) {
+      await this.handleOrderDecision({
+        customerPhone: session.customerPhone,
+        customerId: customer.id,
+        ...decision,
+      })
+      return true
+    }
+
     if (this.isRepeatOrderTrigger(message)) {
       await this.handleRepeatOrder(session.customerPhone, customer.id)
       return true
@@ -106,6 +131,68 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
   private shouldHandleAsShoppingList(currentState: string, body: string): boolean {
     if (!SHOPPING_LIST_INTENT_STATES.has(currentState)) return false
     return looksLikeShoppingList(body)
+  }
+
+  /**
+   * Aplica a decisão e responde. Cada saída tem um texto, inclusive as que não mudam nada.
+   *
+   * Silêncio depois de um toque é o pior desfecho possível aqui: o cliente não sabe se a loja recebeu, e
+   * a única coisa que lhe resta é tocar de novo. Por isso até `not_owner` responde — com o texto neutro de
+   * "já resolvido", que não confirma a existência de um pedido alheio.
+   */
+  private async handleOrderDecision(params: {
+    readonly customerPhone: string
+    readonly customerId: string
+    readonly orderId: string
+    readonly decision: OrderDecision
+  }): Promise<void> {
+    const result = await this.dependencies.resolveCustomerDecisionUseCase.execute({
+      orderId: params.orderId,
+      customerId: params.customerId,
+      decision: params.decision,
+    })
+
+    if (!result.applied) {
+      await this.dependencies.whatsAppSender.sendText(
+        params.customerPhone,
+        MESSAGES.ORDER_DECISION_ALREADY_RESOLVED,
+      )
+      return
+    }
+
+    const shortCode = result.order.shortCode
+
+    if (params.decision === ORDER_DECISION.CONTINUE) {
+      await this.dependencies.whatsAppSender.sendText(
+        params.customerPhone,
+        MESSAGES.ORDER_DECISION_CONTINUE_ACK.replace('{codigo}', shortCode),
+      )
+      return
+    }
+
+    if (params.decision === ORDER_DECISION.NEW_LIST) {
+      /**
+       * Cancelou E abriu a conversa para a lista nova, num passo só.
+       *
+       * Sem mover o estado, o cliente responderia à pergunta com a lista e cairia no handler do estado
+       * antigo — que não espera lista nenhuma. `awaiting_list` é onde "arroz, feijão, 2 leites" vira carrinho.
+       */
+      await this.dependencies.conversationSessionRepository.updateStateByPhone({
+        customerPhone: params.customerPhone,
+        currentState: CONVERSATION_STATE.AWAITING_LIST,
+        context: {},
+      })
+      await this.dependencies.whatsAppSender.sendText(
+        params.customerPhone,
+        MESSAGES.ORDER_DECISION_NEW_LIST_ACK.replace('{codigo}', shortCode),
+      )
+      return
+    }
+
+    await this.dependencies.whatsAppSender.sendText(
+      params.customerPhone,
+      MESSAGES.ORDER_DECISION_CANCELLED_ACK.replace('{codigo}', shortCode),
+    )
   }
 
   private async handleRepeatOrder(customerPhone: string, customerId: string): Promise<void> {

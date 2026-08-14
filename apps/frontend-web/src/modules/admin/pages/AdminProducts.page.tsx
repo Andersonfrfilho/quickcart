@@ -35,6 +35,13 @@ export function AdminProductsPage() {
     setStockDelta,
     startEditingStock,
     confirmStockAdjustment,
+    editingAisleId,
+    aisleDraft,
+    setAisleDraft,
+    startEditingAisle,
+    cancelEditingAisle,
+    confirmAisle,
+    isSavingAisle,
   } = useAdminProductsPage()
 
   if (!token) return null
@@ -77,6 +84,11 @@ export function AdminProductsPage() {
             <TableRow>
               <SortableTableHead {...sortHeaderProps('name')}>Nome</SortableTableHead>
               <TableHead>Marca</TableHead>
+              {/*
+                Não é ordenável de propósito: a pergunta desta coluna é "o que ainda falta mapear", e ela
+                se responde pelo travessão na linha — ordenar por texto de placa não agrupa a loja.
+              */}
+              <TableHead>Corredor</TableHead>
               <SortableTableHead {...sortHeaderProps('priceInCents')}>Preço</SortableTableHead>
               <SortableTableHead {...sortHeaderProps('stockQuantity')}>Estoque</SortableTableHead>
               <TableHead className="text-right">Ações</TableHead>
@@ -85,7 +97,7 @@ export function AdminProductsPage() {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                   Carregando...
                 </TableCell>
               </TableRow>
@@ -93,6 +105,47 @@ export function AdminProductsPage() {
               <TableRow key={p.id}>
                 <TableCell className="font-medium">{p.name}</TableCell>
                 <TableCell className="text-muted-foreground">{p.brand ?? '—'}</TableCell>
+                {/*
+                  Edição na própria linha, como o estoque ao lado: mapear a loja é passar por cem produtos
+                  seguidos, e um modal por produto seriam cem aberturas e cem fechamentos.
+                */}
+                <TableCell>
+                  {editingAisleId === p.id ? (
+                    <div className="flex items-center gap-2">
+                      <Input
+                        autoFocus
+                        className="h-8 w-40"
+                        placeholder="Corredor 3"
+                        maxLength={60}
+                        value={aisleDraft}
+                        onChange={(e) => setAisleDraft(e.target.value)}
+                        // Enter salva e Esc desiste: quem digita cem corredores não tira a mão do teclado.
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') confirmAisle(p)
+                          if (e.key === 'Escape') cancelEditingAisle()
+                        }}
+                        aria-label={`Corredor de ${p.name}`}
+                      />
+                      <Button size="sm" disabled={isSavingAisle} onClick={() => confirmAisle(p)}>
+                        OK
+                      </Button>
+                    </div>
+                  ) : (
+                    /*
+                      A célula inteira é o botão, e não um lápis no canto: sem corredor não há texto para
+                      mirar, e um alvo de dois caracteres ("—") é o que faz desistir de mapear.
+                    */
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={`-ml-2 h-8 font-normal ${p.aisle ? '' : 'text-muted-foreground'}`}
+                      onClick={() => startEditingAisle(p)}
+                      aria-label={p.aisle ? `Alterar corredor de ${p.name}` : `Definir corredor de ${p.name}`}
+                    >
+                      {p.aisle ?? '— definir'}
+                    </Button>
+                  )}
+                </TableCell>
                 <TableCell>
                   {(p.priceInCents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                 </TableCell>

@@ -19,12 +19,24 @@ import {
   DELIVERY_LABELS,
   ORDER_ACTION_ICONS,
   ORDER_ACTION_LABELS,
+  orderActionLabel,
   PAYMENT_LABELS,
 } from '@/modules/admin/shared/orderLabels'
+import { DeliveryFailureAction } from '@/modules/admin/components/DeliveryFailureAction'
 import { OrderStatusSteps } from '@/modules/admin/components/OrderStatusSteps'
 import { ORDER_STATUS, type OrderDetail, type OrderItem } from '@/shared/api/api.types'
 
 const RECEIPT_LABELS: Record<string, string> = { whatsapp: '📱 WhatsApp', email: '📧 E-mail', both: '📱📧 Ambos' }
+
+/** Hora da pergunta, com o dia só quando não é hoje — "14:32" basta para a espera de agora. */
+function formatAskedAt(askedAt: string): string {
+  const asked = new Date(askedAt)
+  const isToday = asked.toDateString() === new Date().toDateString()
+  const time = asked.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+
+  if (isToday) return `às ${time}`
+  return `em ${asked.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} às ${time}`
+}
 
 function formatMoney(totalInCents: number): string {
   return (totalInCents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -96,8 +108,12 @@ export type OrderDetailViewProps = {
   /** Marca/desmarca item que acabou. Vai ao servidor: muda o total e avisa o cliente. */
   readonly onSetUnavailable: (params: { readonly itemId: string; readonly unavailable: boolean }) => void
   readonly pendingUnavailableItemId?: string | undefined
-  /** Manda UM recado com todas as faltas ainda não avisadas. */
-  readonly onNotifyUnavailable: () => void
+  /**
+   * Manda UM recado com todas as faltas ainda não avisadas.
+   *
+   * `true` para parar o pedido esperando a resposta; `false` para só informar e seguir separando.
+   */
+  readonly onNotifyUnavailable: (requiresCustomerApproval: boolean) => void
   readonly isNotifyingUnavailable: boolean
   /** Abre a conversa do cliente na inbox. */
   readonly onOpenConversation: () => void
@@ -106,7 +122,8 @@ export type OrderDetailViewProps = {
   /** Marca de uma vez tudo o que está disponível — para quem separou a compra inteira antes de abrir a tela. */
   readonly onPickAll: () => void
   readonly onToggleHidePicked: (hide: boolean) => void
-  readonly onUpdateStatus: (status: string) => void
+  /** `deliveryFailureReason` só acompanha `delivery_failed` — a rota recusa um sem o outro. */
+  readonly onUpdateStatus: (params: { readonly status: string; readonly deliveryFailureReason?: string }) => void
   readonly onBack: () => void
 }
 
@@ -206,6 +223,49 @@ export function OrderDetailView({
       ? Math.round((pickedCount / availableItems.length) * 100)
       : 0
 
+  /**
+   * Os dois painéis que acompanham a lista, e as ações que cada um carrega.
+   *
+   * Cada passo da esteira aparece UMA vez, junto do trabalho que ele começa ou fecha: destravar a lista
+   * fica na explicação de por que ela está fechada, e encerrar a separação fica no aviso de que a sacola
+   * está pronta. O cabeçalho desenha só o que nenhum painel está oferecendo naquele momento.
+   *
+   * Daí a condição sair daqui e não ficar repetida na hora de filtrar o cabeçalho: duas cópias da mesma
+   * regra desandam na primeira vez que uma delas mudar, e o efeito seria o botão sumir da tela inteira ou
+   * voltar a aparecer em dois lugares.
+   */
+  const isNotStartedPanelVisible = pickingState === PICKING_STATE.NOT_STARTED && startPickingStatus !== undefined
+  const isPickingDonePanelVisible = isPickingDone && canMarkSeparated && !isPickingLocked && !hasNothingToPick
+  const inlineStatusActions: ReadonlySet<string> = new Set(
+    [
+      isNotStartedPanelVisible ? startPickingStatus : undefined,
+      isPickingDonePanelVisible ? ORDER_STATUS.SEPARATED : undefined,
+    ].flatMap((status) => (status === undefined ? [] : [status])),
+  )
+
+  /**
+   * Fechar a separação só existe como botão quando a separação ACABOU.
+   *
+   * Enquanto há item por marcar, "Marcar como separado" ficava no cabeçalho — grudado no topo, ao alcance
+   * do polegar de quem está rolando a lista no corredor. Fechar cedo manda o pedido para a etapa seguinte
+   * com a sacola pela metade, e o cliente é avisado de que a compra está pronta; desfazer isso é telefonema.
+   *
+   * Nem desabilitado: botão apagado ainda ocupa o lugar e ainda parece o próximo passo. Quando a lista
+   * termina, ele aparece no painel "Tudo separado", que é onde a informação que justifica o clique está.
+   */
+  const isTooEarlyToCloseSeparation = !isPickingLocked && !isPickingDone
+  /*
+   * A ocorrência sai do cabeçalho porque não cabe num clique: a rota exige o motivo junto, e ele é o que
+   * decide se ainda cabe outra viagem e o que acontece com o estoque no cancelamento. Quem desenha é o
+   * `DeliveryFailureAction`, logo abaixo da esteira.
+   */
+  const canRegisterDeliveryFailure = nextStatuses.includes(ORDER_STATUS.DELIVERY_FAILED)
+  const headerHiddenStatuses: ReadonlySet<string> = new Set([
+    ...inlineStatusActions,
+    ...(isTooEarlyToCloseSeparation ? [ORDER_STATUS.SEPARATED] : []),
+    ORDER_STATUS.DELIVERY_FAILED,
+  ])
+
   /*
    * Largura máxima: em monitor largo a linha esticava até o nome do produto e o preço ficarem em
    * pontas opostas da tela, e o olho perdia a associação entre os dois. Conteúdo de leitura tem
@@ -250,12 +310,21 @@ export function OrderDetailView({
           <Button variant="outline" size="sm" onClick={() => window.print()} className="hidden sm:inline-flex">
             <Icon>🖨️</Icon>Imprimir
           </Button>
+          {/*
+            O cabeçalho não repete o que os painéis da lista já oferecem: cada passo aparece uma vez, ao
+            lado do trabalho a que pertence. Antes, `Iniciar separação` e `Marcar como separado` estavam
+            aqui E no painel correspondente, com o mesmo rótulo e a mesma ação a poucos pixels — duas
+            vezes a mesma coisa não é ênfase, é dúvida sobre serem a mesma coisa.
+
+            Continua desenhando o passo que nenhum painel cobre: os de saída (`Saiu para entrega`,
+            `Pronto para retirada`, `Concluído`), que não têm painel próprio.
+          */}
           {nextStatuses
-            .filter((next) => next !== 'cancelled')
+            .filter((next) => next !== 'cancelled' && !headerHiddenStatuses.has(next))
             .map((next) => (
-              <Button key={next} size="sm" disabled={isUpdatingStatus} onClick={() => onUpdateStatus(next)}>
+              <Button key={next} size="sm" disabled={isUpdatingStatus} onClick={() => onUpdateStatus({ status: next })}>
                 <Icon>{ORDER_ACTION_ICONS[next] ?? '➡️'}</Icon>
-                {ORDER_ACTION_LABELS[next] ?? orderStatusLabel(next)}
+                {orderActionLabel({ next, from: order.status })}
               </Button>
             ))}
         </div>
@@ -301,7 +370,7 @@ export function OrderDetailView({
             variant="outline"
             size="sm"
             disabled={isUpdatingStatus}
-            onClick={() => onUpdateStatus('cancelled')}
+            onClick={() => onUpdateStatus({ status: ORDER_STATUS.CANCELLED })}
             className="ml-auto mt-2 h-11 border-destructive/30 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground sm:mt-0 sm:h-9 print:hidden"
           >
             <Icon>{ORDER_ACTION_ICONS.cancelled ?? '❌'}</Icon>
@@ -319,7 +388,22 @@ export function OrderDetailView({
         status={order.status}
         deliveryType={order.deliveryType}
         withProgressBar={!isSeparationInProgress}
+        deliveryFailureReason={order.deliveryFailureReason}
       />
+
+      {/*
+        Registrar ocorrência mora aqui, colado na esteira, e não no cabeçalho: é o desfecho ruim do
+        TRAJETO, e ele precisa perguntar o motivo antes de gravar — um botão de cabeçalho que abre
+        painel em outro canto da tela faz a pessoa procurar o que ela acabou de pedir.
+      */}
+      {canRegisterDeliveryFailure && (
+        <DeliveryFailureAction
+          isUpdatingStatus={isUpdatingStatus}
+          onRegister={(deliveryFailureReason) =>
+            onUpdateStatus({ status: ORDER_STATUS.DELIVERY_FAILED, deliveryFailureReason })
+          }
+        />
+      )}
 
       {/*
         Duas colunas no celular, três no monitor. Empilhados, os três cards gastavam 700 dos 812 pixels
@@ -423,8 +507,12 @@ export function OrderDetailView({
       )}
 
       {/*
-        Terminou de separar? A ação aparece aqui, grande, onde a pessoa acabou de tocar no último item —
-        e não lá no cabeçalho, que exige subir a tela depois de trinta itens.
+        Terminou de separar: o aviso traz a conta que a barra de progresso não dá — quantos foram na
+        sacola, quantos faltaram — e o botão que fecha a etapa, ao lado dela.
+
+        O botão fica AQUI, e não no cabeçalho, porque é aqui que a informação que justifica o clique está.
+        Ler "4 itens na sacola, 1 em falta" e ter de procurar a ação em outra parte da tela separa a
+        decisão do que a fundamenta.
 
         NÃO muda o status sozinho, de propósito. A marcação de separado vive no aparelho de quem separa
         (ver `useAdminOrderDetailPage`), e deixar uma marca local disparar mudança de estado no servidor
@@ -435,7 +523,7 @@ export function OrderDetailView({
         Pedido sem nada para separar não recebe o convite de "marcar como separado": não há sacola. O que
         precisa acontecer ali é avisar o cliente e decidir com ele, e esse painel já está logo abaixo.
       */}
-      {isPickingDone && canMarkSeparated && !isPickingLocked && !hasNothingToPick && (
+      {isPickingDonePanelVisible && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/40 bg-primary/5 p-4 print:hidden">
           <div>
             <p className="font-semibold">Tudo separado ✅</p>
@@ -445,9 +533,27 @@ export function OrderDetailView({
                 : `${availableItems.length} itens na sacola.`}
             </p>
           </div>
-          <Button disabled={isUpdatingStatus} onClick={() => onUpdateStatus(ORDER_STATUS.SEPARATED)}>
+          <Button disabled={isUpdatingStatus} onClick={() => onUpdateStatus({ status: ORDER_STATUS.SEPARATED })}>
+            <Icon>{ORDER_ACTION_ICONS[ORDER_STATUS.SEPARATED] ?? '➡️'}</Icon>
             {ORDER_ACTION_LABELS[ORDER_STATUS.SEPARATED]}
           </Button>
+        </div>
+      )}
+
+      {/*
+        A pergunta já saiu e a resposta não veio.
+        A hora é o dado que decide o que fazer: dez minutos de espera é normal, ontem à noite é telefonema.
+        Sem ela, o painel diria só "aguardando" — que é o que o badge já diz, e não ajuda ninguém a agir.
+      */}
+      {order.status === ORDER_STATUS.AWAITING_CUSTOMER_DECISION && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-500/40 dark:bg-amber-500/10 print:hidden">
+          <p className="font-semibold text-amber-900 dark:text-amber-200">⏳ Esperando o cliente responder</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {order.customerDecisionAskedAt
+              ? `Perguntado ${formatAskedAt(order.customerDecisionAskedAt)}: ele escolhe entre seguir sem os itens em falta ou cancelar o pedido. `
+              : 'Ele escolhe entre seguir sem os itens em falta ou cancelar o pedido. '}
+            Sem resposta, o assistente cobra uma vez — depois disso, a decisão volta para a loja.
+          </p>
         </div>
       )}
 
@@ -537,7 +643,8 @@ export function OrderDetailView({
         {/*
           Explica o bloqueio e oferece a saída no mesmo lugar.
           Lista desabilitada sem explicação lê como tela quebrada — e o botão que destrava estava só no
-          cabeçalho, longe de onde a pessoa tentou tocar.
+          cabeçalho, longe de onde a pessoa tentou tocar. Hoje ele existe SÓ aqui: o cabeçalho filtra o
+          que este painel oferece (ver `inlineStatusActions`).
         */}
         {pickingState === PICKING_STATE.NOT_STARTED && (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed bg-muted/40 p-4 print:hidden">
@@ -545,8 +652,10 @@ export function OrderDetailView({
               A separação ainda não começou, então os itens estão só para leitura.
             </p>
             {startPickingStatus && (
-              <Button size="sm" disabled={isUpdatingStatus} onClick={() => onUpdateStatus(startPickingStatus)}>
-                {ORDER_ACTION_LABELS[startPickingStatus] ?? orderStatusLabel(startPickingStatus)}
+              <Button size="sm" disabled={isUpdatingStatus} onClick={() => onUpdateStatus({ status: startPickingStatus })}>
+                {/* Mesmo ícone que a ação tinha no cabeçalho: ela mudou de lugar, não de identidade. */}
+                <Icon>{ORDER_ACTION_ICONS[startPickingStatus] ?? '➡️'}</Icon>
+                {orderActionLabel({ next: startPickingStatus, from: order.status })}
               </Button>
             )}
           </div>
@@ -587,16 +696,43 @@ export function OrderDetailView({
               </p>
             </div>
 
-            <Button disabled={isNotifyingUnavailable} onClick={onNotifyUnavailable}>
-              {isNotifyingUnavailable ? (
-                'Enviando…'
-              ) : (
-                <>
+            {/*
+              Dois botões porque são duas decisões da loja, não uma com opção escondida atrás de um menu.
+
+              Perguntar para o pedido: ele sai de "separando" e só volta quando o cliente responder pelo
+              WhatsApp. Avisar e seguir manda o mesmo recado sem botão nenhum e não mexe no andamento — a
+              separação continua, e "Marcar como separado" aparece assim que o último item disponível for
+              marcado. Sem sobra no pedido, seguir entregaria sacola vazia: aí só existe perguntar.
+            */}
+            <div className="flex flex-wrap gap-2">
+              <Button disabled={isNotifyingUnavailable} onClick={() => onNotifyUnavailable(true)}>
+                {isNotifyingUnavailable ? (
+                  'Enviando…'
+                ) : (
+                  <>
+                    <Icon>💬</Icon>
+                    Avisar e aguardar aprovação
+                  </>
+                )}
+              </Button>
+
+              {availableItems.length > 0 && (
+                <Button
+                  variant="outline"
+                  disabled={isNotifyingUnavailable}
+                  onClick={() => onNotifyUnavailable(false)}
+                >
                   <Icon>📣</Icon>
-                  Avisar o cliente
-                </>
+                  Avisar e seguir sem aprovação
+                </Button>
               )}
-            </Button>
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              {availableItems.length === 0
+                ? 'A decisão é do cliente: sem itens disponíveis, não há o que seguir sem perguntar.'
+                : 'Aguardar aprovação para a separação até o cliente responder. Seguir sem aprovação apenas informa, e a separação continua.'}
+            </p>
           </div>
         )}
 
@@ -643,6 +779,25 @@ export function OrderDetailView({
                     <span className="text-sm font-normal text-muted-foreground">x</span>
                   </span>
 
+                  {/*
+                    Foto da embalagem, não enfeite: "leite integral 1L" são seis caixas parecidas na
+                    mesma prateleira, e quem separa reconhece a arte antes de ler o rótulo. Só aparece
+                    quando o catálogo tem foto — quadro cinza de "sem imagem" ocuparia o mesmo espaço
+                    sem ajudar ninguém.
+                    Fora do papel: impressão em preto e branco vira mancha e gasta tinta.
+                  */}
+                  {item.productImageUrl && (
+                    <img
+                      src={item.productImageUrl}
+                      alt=""
+                      aria-hidden="true"
+                      loading="lazy"
+                      className={`h-12 w-12 shrink-0 rounded-md border bg-muted object-cover print:hidden ${
+                        isUnavailable ? 'grayscale' : ''
+                      }`}
+                    />
+                  )}
+
                   <span className="min-w-0 flex-1">
                     {/*
                       Risco só no NOME, nunca no preço: item separado continua valendo o que vale, e
@@ -658,6 +813,25 @@ export function OrderDetailView({
                     {isUnavailable && (
                       <span className="ml-2 whitespace-nowrap rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-semibold text-destructive">
                         acabou · cliente avisado
+                      </span>
+                    )}
+
+                    {/*
+                      Segunda linha: onde achar e qual das versões é.
+                      O corredor vem primeiro e destacado porque é o que decide o PRÓXIMO PASSO de quem
+                      está com o celular na mão — marca e embalagem só importam depois de chegar na
+                      prateleira. Some por inteiro quando a loja não mapeia nada: linha vazia embaixo de
+                      cada item empurraria a lista para o dobro da altura sem dizer nada.
+                    */}
+                    {(item.productAisle || item.productBrand || item.productUnitSize) && (
+                      <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                        {item.productAisle && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 font-semibold text-primary">
+                            <Icon>📍</Icon>
+                            {item.productAisle}
+                          </span>
+                        )}
+                        {[item.productBrand, item.productUnitSize].filter(Boolean).join(' · ')}
                       </span>
                     )}
                   </span>

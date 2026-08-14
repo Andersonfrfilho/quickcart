@@ -99,6 +99,27 @@
       "when": 1784464065867,
       "tag": "0013_order_items_picked",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1784464066867,
+      "tag": "0014_order_customer_decision",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1784464067867,
+      "tag": "0015_products_aisle",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1784464068867,
+      "tag": "0016_order_delivery_tracking",
+      "breakpoints": true
     }
   ]
 }

@@ -10,7 +10,17 @@ import { ORDER_STATUS, type OrderStatus } from '@/shared/api/api.types'
  * Depois que a sacola sai ou o pedido termina, também é leitura: a marcação não muda mais nada no mundo,
  * e deixar editável só permite reescrever o passado sem efeito nenhum.
  */
-const PICKING_ALLOWED_STATUSES: ReadonlySet<string> = new Set([ORDER_STATUS.PREPARING, ORDER_STATUS.SEPARATED])
+const PICKING_ALLOWED_STATUSES: ReadonlySet<string> = new Set([
+  ORDER_STATUS.PREPARING,
+  ORDER_STATUS.SEPARATED,
+  /*
+   * Esperando o cliente decidir sobre item em falta, a sacola continua na mão de alguém.
+   *
+   * Travar a lista aqui seria travar o trabalho: enquanto a resposta não chega, quem separa segue pegando
+   * o resto — e pode achar mais um item em falta, que também precisa ser marcado.
+   */
+  ORDER_STATUS.AWAITING_CUSTOMER_DECISION,
+])
 
 /** Estados anteriores à separação — a lista está fechada, mas vai abrir. */
 const BEFORE_PICKING_STATUSES: ReadonlySet<string> = new Set([

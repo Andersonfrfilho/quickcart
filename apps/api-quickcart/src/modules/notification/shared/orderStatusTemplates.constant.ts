@@ -29,7 +29,16 @@ const ORDER_STATUS_BODY: Record<string, string> = {
   [ORDER_STATUS.PREPARING]: '🛒 Pedido {{shortCode}} está sendo preparado.',
   [ORDER_STATUS.SEPARATED]: '✅ Pedido {{shortCode}} está separado e pronto.',
   [ORDER_STATUS.OUT_FOR_DELIVERY]: '🚚 Pedido {{shortCode}} saiu para entrega!',
+  [ORDER_STATUS.IN_TRANSIT]: '🛵 Pedido {{shortCode}} está a caminho do seu endereço.',
+  [ORDER_STATUS.ARRIVED_AT_CUSTOMER]: '🔔 Chegamos! O pedido {{shortCode}} está na sua porta.',
   [ORDER_STATUS.READY_FOR_PICKUP]: '📦 Pedido {{shortCode}} está pronto para retirada.',
+  /**
+   * Neutro de propósito: o motivo interno (extraviado, endereço errado, recusado) fica na loja.
+   *
+   * Cliente lendo "extraviado" no WhatsApp não ganha nada e perde a confiança antes de alguém poder
+   * explicar. O que ele precisa saber é que a entrega não aconteceu e que já estão falando com ele.
+   */
+  [ORDER_STATUS.DELIVERY_FAILED]: '⚠️ Não conseguimos concluir a entrega do pedido {{shortCode}}. Já vamos falar com você para resolver.',
   [ORDER_STATUS.COMPLETED]: '🎉 Pedido {{shortCode}} concluído. Obrigado pela preferência!',
   [ORDER_STATUS.CANCELLED]: '❌ Pedido {{shortCode}} foi cancelado.',
 }
@@ -61,7 +70,10 @@ const META_TEMPLATE_BY_STATUS: Record<string, string> = {
   [ORDER_STATUS.PREPARING]: 'quickcart_pedido_em_separacao',
   [ORDER_STATUS.SEPARATED]: 'quickcart_pedido_separado',
   [ORDER_STATUS.OUT_FOR_DELIVERY]: 'quickcart_pedido_em_entrega',
+  [ORDER_STATUS.IN_TRANSIT]: 'quickcart_pedido_a_caminho',
+  [ORDER_STATUS.ARRIVED_AT_CUSTOMER]: 'quickcart_pedido_na_porta',
   [ORDER_STATUS.READY_FOR_PICKUP]: 'quickcart_pedido_pronto_retirada',
+  [ORDER_STATUS.DELIVERY_FAILED]: 'quickcart_pedido_entrega_nao_concluida',
   [ORDER_STATUS.COMPLETED]: 'quickcart_pedido_concluido',
   [ORDER_STATUS.CANCELLED]: 'quickcart_pedido_cancelado',
 }
@@ -91,7 +103,10 @@ const ORDER_STATUS_SUBJECT: Record<string, string> = {
   [ORDER_STATUS.PREPARING]: 'Pedido {{shortCode}} em separação',
   [ORDER_STATUS.SEPARATED]: 'Pedido {{shortCode}} separado',
   [ORDER_STATUS.OUT_FOR_DELIVERY]: 'Pedido {{shortCode}} saiu para entrega',
+  [ORDER_STATUS.IN_TRANSIT]: 'Pedido {{shortCode}} a caminho',
+  [ORDER_STATUS.ARRIVED_AT_CUSTOMER]: 'Pedido {{shortCode}} na sua porta',
   [ORDER_STATUS.READY_FOR_PICKUP]: 'Pedido {{shortCode}} pronto para retirada',
+  [ORDER_STATUS.DELIVERY_FAILED]: 'Entrega do pedido {{shortCode}} não concluída',
   [ORDER_STATUS.COMPLETED]: 'Pedido {{shortCode}} concluído',
   [ORDER_STATUS.CANCELLED]: 'Pedido {{shortCode}} cancelado',
 }

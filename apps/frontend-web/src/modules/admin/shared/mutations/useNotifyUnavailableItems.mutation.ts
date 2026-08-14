@@ -11,9 +11,10 @@ export function useNotifyUnavailableItemsMutation(token: string | null) {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (orderId: string) => adminNotifyUnavailableItems(token as string, orderId),
-    onSuccess: (_result, orderId) => {
-      void queryClient.invalidateQueries({ queryKey: ['admin-order-detail', orderId] })
+    mutationFn: (params: { readonly orderId: string; readonly requiresCustomerApproval: boolean }) =>
+      adminNotifyUnavailableItems(token as string, params),
+    onSuccess: (_result, params) => {
+      void queryClient.invalidateQueries({ queryKey: ['admin-order-detail', params.orderId] })
     },
   })
 }

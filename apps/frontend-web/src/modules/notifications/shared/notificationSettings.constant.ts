@@ -69,7 +69,11 @@ export const ORDER_STATUS_LABEL: Record<string, string> = {
   preparing: 'Em separação',
   separated: 'Separado',
   out_for_delivery: 'Saiu para entrega',
+  in_transit: 'A caminho do cliente',
+  arrived_at_customer: 'Na porta do cliente',
   ready_for_pickup: 'Pronto para retirada',
+  // Rótulo da TELA da loja. O texto que sai para o cliente é neutro de propósito — ver o template.
+  delivery_failed: 'Entrega não concluída',
   completed: 'Concluído',
   cancelled: 'Cancelado',
 }

@@ -9,12 +9,19 @@ import { adminUpdateOrderStatus } from '@/shared/api/client'
  * também precisa: confirmar um pedido tira ele da fila, e um contador que só atualiza no próximo ciclo
  * de 20s mostra trabalho que já foi feito.
  */
+export type UpdateOrderStatusVariables = {
+  readonly id: string
+  readonly status: string
+  /** Só com `status = delivery_failed`; a rota recusa a ocorrência sem ele e recusa ele sem ela. */
+  readonly deliveryFailureReason?: string | undefined
+}
+
 export function useUpdateOrderStatusMutation(token: string | null) {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) =>
-      adminUpdateOrderStatus(token as string, id, status),
+    mutationFn: ({ id, status, deliveryFailureReason }: UpdateOrderStatusVariables) =>
+      adminUpdateOrderStatus(token as string, { orderId: id, status, deliveryFailureReason }),
     onSuccess: (_result, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['admin-order-detail', variables.id] })
       void queryClient.invalidateQueries({ queryKey: ['admin-orders'] })

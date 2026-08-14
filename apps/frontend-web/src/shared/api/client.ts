@@ -218,17 +218,40 @@ export type NotifyUnavailableItemsResponse = {
   readonly meta: { readonly notifiedCount: number }
 }
 
+/**
+ * `requiresCustomerApproval` explícito, sem valor padrão dos dois lados.
+ *
+ * Perguntar para o pedido e informar seguindo são decisões diferentes da loja, e a API recusa o corpo sem
+ * a escolha — assim nenhum caminho vira o "acidental" quando alguém esquecer de passar o parâmetro.
+ */
 export async function adminNotifyUnavailableItems(
   token: string,
-  orderId: string,
+  params: { readonly orderId: string; readonly requiresCustomerApproval: boolean },
 ): Promise<NotifyUnavailableItemsResponse> {
-  return apiClient.post(`/v1/admin/orders/${orderId}/unavailable-items/notify`, undefined, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
+  return apiClient.post(
+    `/v1/admin/orders/${params.orderId}/unavailable-items/notify`,
+    { requiresCustomerApproval: params.requiresCustomerApproval },
+    { headers: { Authorization: `Bearer ${token}` } },
+  )
 }
 
-export async function adminUpdateOrderStatus(token: string, id: string, status: string): Promise<ApiItemResponse<Order>> {
-  return apiClient.patch(`/v1/admin/orders/${id}/status`, { status }, {
+/**
+ * O motivo vai junto do status, na MESMA chamada.
+ *
+ * A rota recusa `delivery_failed` sem motivo e recusa motivo com qualquer outro status — registrar a
+ * ocorrência primeiro e o porquê depois deixaria o pedido num estado que ninguém sabe explicar. Por
+ * isso a chave só entra no corpo quando existe: mandar `deliveryFailureReason: undefined` num status
+ * comum é o mesmo que mandar a chave, e a validação rejeitaria.
+ */
+export async function adminUpdateOrderStatus(
+  token: string,
+  params: { readonly orderId: string; readonly status: string; readonly deliveryFailureReason?: string | undefined },
+): Promise<ApiItemResponse<Order>> {
+  const body = params.deliveryFailureReason
+    ? { status: params.status, deliveryFailureReason: params.deliveryFailureReason }
+    : { status: params.status }
+
+  return apiClient.patch(`/v1/admin/orders/${params.orderId}/status`, body, {
     headers: { Authorization: `Bearer ${token}` },
   })
 }

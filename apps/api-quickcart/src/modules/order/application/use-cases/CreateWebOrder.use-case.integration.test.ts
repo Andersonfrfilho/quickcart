@@ -169,7 +169,7 @@ describe('CreateWebOrderUseCase — concorrência real (Postgres + Redis)', () =
     const afterOrder = await productRepository.findById(productId)
     expect(afterOrder?.stockQuantity).toBe(6)
 
-    await orderRepository.cancelAndRestoreStock(result.order.id)
+    await orderRepository.cancel({ orderId: result.order.id, restoreStock: true })
 
     const afterCancel = await productRepository.findById(productId)
     expect(afterCancel?.stockQuantity).toBe(10)

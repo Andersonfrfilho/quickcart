@@ -116,7 +116,15 @@ class FakeOrderRepository implements OrderRepositoryInterface {
     return undefined
   }
 
-  async cancelAndRestoreStock(): Promise<OrderRecord | undefined> {
+  async startCustomerDecision(): Promise<undefined> {
+    throw new Error('not implemented')
+  }
+
+  async markCustomerDecisionReminded(): Promise<undefined> {
+    throw new Error('not implemented')
+  }
+
+  async cancel(): Promise<OrderRecord | undefined> {
     return undefined
   }
 }
@@ -137,6 +145,9 @@ function buildOrder(overrides: Partial<OrderRecord> = {}): OrderRecord {
     receiptPreference: 'email',
     fiscalDocumentId: null,
     notes: null,
+    deliveryFailureReason: null,
+    customerDecisionAskedAt: null,
+    customerDecisionRemindedAt: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,

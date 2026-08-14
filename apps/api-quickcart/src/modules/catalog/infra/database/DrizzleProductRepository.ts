@@ -65,6 +65,7 @@ export class DrizzleProductRepository implements ProductRepositoryInterface {
         stockQuantity: params.stockQuantity,
         isAvailable: params.isAvailable,
         imageUrl: params.imageUrl ?? null,
+        aisle: params.aisle ?? null,
         aliases: [...params.aliases],
         barcode: params.barcode ?? null,
       })

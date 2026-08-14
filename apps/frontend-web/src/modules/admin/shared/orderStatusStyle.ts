@@ -1,4 +1,4 @@
-import { ORDER_STATUS } from '@/shared/api/api.types'
+import { DELIVERY_FAILURE_REASON, ORDER_STATUS } from '@/shared/api/api.types'
 
 /**
  * Rótulo de cada situação, em um lugar só.
@@ -12,10 +12,33 @@ export const ORDER_STATUS_LABELS: Record<string, string> = {
   [ORDER_STATUS.CONFIRMED]: 'Confirmado',
   [ORDER_STATUS.PREPARING]: 'Separando',
   [ORDER_STATUS.SEPARATED]: 'Separado',
-  [ORDER_STATUS.OUT_FOR_DELIVERY]: 'Saiu para entrega',
+  [ORDER_STATUS.AWAITING_CUSTOMER_DECISION]: 'Aguardando cliente',
+  [ORDER_STATUS.OUT_FOR_DELIVERY]: 'Saiu da loja',
+  [ORDER_STATUS.IN_TRANSIT]: 'A caminho',
+  [ORDER_STATUS.ARRIVED_AT_CUSTOMER]: 'Na porta',
   [ORDER_STATUS.READY_FOR_PICKUP]: 'Pronto para retirada',
+  [ORDER_STATUS.DELIVERY_FAILED]: 'Ocorrência',
+  // "Concluído" e não "Entregue": o mesmo status fecha retirada no balcão, onde ninguém entregou nada.
   [ORDER_STATUS.COMPLETED]: 'Concluído',
   [ORDER_STATUS.CANCELLED]: 'Cancelado',
+}
+
+/**
+ * O motivo escrito por extenso, para a loja. Nunca vai para o cliente.
+ *
+ * A mensagem que sai no WhatsApp é neutra de propósito: "extraviado" não ajuda quem está esperando a
+ * compra e queima a confiança antes de alguém poder explicar.
+ */
+export const DELIVERY_FAILURE_REASON_LABELS: Record<string, string> = {
+  [DELIVERY_FAILURE_REASON.CUSTOMER_ABSENT]: 'Cliente ausente',
+  [DELIVERY_FAILURE_REASON.WRONG_ADDRESS]: 'Endereço não localizado',
+  [DELIVERY_FAILURE_REASON.RETURNED]: 'Voltou para a loja',
+  [DELIVERY_FAILURE_REASON.REFUSED]: 'Cliente recusou',
+  [DELIVERY_FAILURE_REASON.LOST]: 'Extraviado',
+}
+
+export function deliveryFailureReasonLabel(reason: string): string {
+  return DELIVERY_FAILURE_REASON_LABELS[reason] ?? reason
 }
 
 /**
@@ -55,8 +78,33 @@ const ORDER_STATUS_BADGE_CLASSES: Record<string, string> = {
    * separa os pares mesmo para quem enxerga cor de forma diferente, e cai bem no significado: estes dois
    * estados são os que cobram alguém.
    */
+  /*
+   * Âmbar de novo, mas SÓLIDO: é a mesma espera do primeiro estado, com a diferença de já haver alguém
+   * sendo cobrado. O matiz diz "parado esperando resposta"; o preenchimento diz "a pergunta já saiu".
+   * Fica fora da sequência da esteira de propósito — este pedido não avançou, ele saiu do trilho.
+   */
+  [ORDER_STATUS.AWAITING_CUSTOMER_DECISION]:
+    'border-transparent bg-amber-600 text-white dark:bg-amber-500 dark:text-amber-950',
+
+  /*
+   * O trajeto inteiro é laranja sólido, escurecendo a cada degrau.
+   *
+   * Um matiz por parada faria quatro cores novas disputando com as da esteira anterior; o que o operador
+   * precisa distinguir de relance é "na rua" de "no balcão", e depois quão perto da porta o pedido está.
+   * A saturação carrega a distância, e o rótulo escrito ao lado diz o resto.
+   */
   [ORDER_STATUS.OUT_FOR_DELIVERY]: 'border-transparent bg-orange-600 text-white dark:bg-orange-500 dark:text-white',
+  [ORDER_STATUS.IN_TRANSIT]: 'border-transparent bg-orange-700 text-white dark:bg-orange-600 dark:text-white',
+  [ORDER_STATUS.ARRIVED_AT_CUSTOMER]: 'border-transparent bg-orange-800 text-white dark:bg-orange-700 dark:text-white',
   [ORDER_STATUS.READY_FOR_PICKUP]: 'border-transparent bg-teal-700 text-white dark:bg-teal-500 dark:text-white',
+
+  /*
+   * Vermelho sólido: a ocorrência é o único estado que exige decisão de alguém HOJE.
+   *
+   * Cancelado também é vermelho, mas apagado e com borda — um já terminou, o outro está parado esperando
+   * alguém escolher entre tentar de novo e encerrar.
+   */
+  [ORDER_STATUS.DELIVERY_FAILED]: 'border-transparent bg-red-600 text-white dark:bg-red-500 dark:text-white',
 
   // Fim de linha: verde apagado, porque pedido concluído não precisa disputar atenção na lista.
   [ORDER_STATUS.COMPLETED]:
