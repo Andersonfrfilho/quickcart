@@ -106,6 +106,8 @@ export class OrderController {
       data: {
         ...withAllowedTransitions(detail.order),
         items: detail.items,
+        // Sempre presente, mesmo vazio: a lista é o histórico de viagens, e "nenhuma" é uma resposta.
+        deliveryAttempts: detail.deliveryAttempts,
         // Chave ausente, e não `null`, quando não há estimativa: a tela decide por presença.
         ...(detail.deliveryEstimate ? { deliveryEstimate: detail.deliveryEstimate } : {}),
       },

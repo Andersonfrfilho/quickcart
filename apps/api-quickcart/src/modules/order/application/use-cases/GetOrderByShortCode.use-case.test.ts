@@ -83,7 +83,7 @@ class FakeOrderRepository implements OrderRepositoryInterface {
   async findDetailById(id: string) {
     const order = this.orders.get(id)
     // O fake não guarda cliente: os testes deste caso de uso não passam pelo detalhe.
-    return order ? { order: { ...order, customerName: null, customerPhone: '' }, items: [] } : undefined
+    return order ? { order: { ...order, customerName: null, customerPhone: '' }, items: [], deliveryAttempts: [] } : undefined
   }
 
   async setItemUnavailable(params: { orderId: string; itemId: string; unavailable: boolean }) {

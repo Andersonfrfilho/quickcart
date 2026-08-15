@@ -389,6 +389,7 @@ export function OrderDetailView({
         deliveryType={order.deliveryType}
         withProgressBar={!isSeparationInProgress}
         deliveryFailureReason={order.deliveryFailureReason}
+        deliveryAttempts={order.deliveryAttempts}
       />
 
       {/*

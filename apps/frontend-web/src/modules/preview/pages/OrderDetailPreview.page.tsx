@@ -177,6 +177,8 @@ const PREVIEW_ORDER: OrderDetail = {
   allowedNextStatuses: [],
   // A esteira só mostra ocorrência com `status = delivery_failed`, e o preview base está separando.
   deliveryFailureReason: null,
+  // Pedido em separação: a sacola ainda não saiu, então não há viagem nenhuma a mostrar.
+  deliveryAttempts: [],
 }
 
 /**

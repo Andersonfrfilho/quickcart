@@ -140,10 +140,29 @@ export type OrderDetailItem = OrderItemRecord & {
   readonly productAisle: string | null
 }
 
+/**
+ * Uma viagem da sacola, encerrada ou em andamento.
+ *
+ * `endedAt: null` é a viagem de agora. `outcome` só é nulo junto com ela — desfecho é o que encerra.
+ */
+export type OrderDeliveryAttemptRecord = {
+  readonly attempt: number
+  readonly startedAt: Date
+  readonly endedAt: Date | null
+  readonly outcome: string | null
+  readonly failureReason: string | null
+}
+
 /** Pedido aberto: itens e quem pediu, para a loja saber o que separar e para quem. */
 export type OrderDetail = {
   readonly order: OrderWithCustomer
   readonly items: OrderDetailItem[]
+  /**
+   * Vazio numa retirada e num pedido que ainda não saiu — nos dois casos porque não houve viagem, e é
+   * a mesma resposta honesta. A tela decide o que dizer sobre isso; o repositório não inventa uma
+   * tentativa zero para diferenciar.
+   */
+  readonly deliveryAttempts: OrderDeliveryAttemptRecord[]
 }
 
 export interface OrderRepositoryInterface {

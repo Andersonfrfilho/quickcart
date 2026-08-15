@@ -16,9 +16,18 @@
 
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql, type SQL } from 'drizzle-orm'
 import { db } from '@/infra/database/connection'
-import { orders, orderItems, products, customers, type Order, type OrderItem } from '@/infra/database/schema'
+import {
+  orders,
+  orderItems,
+  orderDeliveryAttempts,
+  products,
+  customers,
+  type Order,
+  type OrderItem,
+  type OrderDeliveryAttempt,
+} from '@/infra/database/schema'
 import { generateId } from '@/shared/id'
-import { ORDER_STATUS } from '@/modules/order/shared/Order.constant'
+import { DELIVERY_ATTEMPT_OUTCOME, ORDER_STATUS } from '@/modules/order/shared/Order.constant'
 import type {
   CreateOrderWithItemsParams,
   CreateOrderWithItemsResult,
@@ -29,6 +38,7 @@ import type {
   OrderRecord,
   OrderRepositoryInterface,
   OrderDetail,
+  OrderDeliveryAttemptRecord,
 } from '@/modules/order/domain/OrderRepository.interface'
 
 const SORTABLE_COLUMNS = {
@@ -82,6 +92,78 @@ function toOrderItemRecord(item: OrderItem): OrderItemRecord {
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   }
+}
+
+type DatabaseTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
+
+function toOrderDeliveryAttemptRecord(attempt: OrderDeliveryAttempt): OrderDeliveryAttemptRecord {
+  return {
+    attempt: attempt.attempt,
+    startedAt: attempt.startedAt,
+    endedAt: attempt.endedAt,
+    outcome: attempt.outcome,
+    failureReason: attempt.failureReason,
+  }
+}
+
+/**
+ * Traduz a transição de status para o que aconteceu com a sacola.
+ *
+ * Só três transições movem uma viagem, e todas as outras passam batido — inclusive `cancelled`, que não é
+ * desfecho de entrega: o cancelamento acontece a partir da ocorrência, e a viagem que o precedeu já foi
+ * fechada como falha. Fechar de novo apagaria o motivo real.
+ *
+ * A tentativa aberta é encontrada por `ended_at IS NULL`, e é no máximo uma: só `out_for_delivery` abre, e
+ * abrir sem fechar a anterior exigiria sair para entrega estando na rua, o que a esteira não permite.
+ */
+async function recordDeliveryAttempt(params: {
+  readonly tx: DatabaseTransaction
+  readonly orderId: string
+  readonly nextStatus: string
+  readonly failureReason: string | null
+}): Promise<void> {
+  const { tx, orderId, nextStatus, failureReason } = params
+
+  if (nextStatus === ORDER_STATUS.OUT_FOR_DELIVERY) {
+    /*
+     * Numeração derivada do que já existe, e não de uma contagem em memória: duas abas clicando juntas
+     * leriam o mesmo número, e o índice único do banco é quem recusa a segunda.
+     */
+    const [last] = await tx
+      .select({ attempt: sql<number>`coalesce(max(${orderDeliveryAttempts.attempt}), 0)::int` })
+      .from(orderDeliveryAttempts)
+      .where(eq(orderDeliveryAttempts.orderId, orderId))
+
+    await tx.insert(orderDeliveryAttempts).values({
+      id: generateId(),
+      orderId,
+      attempt: (last?.attempt ?? 0) + 1,
+      startedAt: new Date(),
+    })
+    return
+  }
+
+  const outcome =
+    nextStatus === ORDER_STATUS.DELIVERY_FAILED
+      ? DELIVERY_ATTEMPT_OUTCOME.FAILED
+      : nextStatus === ORDER_STATUS.COMPLETED
+        ? DELIVERY_ATTEMPT_OUTCOME.DELIVERED
+        : undefined
+
+  if (!outcome) return
+
+  /*
+   * `completed` de uma RETIRADA não tem viagem aberta para fechar, e o `where` já cobre isso: sem linha
+   * aberta, o update não atinge nada. Nada de checar `deliveryType` aqui — a ausência da viagem é o fato.
+   */
+  await tx
+    .update(orderDeliveryAttempts)
+    .set({
+      endedAt: new Date(),
+      outcome,
+      failureReason: outcome === DELIVERY_ATTEMPT_OUTCOME.FAILED ? failureReason : null,
+    })
+    .where(and(eq(orderDeliveryAttempts.orderId, orderId), isNull(orderDeliveryAttempts.endedAt)))
 }
 
 export class DrizzleOrderRepository implements OrderRepositoryInterface {
@@ -276,7 +358,14 @@ export class DrizzleOrderRepository implements OrderRepositoryInterface {
       .leftJoin(products, eq(products.id, orderItems.productId))
       .where(eq(orderItems.orderId, id))
 
+    const attempts = await db
+      .select()
+      .from(orderDeliveryAttempts)
+      .where(eq(orderDeliveryAttempts.orderId, id))
+      .orderBy(asc(orderDeliveryAttempts.attempt))
+
     return {
+      deliveryAttempts: attempts.map(toOrderDeliveryAttemptRecord),
       order: { ...toOrderRecord(row.order), customerName: row.customerName, customerPhone: row.customerPhone },
       items: items.map((row) => ({
         ...toOrderItemRecord(row.item),
@@ -389,12 +478,32 @@ export class DrizzleOrderRepository implements OrderRepositoryInterface {
     // transições quer. Quem precisa apagar manda `null` explícito.
     const reason = params.deliveryFailureReason === undefined ? {} : { deliveryFailureReason: params.deliveryFailureReason }
 
-    const [order] = await db
-      .update(orders)
-      .set({ status: params.status, ...reason, updatedAt: new Date() })
-      .where(where)
-      .returning()
-    return order ? toOrderRecord(order) : undefined
+    /*
+     * Status e viagem na MESMA transação.
+     *
+     * O histórico da entrega existe para responder o que aconteceu com a sacola; um pedido gravado como
+     * "saiu para entrega" sem a viagem correspondente (ou o inverso) é exatamente a resposta errada, e
+     * seria permanente — esta tabela não é reconciliada depois.
+     */
+    return await db.transaction(async (tx) => {
+      const [order] = await tx
+        .update(orders)
+        .set({ status: params.status, ...reason, updatedAt: new Date() })
+        .where(where)
+        .returning()
+
+      // Sem linha atualizada, a transição não aconteceu (alguém mudou o status no intervalo): nada a narrar.
+      if (!order) return undefined
+
+      await recordDeliveryAttempt({
+        tx,
+        orderId: params.orderId,
+        nextStatus: params.status,
+        failureReason: params.deliveryFailureReason ?? null,
+      })
+
+      return toOrderRecord(order)
+    })
   }
 
   async startCustomerDecision(params: {

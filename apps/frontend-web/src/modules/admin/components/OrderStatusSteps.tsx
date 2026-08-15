@@ -1,5 +1,6 @@
-import { ORDER_STATUS } from '@/shared/api/api.types'
+import { ORDER_STATUS, type OrderDeliveryAttempt } from '@/shared/api/api.types'
 import { deliveryFailureReasonLabel, orderStatusLabel } from '@/modules/admin/shared/orderStatusStyle'
+import { DeliveryStepGroup, DELIVERY_GROUP_STATUSES } from '@/modules/admin/components/DeliveryStepGroup'
 
 /**
  * A jornada do pedido, do recebimento à entrega, com o passo atual em destaque.
@@ -11,14 +12,21 @@ import { deliveryFailureReasonLabel, orderStatusLabel } from '@/modules/admin/sh
  * Os passos dependem do tipo de entrega: uma retirada nunca "sai para entrega", e mostrar esse passo
  * apagado sugeriria uma etapa que não vai acontecer.
  */
+/**
+ * O trajeto na rua é UM degrau — `DELIVERY_GROUP_STEP` — que se abre nos três de dentro.
+ *
+ * Como degraus soltos, "saiu", "a caminho" e "na porta" eram três oitavos da barra para uma etapa que a
+ * maioria das lojas marca de uma vez só. Dobrados, a esteira mostra as cinco etapas que todo pedido vive,
+ * e quem acompanha em tempo real abre o que precisa.
+ */
+const DELIVERY_GROUP_STEP = 'delivery_group'
+
 const DELIVERY_STEPS: readonly string[] = [
   ORDER_STATUS.PENDING_CONFIRMATION,
   ORDER_STATUS.CONFIRMED,
   ORDER_STATUS.PREPARING,
   ORDER_STATUS.SEPARATED,
-  ORDER_STATUS.OUT_FOR_DELIVERY,
-  ORDER_STATUS.IN_TRANSIT,
-  ORDER_STATUS.ARRIVED_AT_CUSTOMER,
+  DELIVERY_GROUP_STEP,
   ORDER_STATUS.COMPLETED,
 ]
 
@@ -37,9 +45,6 @@ const STEP_SHORT_LABELS: Record<string, string> = {
   [ORDER_STATUS.CONFIRMED]: 'Confirmado',
   [ORDER_STATUS.PREPARING]: 'Separando',
   [ORDER_STATUS.SEPARATED]: 'Separado',
-  [ORDER_STATUS.OUT_FOR_DELIVERY]: 'Saiu',
-  [ORDER_STATUS.IN_TRANSIT]: 'A caminho',
-  [ORDER_STATUS.ARRIVED_AT_CUSTOMER]: 'Na porta',
   [ORDER_STATUS.READY_FOR_PICKUP]: 'Na loja',
   [ORDER_STATUS.COMPLETED]: 'Concluído',
 }
@@ -69,6 +74,8 @@ export type OrderStatusStepsProps = {
   readonly withProgressBar: boolean
   /** Só chega preenchido com `status = delivery_failed`; é ele que explica a esteira parada. */
   readonly deliveryFailureReason?: string | null
+  /** Histórico das viagens, exibido dentro do degrau "Entrega". Vazio numa retirada. */
+  readonly deliveryAttempts?: readonly OrderDeliveryAttempt[]
 }
 
 export function OrderStatusSteps({
@@ -76,6 +83,7 @@ export function OrderStatusSteps({
   deliveryType,
   withProgressBar,
   deliveryFailureReason,
+  deliveryAttempts = [],
 }: OrderStatusStepsProps) {
   /*
    * Cancelado não é um passo da esteira: é a esteira interrompida.
@@ -106,14 +114,14 @@ export function OrderStatusSteps({
    * Ocorrência também não é degrau: é a viagem interrompida, e não se sabe em qual parada.
    *
    * Como passo próprio ficaria no fim, ao lado de "Entregue", sugerindo que ela vem DEPOIS da entrega.
-   * O passo continua sendo "Saiu" — a última coisa que de fato aconteceu — pintado de parado, com o
-   * motivo escrito acima, que é o que decide se cabe outra viagem.
+   * O passo continua sendo o grupo "Entrega" — pintado de parado, com o motivo escrito acima e o
+   * histórico das viagens dobrado dentro dele.
    */
   const isDeliveryFailed = status === ORDER_STATUS.DELIVERY_FAILED
   const stoppedAtStep = isAwaitingCustomer
     ? ORDER_STATUS.PREPARING
-    : isDeliveryFailed
-      ? ORDER_STATUS.OUT_FOR_DELIVERY
+    : DELIVERY_GROUP_STATUSES.includes(status)
+      ? DELIVERY_GROUP_STEP
       : status
   const currentIndex = steps.indexOf(stoppedAtStep)
   const currentStepClass = isAwaitingCustomer
@@ -165,6 +173,9 @@ export function OrderStatusSteps({
 
         return (
           <li key={step} className="flex items-center gap-1">
+            {step === DELIVERY_GROUP_STEP ? (
+              <DeliveryStepGroup status={status} attempts={deliveryAttempts} isCurrent={isCurrent} isDone={isDone} />
+            ) : (
             <span
               aria-current={isCurrent ? 'step' : undefined}
               className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
@@ -180,6 +191,7 @@ export function OrderStatusSteps({
               <span aria-hidden="true">{isDone ? '✓' : isCurrent ? currentStepMarker : '○'}</span>
               {stepShortLabel({ step, deliveryType })}
             </span>
+            )}
 
             {/* Conector entre passos, nunca depois do último — traço solto sugere etapa que não existe. */}
             {index < steps.length - 1 && (

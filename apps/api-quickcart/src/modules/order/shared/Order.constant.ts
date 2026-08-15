@@ -84,6 +84,19 @@ export const DELIVERY_FAILURE_REASON = {
 export type DeliveryFailureReason = (typeof DELIVERY_FAILURE_REASON)[keyof typeof DELIVERY_FAILURE_REASON]
 
 /**
+ * Como uma viagem terminou. Enquanto ela não terminou, o desfecho é a ausência — `null`.
+ *
+ * Não é o status do pedido reescrito: `completed` numa retirada não é entrega nenhuma, e `delivery_failed`
+ * é o estado corrente do pedido, que some na retentativa. Aqui o desfecho pertence à viagem e não muda mais.
+ */
+export const DELIVERY_ATTEMPT_OUTCOME = {
+  DELIVERED: 'delivered',
+  FAILED: 'failed',
+} as const
+
+export type DeliveryAttemptOutcome = (typeof DELIVERY_ATTEMPT_OUTCOME)[keyof typeof DELIVERY_ATTEMPT_OUTCOME]
+
+/**
  * Ocorrência da qual o pedido ainda pode sair para entrega de novo.
  *
  * Lista de permissão, não de negação: motivo novo nasce finalizante até alguém decidir que reentregar

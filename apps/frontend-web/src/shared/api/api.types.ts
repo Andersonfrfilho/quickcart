@@ -237,6 +237,29 @@ export type OrderDetail = Order & {
    */
   readonly customerDecisionAskedAt: string | null
   readonly items: readonly OrderItem[]
+  /**
+   * Uma linha por viagem da sacola, na ordem em que saíram.
+   *
+   * Vazia numa retirada e num pedido que ainda não saiu. `deliveryFailureReason` do pedido continua sendo
+   * a ocorrência CORRENTE — esta lista é o que aconteceu antes, e que aquele campo apaga na retentativa.
+   */
+  readonly deliveryAttempts: readonly OrderDeliveryAttempt[]
+}
+
+export const DELIVERY_ATTEMPT_OUTCOME = {
+  DELIVERED: 'delivered',
+  FAILED: 'failed',
+} as const
+
+export type DeliveryAttemptOutcome = (typeof DELIVERY_ATTEMPT_OUTCOME)[keyof typeof DELIVERY_ATTEMPT_OUTCOME]
+
+export type OrderDeliveryAttempt = {
+  readonly attempt: number
+  readonly startedAt: string
+  /** `null` = a viagem de agora, e é o único jeito de distinguir "na rua" de "voltou". */
+  readonly endedAt: string | null
+  readonly outcome: DeliveryAttemptOutcome | null
+  readonly failureReason: DeliveryFailureReason | null
 }
 
 export const PRODUCT_SORTABLE_FIELDS = ['name', 'priceInCents', 'stockQuantity', 'createdAt'] as const
