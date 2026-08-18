@@ -83,7 +83,13 @@ export function DeliveryStepGroup({ status, attempts, isCurrent, isDone }: Deliv
       <div className="mt-2 space-y-3 rounded-lg border border-border bg-muted/40 p-3">
         <ol className="space-y-1" aria-label="Etapas da entrega">
           {DELIVERY_SUB_STEPS.map((step, index) => {
-            const isSubDone = isDone || (currentSubIndex >= 0 && index < currentSubIndex)
+            /*
+             * Numa ocorrência o status não diz em que parada a viagem parou, mas diz que ela COMEÇOU:
+             * existe tentativa aberta, e o carro saiu. Só "Saiu para entrega" fica cumprido — marcar
+             * "chegou ao cliente" seria inventar o que ninguém registrou.
+             */
+            const isSubDone =
+              isDone || (currentSubIndex >= 0 && index < currentSubIndex) || (isDeliveryFailed && index === 0)
             const isSubCurrent = index === currentSubIndex
 
             return (
