@@ -20,6 +20,7 @@ import {
   ORDER_NO_PREVIOUS_ORDER,
   ORDER_INVALID_STATUS_TRANSITION,
   ORDER_CUSTOMER_APPROVAL_REQUIRED,
+  ORDER_ITEM_NOT_SUBSTITUTABLE,
 } from '@/shared/errors/codes'
 
 const ORDER_DOMAIN = 'order'
@@ -75,6 +76,18 @@ export class OrderCustomerApprovalRequiredError extends OrderError {
       ORDER_CUSTOMER_APPROVAL_REQUIRED,
       { orderId },
     )
+  }
+}
+
+/**
+ * A troca pedida não cabe: o item não está em falta, não é deste pedido, ou já foi trocado.
+ *
+ * 409 e não 404: os três casos são "a resposta chegou tarde", não "não existe" — e a diferença importa
+ * para quem lê o log tentando entender um toque duplo (ADR 0003).
+ */
+export class OrderItemNotSubstitutableError extends OrderError {
+  constructor(params: { readonly orderId: string; readonly orderItemId: string }) {
+    super('Este item não pode ser trocado: a falta já foi resolvida.', 409, ORDER_ITEM_NOT_SUBSTITUTABLE, params)
   }
 }
 

@@ -15,7 +15,7 @@
 import { describe, expect, test } from 'bun:test'
 import { OrderInvalidStatusTransitionError, OrderNotFoundError } from '@/shared/errors/OrderErrors'
 import { DELIVERY_FAILURE_REASON, ORDER_STATUS } from '@/modules/order/shared/Order.constant'
-import type { OrderItemRecord, OrderRecord, OrderRepositoryInterface } from '@/modules/order/domain/OrderRepository.interface'
+import type { OrderItemRecord, OrderRecord, OrderRepositoryInterface , SubstituteItemResult } from '@/modules/order/domain/OrderRepository.interface'
 import type {
   NotifyStatusChangedParams,
   OrderStatusNotifier,
@@ -68,6 +68,18 @@ class FakeOrderRepository implements OrderRepositoryInterface {
 
   async setAllItemsPicked(): Promise<undefined> {
     throw new Error('not implemented')
+  }
+
+  async markItemUnavailableNotified(_params: {
+    readonly orderId: string
+    readonly itemId: string
+  }): Promise<OrderItemRecord | undefined> {
+    // O fake não guarda item: os testes deste caso de uso não passam por troca de item em falta.
+    return undefined
+  }
+
+  async substituteItem(): Promise<SubstituteItemResult> {
+    return { ok: false, reason: 'not_substitutable' } as const
   }
 
   async markUnavailableItemsNotified(_orderId: string) {
@@ -209,6 +221,7 @@ describe('UpdateOrderStatusUseCase', () => {
         unavailableAt: null,
         unavailableNotifiedAt: null,
         pickedAt: null,
+        substitutesOrderItemId: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       },
@@ -298,6 +311,7 @@ describe('UpdateOrderStatusUseCase', () => {
         unavailableAt: null,
         unavailableNotifiedAt: null,
         pickedAt: null,
+        substitutesOrderItemId: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       },

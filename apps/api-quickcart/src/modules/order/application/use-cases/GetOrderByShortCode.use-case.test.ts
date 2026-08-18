@@ -18,7 +18,7 @@ import type {
   UpdateContactInfoParams,
   UpsertCustomerByPhoneParams,
 } from '@/modules/webhook/domain/CustomerRepository.interface'
-import type { OrderItemRecord, OrderRecord, OrderRepositoryInterface } from '@/modules/order/domain/OrderRepository.interface'
+import type { OrderItemRecord, OrderRecord, OrderRepositoryInterface , SubstituteItemResult } from '@/modules/order/domain/OrderRepository.interface'
 import type { Customer } from '@/infra/database/schema'
 import { GetOrderByShortCodeUseCase } from './GetOrderByShortCode.use-case'
 
@@ -97,6 +97,18 @@ class FakeOrderRepository implements OrderRepositoryInterface {
 
   async setAllItemsPicked(): Promise<undefined> {
     throw new Error('not implemented')
+  }
+
+  async markItemUnavailableNotified(_params: {
+    readonly orderId: string
+    readonly itemId: string
+  }): Promise<OrderItemRecord | undefined> {
+    // O fake não guarda item: os testes deste caso de uso não passam por troca de item em falta.
+    return undefined
+  }
+
+  async substituteItem(): Promise<SubstituteItemResult> {
+    return { ok: false, reason: 'not_substitutable' } as const
   }
 
   async markUnavailableItemsNotified(_orderId: string) {

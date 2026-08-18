@@ -57,6 +57,13 @@ export type OrderItemRecord = {
   readonly unavailableNotifiedAt: Date | null
   /** Quando foi separado. `null` = ainda não. Vem do servidor, não do aparelho de quem separa. */
   readonly pickedAt: Date | null
+  /**
+   * A linha que esta substitui. `null` na linha que o cliente pediu — que é a esmagadora maioria.
+   *
+   * Preenchido só na linha nascida de uma troca aceita: com ela e a origem, a troca inteira está
+   * descrita, inclusive a diferença de preço (a subtração dos dois `totalInCents`).
+   */
+  readonly substitutesOrderItemId: string | null
   readonly createdAt: Date
   readonly updatedAt: Date
 }
@@ -165,6 +172,16 @@ export type OrderDetail = {
   readonly deliveryAttempts: OrderDeliveryAttemptRecord[]
 }
 
+/**
+ * O que aconteceu com a troca. Três desfechos, e cada um vira um texto diferente para o cliente.
+ *
+ * `out_of_stock` não é erro: entre a oferta e o toque passam minutos, e o substituto pode ter sido
+ * separado para outro pedido. O desfecho certo ali é "seguimos sem o item" — nunca uma mensagem de falha.
+ */
+export type SubstituteItemResult =
+  | { readonly ok: true; readonly detail: OrderDetail }
+  | { readonly ok: false; readonly reason: 'out_of_stock' | 'not_substitutable' }
+
 export interface OrderRepositoryInterface {
   createWithStockDecrement(params: CreateOrderWithItemsParams): Promise<CreateOrderWithItemsResult>
   findById(id: string): Promise<OrderRecord | undefined>
@@ -195,6 +212,16 @@ export interface OrderRepositoryInterface {
    * de marcar traria zero, e reler antes abriria janela para marcar um item que não entrou no recado.
    */
   markUnavailableItemsNotified(orderId: string): Promise<OrderItemRecord[]>
+  /**
+   * Carimba UM item como avisado.
+   *
+   * Existe por causa da pergunta por item (ADR 0003): marcar a lista inteira daria por avisado o item
+   * cuja pergunta ainda nem saiu — e o cliente nunca a receberia, porque "avisado" é o que a exclui.
+   */
+  markItemUnavailableNotified(params: {
+    readonly orderId: string
+    readonly itemId: string
+  }): Promise<OrderItemRecord | undefined>
   setItemUnavailable(params: {
     readonly orderId: string
     readonly itemId: string
@@ -255,6 +282,19 @@ export interface OrderRepositoryInterface {
     readonly orderId: string
     readonly allowedCurrentStatuses: readonly string[]
   }): Promise<OrderRecord | undefined>
+  /**
+   * Troca um item em falta pelo substituto que o cliente aceitou, numa transação só.
+   *
+   * Baixa de estoque, linha nova e total recalculado juntos: em escritas separadas existiria um instante
+   * com a linha inserida e o estoque intacto — o próximo pedido compraria o que já foi para esta sacola.
+   *
+   * A origem continua marcada como em falta e fora da conta; é ela que conta que o cliente pediu outra coisa.
+   */
+  substituteItem(params: {
+    readonly orderId: string
+    readonly orderItemId: string
+    readonly productId: string
+  }): Promise<SubstituteItemResult>
   /** Carimba a cobrança única. Só casa se ainda não houver carimbo — dois workers não cobram duas vezes. */
   markCustomerDecisionReminded(orderId: string): Promise<OrderRecord | undefined>
   /**

@@ -127,6 +127,13 @@
       "when": 1784464069867,
       "tag": "0017_order_delivery_attempts",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1787000000000,
+      "tag": "0018_order_item_substitution",
+      "breakpoints": true
     }
   ]
 }

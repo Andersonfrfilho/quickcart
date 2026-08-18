@@ -35,6 +35,8 @@ import {
   type OrderDecision,
 } from '@/modules/conversation/shared/orderDecisionButton'
 import type { ResolveCustomerDecisionUseCase } from '@/modules/order/application/use-cases/ResolveCustomerDecision.use-case'
+import type { ResolveItemSubstitutionUseCase } from '@/modules/order/application/use-cases/ResolveItemSubstitution.use-case'
+import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInCents'
 import { CHANNEL } from '@/modules/shared/shared.constant'
 import { OrderNoPreviousOrderError } from '@/shared/errors/OrderErrors'
 
@@ -65,6 +67,8 @@ export type GlobalHandlerDependencies = {
   readonly repeatLastOrderUseCase: RepeatLastOrderUseCase
   /** Quem aplica o toque no botão da pergunta de item em falta. */
   readonly resolveCustomerDecisionUseCase: ResolveCustomerDecisionUseCase
+  /** Quem aplica o toque nos botões da oferta de troca — trocar ou seguir sem aquele item (ADR 0003). */
+  readonly resolveItemSubstitutionUseCase: ResolveItemSubstitutionUseCase
   /**
    * Quem monta carrinho a partir de texto. É o MESMO handler do estado `awaiting_list`.
    *
@@ -100,10 +104,29 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
      */
     const decision = message.kind === 'button_reply' ? parseOrderDecisionButtonId(message.buttonId) : undefined
     if (decision) {
+      /*
+       * A resposta sobre UM item não passa pelo `ResolveCustomerDecision`: aquele resolve o pedido inteiro,
+       * e trocar leite não é decidir o pedido — a decisão do pedido vem depois, quando não sobrar item a
+       * perguntar (ADR 0003).
+       */
+      if (decision.decision === ORDER_DECISION.SUBSTITUTE || decision.decision === ORDER_DECISION.SKIP_ITEM) {
+        await this.handleItemSubstitution({
+          customerPhone: session.customerPhone,
+          customerId: customer.id,
+          orderId: decision.orderId,
+          orderItemId: decision.orderItemId,
+          ...(decision.decision === ORDER_DECISION.SUBSTITUTE
+            ? { substituteProductId: decision.substituteProductId }
+            : {}),
+        })
+        return true
+      }
+
       await this.handleOrderDecision({
         customerPhone: session.customerPhone,
         customerId: customer.id,
-        ...decision,
+        orderId: decision.orderId,
+        decision: decision.decision,
       })
       return true
     }
@@ -192,6 +215,62 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
     await this.dependencies.whatsAppSender.sendText(
       params.customerPhone,
       MESSAGES.ORDER_DECISION_CANCELLED_ACK.replace('{codigo}', shortCode),
+    )
+  }
+
+  /**
+   * Responde ao toque na oferta de troca. Sempre com uma frase, mesmo quando nada mudou.
+   *
+   * A próxima pergunta (o item seguinte, ou a do pedido inteiro) sai de dentro do use case, DEPOIS desta
+   * confirmação: a ordem das duas mensagens é a ordem em que a conversa faz sentido — primeiro o que
+   * aconteceu com o que ele acabou de responder, só então a pergunta nova.
+   */
+  private async handleItemSubstitution(params: {
+    readonly customerPhone: string
+    readonly customerId: string
+    readonly orderId: string
+    readonly orderItemId: string
+    readonly substituteProductId?: string | undefined
+  }): Promise<void> {
+    const result = await this.dependencies.resolveItemSubstitutionUseCase.execute({
+      orderId: params.orderId,
+      customerId: params.customerId,
+      orderItemId: params.orderItemId,
+      ...(params.substituteProductId ? { substituteProductId: params.substituteProductId } : {}),
+    })
+
+    if (!result.applied) {
+      await this.dependencies.whatsAppSender.sendText(
+        params.customerPhone,
+        MESSAGES.ORDER_DECISION_ALREADY_RESOLVED,
+      )
+      return
+    }
+
+    const askedItem = result.detail.items.find((item) => item.id === params.orderItemId)
+    const itemName = askedItem?.productName ?? ''
+
+    if (result.outcome === 'substituted') {
+      await this.dependencies.whatsAppSender.sendText(
+        params.customerPhone,
+        MESSAGES.ORDER_ITEM_SUBSTITUTED_ACK.replace('{substituto}', result.substituteName)
+          .replace('{codigo}', result.detail.order.shortCode)
+          .replace('{total}', formatPriceInCents(result.detail.order.totalInCents)),
+      )
+      return
+    }
+
+    if (result.outcome === 'substitute_gone') {
+      await this.dependencies.whatsAppSender.sendText(
+        params.customerPhone,
+        MESSAGES.ORDER_ITEM_SUBSTITUTE_GONE.replace('{item}', itemName),
+      )
+      return
+    }
+
+    await this.dependencies.whatsAppSender.sendText(
+      params.customerPhone,
+      MESSAGES.ORDER_ITEM_SKIPPED_ACK.replace('{item}', itemName),
     )
   }
 

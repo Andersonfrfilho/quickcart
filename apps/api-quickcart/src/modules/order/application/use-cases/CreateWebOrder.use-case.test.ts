@@ -34,6 +34,7 @@ import type {
   OrderItemRecord,
   OrderRecord,
   OrderRepositoryInterface,
+  SubstituteItemResult,
 } from '@/modules/order/domain/OrderRepository.interface'
 import type { JobQueue } from '@/modules/order/domain/JobQueue.interface'
 import type { Customer, Product } from '@/infra/database/schema'
@@ -127,6 +128,10 @@ class FakeProductRepository implements ProductRepositoryInterface {
     return { items: [], total: 0 }
   }
 
+  async findSubstituteCandidate(): Promise<ProductSearchResult | undefined> {
+    return undefined
+  }
+
   async searchByTerm(_term: string, _limit: number): Promise<ProductSearchResult[]> {
     return []
   }
@@ -186,6 +191,7 @@ class FakeOrderRepository implements OrderRepositoryInterface {
       unavailableAt: null,
       unavailableNotifiedAt: null,
         pickedAt: null,
+        substitutesOrderItemId: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }))
@@ -229,6 +235,18 @@ class FakeOrderRepository implements OrderRepositoryInterface {
 
   async setAllItemsPicked(): Promise<undefined> {
     throw new Error('not implemented')
+  }
+
+  async markItemUnavailableNotified(_params: {
+    readonly orderId: string
+    readonly itemId: string
+  }): Promise<OrderItemRecord | undefined> {
+    // O fake não guarda item: os testes deste caso de uso não passam por troca de item em falta.
+    return undefined
+  }
+
+  async substituteItem(): Promise<SubstituteItemResult> {
+    return { ok: false, reason: 'not_substitutable' } as const
   }
 
   async markUnavailableItemsNotified(_orderId: string) {

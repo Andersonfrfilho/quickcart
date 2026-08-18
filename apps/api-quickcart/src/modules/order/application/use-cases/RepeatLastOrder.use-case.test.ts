@@ -29,7 +29,7 @@ import type {
   ProductSearchResult,
   UpdateProductRecordParams,
 } from '@/modules/catalog/domain/ProductRepository.interface'
-import type { OrderItemRecord, OrderRecord, OrderRepositoryInterface } from '@/modules/order/domain/OrderRepository.interface'
+import type { OrderItemRecord, OrderRecord, OrderRepositoryInterface , SubstituteItemResult } from '@/modules/order/domain/OrderRepository.interface'
 import type { Product } from '@/infra/database/schema'
 import { RepeatLastOrderUseCase } from './RepeatLastOrder.use-case'
 
@@ -58,6 +58,10 @@ class FakeProductRepository implements ProductRepositoryInterface {
 
   async list(_params: ListProductsRepositoryParams): Promise<ListProductsRepositoryResult> {
     return { items: [], total: 0 }
+  }
+
+  async findSubstituteCandidate(): Promise<ProductSearchResult | undefined> {
+    return undefined
   }
 
   async searchByTerm(_term: string, _limit: number): Promise<ProductSearchResult[]> {
@@ -185,6 +189,18 @@ class FakeOrderRepository implements OrderRepositoryInterface {
     throw new Error('not implemented')
   }
 
+  async markItemUnavailableNotified(_params: {
+    readonly orderId: string
+    readonly itemId: string
+  }): Promise<OrderItemRecord | undefined> {
+    // O fake não guarda item: os testes deste caso de uso não passam por troca de item em falta.
+    return undefined
+  }
+
+  async substituteItem(): Promise<SubstituteItemResult> {
+    return { ok: false, reason: 'not_substitutable' } as const
+  }
+
   async markUnavailableItemsNotified(_orderId: string) {
     // O fake não guarda item: os testes deste caso de uso não passam por aviso de falta.
     return []
@@ -252,6 +268,7 @@ function buildOrderItem(overrides: Partial<OrderItemRecord> = {}): OrderItemReco
     unavailableAt: null,
     unavailableNotifiedAt: null,
         pickedAt: null,
+        substitutesOrderItemId: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,

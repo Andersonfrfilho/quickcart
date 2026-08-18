@@ -121,6 +121,16 @@ export const ORDER_DECISION_BUTTON_PREFIX = {
   CANCEL: 'order_cancel:',
   /** Só existe quando NADA sobrou: cancela este e abre a conversa para uma lista nova. */
   NEW_LIST: 'order_new_list:',
+  /**
+   * Aceita o parecido oferecido. Carrega três ids: `order_swap:<pedido>:<item>:<produto>`.
+   *
+   * Três porque a pergunta é sobre UM item e propõe UM produto, e nenhum dos dois dá para inferir depois:
+   * o pedido pode ter outras faltas, e o candidato do momento da oferta não é necessariamente o que a
+   * mesma busca devolveria horas depois — o estoque mudou no meio.
+   */
+  SUBSTITUTE: 'order_swap:',
+  /** Recusa o parecido e segue sem aquele item: `order_skip_item:<pedido>:<item>`. */
+  SKIP_ITEM: 'order_skip_item:',
 } as const
 
 export const MESSAGES = {
@@ -227,6 +237,28 @@ export const MESSAGES = {
     '❌ Pedido *{codigo}* cancelado, e a loja já foi avisada. Quando quiser comprar de novo é só me chamar!',
   ORDER_DECISION_NEW_LIST_ACK:
     '🛒 Cancelei o pedido *{codigo}*. Me manda a nova lista (texto ou áudio) que eu já monto seu carrinho.',
+  /**
+   * A oferta do parecido, um item por vez (ADR 0003).
+   *
+   * O nome do produto vai no CORPO e não no botão: "🔄 Trocar" cabe nos 20 caracteres do título, e
+   * "Piracanjuba Integral 1L" tem 23 sem emoji — a Meta recusaria a mensagem inteira.
+   *
+   * O preço vem junto porque trocar por algo mais caro sem dizer quanto é cobrar sem avisar.
+   */
+  ORDER_ITEM_SUBSTITUTE_OFFER:
+    '😕 Faltou *{item}* no pedido *{codigo}*.\n\nTenho *{substituto}* por *{preco}*{diferenca}.\n\nQuer trocar?',
+  /** Entra no lugar de `{diferenca}` quando os preços diferem. Vazio quando são iguais — nada a avisar. */
+  ORDER_ITEM_SUBSTITUTE_PRICE_DIFFERENCE: ' ({sinal}{valor} no total)',
+  ORDER_ITEM_SUBSTITUTED_ACK: '🔄 Trocado! *{substituto}* entra no lugar. O total do *{codigo}* fica *{total}*.',
+  ORDER_ITEM_SKIPPED_ACK: '👍 Certo, sigo sem *{item}*.',
+  /**
+   * O substituto acabou entre a oferta e o toque. Não é erro: o desfecho é o mesmo que recusar.
+   *
+   * Dizer o que aconteceu, e não só "não deu": o cliente aceitou uma troca e vai receber a sacola sem
+   * ela — descobrir isso na porta é o que esta frase evita.
+   */
+  ORDER_ITEM_SUBSTITUTE_GONE:
+    '😕 O parecido que te ofereci acabou agorinha — alguém levou o último. Sigo sem *{item}*.',
   /** Chegou uma resposta para um pedido que já andou — a loja resolveu antes, ou o botão foi tocado duas vezes. */
   ORDER_DECISION_ALREADY_RESOLVED: 'Esse pedido já foi resolvido — não precisa responder de novo 🙂',
   ORDER_HISTORY_EMPTY: 'Você ainda não tem compra fechada por aqui. Quando tiver, ela aparece nesta opção.',

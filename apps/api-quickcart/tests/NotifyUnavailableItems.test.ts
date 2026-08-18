@@ -13,7 +13,9 @@
  */
 
 import { describe, expect, it } from 'bun:test'
+import { AskUnavailableItemsUseCase } from '@/modules/order/application/use-cases/AskUnavailableItems.use-case'
 import { NotifyUnavailableItemsUseCase } from '@/modules/order/application/use-cases/NotifyUnavailableItems.use-case'
+import type { ProductRepositoryInterface } from '@/modules/catalog/domain/ProductRepository.interface'
 import type {
   OrderDetail,
   OrderItemRecord,
@@ -99,11 +101,20 @@ function buildUseCase(params: {
     },
   } as unknown as OrderRepositoryInterface
 
+  const askCustomer = async ({ body, buttons }: { readonly body: string; readonly buttons: readonly { readonly id: string }[] }) => {
+    calls.asked.push({ body, buttons })
+  }
+
+  /* Sem parecido no catálogo, a pergunta que sai é a do pedido inteiro — que é o que estes testes cobrem. */
+  const askUnavailableItemsUseCase = new AskUnavailableItemsUseCase({
+    orderRepository,
+    productRepository: { findSubstituteCandidate: async () => undefined } as unknown as ProductRepositoryInterface,
+    askCustomer,
+  })
+
   const useCase = new NotifyUnavailableItemsUseCase({
     orderRepository,
-    askCustomer: async ({ body, buttons }) => {
-      calls.asked.push({ body, buttons })
-    },
+    askUnavailableItemsUseCase,
     notifyCustomer: async ({ body }) => {
       calls.notified.push({ body })
     },

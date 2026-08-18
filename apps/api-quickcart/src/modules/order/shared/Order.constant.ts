@@ -159,6 +159,14 @@ export const ORDER_IDEMPOTENCY_PENDING_SENTINEL = 'pending'
 export const ORDER_IDEMPOTENCY_POLL_INTERVAL_MS = 100
 export const ORDER_IDEMPOTENCY_POLL_TIMEOUT_MS = 5000
 
+/**
+ * Quantas faltas ainda merecem uma pergunta por item antes de a conversa virar uma sobre o pedido inteiro.
+ *
+ * Três porque a quarta pergunta seguida no WhatsApp já não é atendimento, é interrogatório — e um pedido
+ * com cinco faltas não tem problema de item (ADR 0003).
+ */
+export const MAX_SUBSTITUTION_QUESTIONS = 3
+
 export const LIST_DEFAULT_PAGE = 1
 export const LIST_DEFAULT_PER_PAGE = 20
 export const LIST_MAX_PER_PAGE = 100

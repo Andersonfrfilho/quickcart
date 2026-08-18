@@ -28,12 +28,11 @@
 import { OrderCustomerApprovalRequiredError, OrderNotFoundError } from '@/shared/errors/OrderErrors'
 import type { OrderDetail, OrderRepositoryInterface } from '@/modules/order/domain/OrderRepository.interface'
 import {
-  buildCustomerDecisionMessage,
   buildUnavailableNoticeBody,
   hasAnythingLeftToDeliver,
-  type AskCustomerDecision,
   type NotifyCustomer,
 } from '@/modules/order/shared/customerDecisionMessage'
+import type { AskUnavailableItemsUseCase } from './AskUnavailableItems.use-case'
 import { ORDER_STATUS } from '@/modules/order/shared/Order.constant'
 import { logger } from '@/shared/logger'
 import { serializeError } from '@/shared/serializeError'
@@ -56,11 +55,14 @@ const ASKABLE_FROM_STATUSES = [
 type NotifyUnavailableItemsDependencies = {
   readonly orderRepository: OrderRepositoryInterface
   /**
-   * Pergunta com botões, e não um `sendText`: sem botão a resposta vem em texto livre ("pode mandar o
-   * resto"), e aí alguém precisa ler e clicar por ele — que é exatamente o trabalho que a pergunta
-   * automática existe para poupar.
+   * Quem decide QUAL pergunta sai e a manda com botões.
+   *
+   * Um use case e não um `sendText`: sem botão a resposta vem em texto livre ("pode mandar o resto"), e aí
+   * alguém precisa ler e clicar por ele — que é o trabalho que a pergunta automática existe para poupar. E
+   * a escolha entre perguntar a troca de um item ou o pedido inteiro é a mesma que a resposta do cliente
+   * refaz depois, então mora fora daqui (ADR 0003).
    */
-  readonly askCustomer: AskCustomerDecision
+  readonly askUnavailableItemsUseCase: AskUnavailableItemsUseCase
   /**
    * O aviso sem pergunta, para quando a loja já decidiu seguir. Texto puro, sem botão.
    *
@@ -118,23 +120,23 @@ export class NotifyUnavailableItemsUseCase {
      * duas mensagens. Mensagem repetida incomoda; cliente sem aviso perde a compra.
      */
     if (params.requiresCustomerApproval) {
-      const message = buildCustomerDecisionMessage({ detail, unavailableItems: pending })
-      await this.dependencies.askCustomer({
-        whatsappNumber: detail.order.customerPhone,
-        body: message.body,
-        buttons: message.buttons,
-      })
+      /*
+       * Qual pergunta sai — a troca de um item ou a do pedido inteiro — é decisão de um lugar só, porque a
+       * resposta do cliente reentra pelo mesmo caminho para perguntar o item seguinte (ADR 0003). Ela também
+       * carimba os itens que entraram no recado, então o carimbo em lote abaixo não vale para este ramo.
+       */
+      await this.dependencies.askUnavailableItemsUseCase.execute({ detail })
     } else {
       await this.dependencies.notifyCustomer({
         whatsappNumber: detail.order.customerPhone,
         body: buildUnavailableNoticeBody({ detail, unavailableItems: pending }),
       })
-    }
 
-    try {
-      await this.dependencies.orderRepository.markUnavailableItemsNotified(params.orderId)
-    } catch (error: unknown) {
-      useCaseLog.error('notification_not_stamped', { orderId: params.orderId, error: serializeError(error) })
+      try {
+        await this.dependencies.orderRepository.markUnavailableItemsNotified(params.orderId)
+      } catch (error: unknown) {
+        useCaseLog.error('notification_not_stamped', { orderId: params.orderId, error: serializeError(error) })
+      }
     }
 
     /*

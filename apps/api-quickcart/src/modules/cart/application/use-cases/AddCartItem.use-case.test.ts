@@ -61,6 +61,10 @@ class FakeProductRepository implements ProductRepositoryInterface {
     return { items: [], total: 0 }
   }
 
+  async findSubstituteCandidate(): Promise<ProductSearchResult | undefined> {
+    return undefined
+  }
+
   async searchByTerm(_term: string, _limit: number): Promise<ProductSearchResult[]> {
     return []
   }

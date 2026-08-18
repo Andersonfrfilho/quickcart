@@ -105,7 +105,9 @@ import { ResolveCepCoordinateUseCase } from '@/modules/shared/address/ResolveCep
 import { DrizzleGeocodedAddressRepository } from '@/modules/shared/address/infra/DrizzleGeocodedAddressRepository'
 import { SetOrderItemUnavailableUseCase } from '@/modules/order/application/use-cases/SetOrderItemUnavailable.use-case'
 import { SetOrderItemPickedUseCase } from '@/modules/order/application/use-cases/SetOrderItemPicked.use-case'
+import { AskUnavailableItemsUseCase } from '@/modules/order/application/use-cases/AskUnavailableItems.use-case'
 import { NotifyUnavailableItemsUseCase } from '@/modules/order/application/use-cases/NotifyUnavailableItems.use-case'
+import { ResolveItemSubstitutionUseCase } from '@/modules/order/application/use-cases/ResolveItemSubstitution.use-case'
 import { RepeatLastOrderUseCase } from '@/modules/order/application/use-cases/RepeatLastOrder.use-case'
 import { ListOrdersUseCase } from '@/modules/order/application/use-cases/ListOrders.use-case'
 import { OrderController } from '@/modules/order/infra/http/Order.controller'
@@ -207,6 +209,7 @@ type OrderModule = {
   readonly updateOrderStatusUseCase: UpdateOrderStatusUseCase
   readonly repeatLastOrderUseCase: RepeatLastOrderUseCase
   readonly resolveCustomerDecisionUseCase: ResolveCustomerDecisionUseCase
+  readonly resolveItemSubstitutionUseCase: ResolveItemSubstitutionUseCase
   readonly remindCustomerDecisionUseCase: RemindCustomerDecisionUseCase
   readonly listOrdersUseCase: ListOrdersUseCase
   readonly orderController: OrderController
@@ -268,9 +271,15 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
   const askCustomerDecision: AskCustomerDecision = ({ whatsappNumber, body, buttons }) =>
     dependencies.whatsAppSender.sendInteractiveButtons(whatsappNumber, body, buttons)
 
+  const askUnavailableItemsUseCase = new AskUnavailableItemsUseCase({
+    orderRepository,
+    productRepository: dependencies.productRepository,
+    askCustomer: askCustomerDecision,
+  })
+
   const notifyUnavailableItemsUseCase = new NotifyUnavailableItemsUseCase({
     orderRepository,
-    askCustomer: askCustomerDecision,
+    askUnavailableItemsUseCase,
     notifyCustomer: ({ whatsappNumber, body }) => dependencies.whatsAppSender.sendText(whatsappNumber, body),
     /**
      * A cobrança única vira job atrasado. `jobId` pelo pedido para o BullMQ recusar a segunda cópia:
@@ -298,6 +307,10 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     orderRepository,
     updateOrderStatusUseCase,
   })
+  const resolveItemSubstitutionUseCase = new ResolveItemSubstitutionUseCase({
+    orderRepository,
+    askUnavailableItemsUseCase,
+  })
   const repeatLastOrderUseCase = new RepeatLastOrderUseCase({
     orderRepository,
     cartRepository: dependencies.cartRepository,
@@ -324,6 +337,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     updateOrderStatusUseCase,
     repeatLastOrderUseCase,
     resolveCustomerDecisionUseCase,
+    resolveItemSubstitutionUseCase,
     remindCustomerDecisionUseCase,
     listOrdersUseCase,
     orderController,
@@ -372,6 +386,7 @@ type ConversationModuleDependencies = {
   readonly createOrderFromCartUseCase: CreateOrderFromCartUseCase
   readonly repeatLastOrderUseCase: RepeatLastOrderUseCase
   readonly resolveCustomerDecisionUseCase: ResolveCustomerDecisionUseCase
+  readonly resolveItemSubstitutionUseCase: ResolveItemSubstitutionUseCase
   readonly orderRepository: OrderRepositoryInterface
 }
 
@@ -394,6 +409,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     createOrderFromCartUseCase,
     repeatLastOrderUseCase,
     resolveCustomerDecisionUseCase,
+    resolveItemSubstitutionUseCase,
     orderRepository,
   } = dependencies
 
@@ -465,6 +481,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     productRepository,
     repeatLastOrderUseCase,
     resolveCustomerDecisionUseCase,
+    resolveItemSubstitutionUseCase,
     // O mesmo handler do estado `awaiting_list`: lista ditada fora de hora precisa dar no mesmo lugar.
     listHandler,
   })
@@ -701,6 +718,7 @@ const conversationModule = buildConversationModule({
   createOrderFromCartUseCase: orderModule.createOrderFromCartUseCase,
   repeatLastOrderUseCase: orderModule.repeatLastOrderUseCase,
   resolveCustomerDecisionUseCase: orderModule.resolveCustomerDecisionUseCase,
+  resolveItemSubstitutionUseCase: orderModule.resolveItemSubstitutionUseCase,
   orderRepository: orderModule.orderRepository,
 })
 

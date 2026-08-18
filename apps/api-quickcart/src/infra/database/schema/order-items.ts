@@ -13,7 +13,7 @@
  * perder precisão; casos de uso convertem para number no limite da aplicação.
  */
 
-import { pgTable, uuid, varchar, integer, numeric, timestamp } from 'drizzle-orm/pg-core'
+import { pgTable, uuid, varchar, integer, numeric, timestamp, type AnyPgColumn } from 'drizzle-orm/pg-core'
 import { orders } from './orders'
 import { products } from './products'
 
@@ -57,6 +57,20 @@ export const orderItems = pgTable('order_items', {
    * pessoa, e por aparelho a esteira dizia "Separado" enquanto a lista dizia 0%.
    */
   pickedAt: timestamp('picked_at', { withTimezone: true }),
+  /**
+   * A linha que esta substitui — o item que faltou e que o cliente aceitou trocar.
+   *
+   * Linha NOVA e não linha reescrita, pela mesma razão de `unavailableAt`: sobrescrever `product_name`
+   * apagaria que o cliente pediu outra coisa, que é o dado mais valioso do episódio — tanto para explicar
+   * a sacola na porta quanto para a loja descobrir o que falta sempre.
+   *
+   * `null` é o normal: a esmagadora maioria das linhas é o que o cliente pediu. Com a origem apontada, a
+   * troca inteira fica descrita — pedido, item de origem, produto de destino, diferença (a subtração dos
+   * dois `total_in_cents`) e o instante (`created_at`).
+   */
+  substitutesOrderItemId: uuid('substitutes_order_item_id').references((): AnyPgColumn => orderItems.id, {
+    onDelete: 'restrict',
+  }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })

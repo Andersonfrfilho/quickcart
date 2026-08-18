@@ -39,6 +39,7 @@ import type {
   OrderRepositoryInterface,
   OrderDetail,
   OrderDeliveryAttemptRecord,
+  SubstituteItemResult,
 } from '@/modules/order/domain/OrderRepository.interface'
 
 const SORTABLE_COLUMNS = {
@@ -89,6 +90,7 @@ function toOrderItemRecord(item: OrderItem): OrderItemRecord {
     unavailableAt: item.unavailableAt,
     unavailableNotifiedAt: item.unavailableNotifiedAt,
     pickedAt: item.pickedAt,
+    substitutesOrderItemId: item.substitutesOrderItemId,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   }
@@ -393,6 +395,26 @@ export class DrizzleOrderRepository implements OrderRepositoryInterface {
     return notifiedNow.map(toOrderItemRecord)
   }
 
+  async markItemUnavailableNotified(params: {
+    orderId: string
+    itemId: string
+  }): Promise<OrderItemRecord | undefined> {
+    const [notified] = await db
+      .update(orderItems)
+      .set({ unavailableNotifiedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(orderItems.id, params.itemId),
+          eq(orderItems.orderId, params.orderId),
+          isNotNull(orderItems.unavailableAt),
+          isNull(orderItems.unavailableNotifiedAt),
+        ),
+      )
+      .returning()
+
+    return notified ? toOrderItemRecord(notified) : undefined
+  }
+
   async setItemPicked(params: {
     orderId: string
     itemId: string
@@ -462,6 +484,92 @@ export class DrizzleOrderRepository implements OrderRepositoryInterface {
     })
 
     return this.findDetailById(params.orderId)
+  }
+
+  async substituteItem(params: {
+    orderId: string
+    orderItemId: string
+    productId: string
+  }): Promise<SubstituteItemResult> {
+    const outcome = await db.transaction(async (tx): Promise<'ok' | 'out_of_stock' | 'not_substitutable'> => {
+      /*
+       * Só item EM FALTA e DESTE pedido é trocável. O id do botão vem do aparelho do cliente e vale o que
+       * vale um dado de fora: sem estas duas condições no `WHERE`, um id copiado trocaria item alheio.
+       */
+      const [original] = await tx
+        .select()
+        .from(orderItems)
+        .where(
+          and(
+            eq(orderItems.id, params.orderItemId),
+            eq(orderItems.orderId, params.orderId),
+            isNotNull(orderItems.unavailableAt),
+          ),
+        )
+        .limit(1)
+
+      if (!original) return 'not_substitutable'
+
+      // Toque duplo e cobrança respondida depois chegam aqui; sem esta leitura, os dois cobrariam a troca.
+      const [alreadySwapped] = await tx
+        .select({ id: orderItems.id })
+        .from(orderItems)
+        .where(eq(orderItems.substitutesOrderItemId, original.id))
+        .limit(1)
+
+      if (alreadySwapped) return 'not_substitutable'
+
+      const quantity = Number(original.quantity)
+
+      const [substitute] = await tx
+        .update(products)
+        .set({ stockQuantity: sql`${products.stockQuantity} - ${quantity}`, updatedAt: new Date() })
+        .where(
+          and(
+            eq(products.id, params.productId),
+            eq(products.isAvailable, true),
+            sql`${products.stockQuantity} - ${quantity} >= 0`,
+          ),
+        )
+        .returning()
+
+      if (!substitute) return 'out_of_stock'
+
+      await tx.insert(orderItems).values({
+        id: generateId(),
+        orderId: params.orderId,
+        productId: substitute.id,
+        productName: substitute.name,
+        unitPriceInCents: substitute.priceInCents,
+        quantity: original.quantity,
+        // Arredondado aqui, e não no banco: centavo é inteiro, e `0,5x` de um preço ímpar não é.
+        totalInCents: Math.round(substitute.priceInCents * quantity),
+        substitutesOrderItemId: original.id,
+      })
+
+      // O mesmo `filter` de `setItemUnavailable`: a origem em falta segue fora da conta, a substituta entra.
+      const [totals] = await tx
+        .select({
+          total: sql<number>`coalesce(sum(${orderItems.totalInCents}) filter (where ${orderItems.unavailableAt} is null), 0)::int`,
+        })
+        .from(orderItems)
+        .where(eq(orderItems.orderId, params.orderId))
+
+      await tx
+        .update(orders)
+        .set({ totalInCents: totals?.total ?? 0, updatedAt: new Date() })
+        .where(eq(orders.id, params.orderId))
+
+      return 'ok'
+    })
+
+    if (outcome !== 'ok') return { ok: false, reason: outcome }
+
+    const detail = await this.findDetailById(params.orderId)
+    // Pedido some entre a troca e a releitura só se alguém o apagou; sem detalhe, não há o que confirmar.
+    if (!detail) return { ok: false, reason: 'not_substitutable' }
+
+    return { ok: true, detail }
   }
 
   async updateStatus(params: {

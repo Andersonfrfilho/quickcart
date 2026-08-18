@@ -17,6 +17,7 @@ import type {
   ListProductsRepositoryResult,
   ProductRepositoryInterface,
   ProductSearchResult,
+  SubstituteCandidateParams,
   UpdateProductRecordParams,
 } from '@/modules/catalog/domain/ProductRepository.interface'
 
@@ -150,5 +151,50 @@ export class DrizzleProductRepository implements ProductRepositoryInterface {
       priceInCents: row.price_in_cents,
       score: Number(row.score),
     }))
+  }
+
+  /**
+   * O parecido, achado a partir do produto que faltou — e não de um termo digitado.
+   *
+   * A trava é o `WHERE`, não o score: mesma categoria, mesma unidade e mesmo tamanho de embalagem. O
+   * `similarity()` entra depois, só para escolher entre os que já passaram — sozinho, ele traria "Leite
+   * Integral 2L" para "Leite Integral 1L" com nota altíssima, que é a troca errada com a maior confiança.
+   *
+   * Um candidato, o de maior nota. Escolher entre três marcas é trabalho que a loja estaria empurrando
+   * para quem só queria comprar leite (ADR 0003).
+   */
+  async findSubstituteCandidate(params: SubstituteCandidateParams): Promise<ProductSearchResult | undefined> {
+    const result = await db.execute<SearchRow>(sql`
+      SELECT candidate.id, candidate.name, candidate.brand, candidate.unit_size, candidate.price_in_cents,
+             GREATEST(
+               similarity(lower(immutable_unaccent(candidate.name)), lower(immutable_unaccent(origin.name))),
+               similarity(
+                 lower(immutable_unaccent(coalesce(candidate.brand, '') || ' ' || candidate.name)),
+                 lower(immutable_unaccent(origin.name))
+               )
+             ) AS score
+      FROM products candidate
+      JOIN products origin ON origin.id = ${params.productId}
+      WHERE candidate.id <> origin.id
+        AND candidate.category_id = origin.category_id
+        AND candidate.unit = origin.unit
+        AND candidate.unit_size IS NOT DISTINCT FROM origin.unit_size
+        AND candidate.is_available = true
+        AND candidate.stock_quantity >= ${params.requiredQuantity}
+      ORDER BY score DESC
+      LIMIT 1
+    `)
+
+    const row = result.rows[0]
+    if (!row) return undefined
+
+    return {
+      id: row.id,
+      name: row.name,
+      brand: row.brand,
+      unitSize: row.unit_size,
+      priceInCents: row.price_in_cents,
+      score: Number(row.score),
+    }
   }
 }
