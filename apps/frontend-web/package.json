@@ -11,9 +11,9 @@
   },
   "dependencies": {
     "@adatechnology/conversations-ui": "0.1.0-rc.29",
-    "@adatechnology/notification-client": "0.1.0-rc.2",
-    "@adatechnology/notification-contracts": "0.1.0-rc.2",
-    "@adatechnology/notification-ui": "0.1.0-rc.2",
+    "@adatechnology/notification-client": "0.1.0-rc.3",
+    "@adatechnology/notification-contracts": "0.1.0-rc.3",
+    "@adatechnology/notification-ui": "0.1.0-rc.4",
     "@tanstack/react-query": "^5.62.8",
     "@tanstack/react-router": "^1.95.1",
     "@xyflow/react": "^12.11.2",

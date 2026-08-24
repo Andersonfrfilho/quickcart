@@ -13,6 +13,8 @@
  */
 
 import { createNotificationModule } from '@adatechnology/notification-module'
+
+import { buildOrderNotificationVariables } from '../shared/orderStatusTemplates.constant'
 import type { NotificationModule } from '@adatechnology/notification-module'
 import { createBullMqQueue } from '@adatechnology/notification-module/queue/bullmq'
 import type { AuthContextResolverPort } from '@adatechnology/module-http'
@@ -89,6 +91,9 @@ export function createQuickCartNotificationModule(params: { channels: ChannelDri
       defaultLocale: 'pt-BR',
       defaultTimezone: 'America/Sao_Paulo',
       suppressionHmacKey: environment.NOTIFICATION_SUPPRESSION_KEY,
+      // O que o editor de templates oferece como variável, e o que o `upsert` aceita. Chave fora
+      // deste mapa continua aceitando qualquer `{{campo}}` — o catálogo é opt-in por notificação.
+      templateVariables: buildOrderNotificationVariables(),
     },
     providers: {
       recipientResolver,

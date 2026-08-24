@@ -20,6 +20,8 @@
  * todo cliente recebe quando alguém acrescenta um status e esquece o texto.
  */
 
+import type { TemplateVariableDefinition } from '@adatechnology/notification-contracts'
+
 import { ORDER_STATUS } from '@/modules/order/shared/Order.constant'
 
 /** `{{shortCode}}` é interpolado pelo renderer do módulo a partir do `payload` do envio. */
@@ -133,4 +135,25 @@ export function buildOrderStatusTemplates(): readonly OrderStatusTemplate[] {
       ...(metaTemplateName ? [{ ...base, channel: 'whatsapp', whatsappTemplateName: metaTemplateName }] : []),
     ]
   })
+}
+
+/**
+ * As variáveis que cada notificação de pedido promete no payload.
+ *
+ * Alimenta a validação do `upsert` e a lista clicável do editor de templates. Sem isto, o lojista
+ * digita `{{codigo}}` onde o envio manda `{{shortCode}}`, o renderer devolve string vazia — que é o
+ * comportamento correto — e a mensagem sai com um buraco, sem log e sem erro, até um cliente
+ * reclamar. Com painel, isso deixa de ser raro.
+ *
+ * O catálogo é derivado do MESMO mapa que gera os templates: acrescentar status novo não exige
+ * lembrar de mexer aqui, e não existe a lista que fica desatualizada.
+ */
+export function buildOrderNotificationVariables(): Record<string, readonly TemplateVariableDefinition[]> {
+  const variables: readonly TemplateVariableDefinition[] = [
+    { name: 'shortCode', example: 'QC-1042', required: true },
+  ]
+
+  return Object.fromEntries(
+    Object.keys(ORDER_STATUS_BODY).map((status) => [orderStatusTemplateKey(status), variables]),
+  )
 }
