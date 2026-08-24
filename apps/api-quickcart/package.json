@@ -18,9 +18,9 @@
   },
   "dependencies": {
     "@adatechnology/audio-transcription-provider": "0.1.0-rc.1",
-    "@adatechnology/meta-whatsapp-contracts": "0.2.0-rc.10",
-    "@adatechnology/meta-whatsapp-module": "0.2.0-rc.19",
-    "@adatechnology/meta-whatsapp-provider": "0.2.0-rc.3",
+    "@adatechnology/meta-whatsapp-contracts": "0.2.0-rc.13",
+    "@adatechnology/meta-whatsapp-module": "0.2.0-rc.31",
+    "@adatechnology/meta-whatsapp-provider": "0.2.0-rc.12",
     "@adatechnology/module-http": "0.1.0-rc.3",
     "@adatechnology/notification-contracts": "0.1.0-rc.3",
     "@adatechnology/notification-module": "0.1.0-rc.6",

@@ -10,7 +10,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@adatechnology/conversations-ui": "0.1.0-rc.29",
+    "@adatechnology/conversations-ui": "0.1.0-rc.40",
     "@adatechnology/notification-client": "0.1.0-rc.3",
     "@adatechnology/notification-contracts": "0.1.0-rc.3",
     "@adatechnology/notification-ui": "0.1.0-rc.4",
