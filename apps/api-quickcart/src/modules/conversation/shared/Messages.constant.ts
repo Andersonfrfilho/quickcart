@@ -140,6 +140,9 @@ export const MESSAGES = {
   AWAITING_LIST_PROMPT: '📝 Pode mandar sua lista de compras — por texto ou áudio.',
   AUDIO_NOT_SUPPORTED_YET: '🎙️ Ainda não consigo ouvir áudios — pode me mandar a lista por texto, por favor?',
   AUDIO_PROCESSING: '🎙️ Recebi seu áudio, só um instante enquanto eu escuto sua lista...',
+  IMAGE_PRODUCT_NOT_FOUND:
+    '📷 Não consegui identificar esse produto pela foto. Pode me dizer o nome dele, ou mandar outra foto com a embalagem de frente?',
+  IMAGE_PRODUCT_CANDIDATES: '📷 Encontrei mais de um parecido. É algum destes? Me diga o nome ou o número:',
   LIST_EMPTY_RESULT:
     'Não consegui identificar nenhum item na sua mensagem 🤔 Tenta me mandar algo tipo "2kg arroz, leite, 6 ovos".',
   RESOLVE_PROMPT_PREFIX: 'Encontrei mais de uma opção para',

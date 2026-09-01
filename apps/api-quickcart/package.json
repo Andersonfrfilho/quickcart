@@ -25,13 +25,16 @@
     "@adatechnology/notification-contracts": "0.1.0-rc.2",
     "@adatechnology/notification-module": "0.1.0-rc.2",
     "@adatechnology/object-storage-provider": "0.1.1",
+    "@adatechnology/product-vision-provider": "0.1.0-rc.4",
     "@adatechnology/text-moderation": "0.2.0-rc.0",
+    "@undecaf/zbar-wasm": "^0.11.0",
     "bullmq": "^5.79.2",
     "drizzle-orm": "0.45.2",
     "ioredis": "5.11.1",
     "jszip": "^3.10.1",
     "nodemailer": "^9.0.4",
     "pg": "^8.13.1",
+    "sharp": "^0.35.4",
     "zod": "^3.24.1"
   },
   "devDependencies": {
