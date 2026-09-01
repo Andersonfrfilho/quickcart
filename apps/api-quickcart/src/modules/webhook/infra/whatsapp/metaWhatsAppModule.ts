@@ -27,6 +27,7 @@ import type { CacheProvider } from '@/shared/providers/CacheProvider.interface'
 import type { ConversationEngine } from '@/modules/conversation/application/ConversationEngine'
 import type { FlowDriver } from '@/modules/conversation/application/FlowDriver'
 import type { ResolveInboundAudio } from '@/modules/conversation/application/resolveInboundAudio'
+import type { ResolveInboundImage } from '@/modules/conversation/application/resolveInboundImage'
 import type { CustomerRepositoryInterface } from '@/modules/webhook/domain/CustomerRepository.interface'
 import { parseInboundMessage } from '@/modules/webhook/application/parseInboundMessage'
 import { conversationSseHub } from '@/modules/conversation/infra/realtime/conversationRealtime'
@@ -86,6 +87,7 @@ type CreateQuickCartWhatsAppModuleParams = {
    * "escolha uma opção" para quem falava.
    */
   readonly resolveInboundAudio: () => ResolveInboundAudio | undefined
+  readonly resolveInboundImage: () => ResolveInboundImage | undefined
 }
 
 // O anti-replay do módulo precisa de um SET NX atômico compartilhado entre instâncias.
@@ -207,12 +209,19 @@ export function createQuickCartWhatsAppModule(params: CreateQuickCartWhatsAppMod
         // e tanto o grafo quanto a engine fazem I/O longo (LLM, catálogo, carrinho).
         void (async () => {
           const resolveAudio = params.resolveInboundAudio()
+          const resolveImage = params.resolveInboundImage()
           const inbound = parseInboundMessage(message)
           // Uma transcrição por mensagem, aqui: quem atende recebe texto e não precisa saber que
           // houve áudio. Falha ou silêncio devolve o áudio original, e o caminho antigo segue valendo.
-          const parsed = resolveAudio
+          const afterAudio = resolveAudio
             ? await resolveAudio({ message: inbound, whatsappNumber: message.from })
             : inbound
+          // Foto de produto no mesmo ponto e pelo mesmo motivo: identificada, vira o texto que o
+          // cliente teria digitado. Os dois resolvedores são excludentes na prática — cada um só
+          // age no `kind` que conhece —, então encadear não custa chamada nenhuma.
+          const parsed = resolveImage
+            ? await resolveImage({ message: afterAudio, whatsappNumber: message.from })
+            : afterAudio
           const driver = params.resolveFlowDriver()
 
           // O grafo tem a primeira palavra. Ele devolve false quando não havia fluxo para
