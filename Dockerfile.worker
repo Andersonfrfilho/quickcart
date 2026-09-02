@@ -9,6 +9,12 @@ RUN bun install --frozen-lockfile
 FROM oven/bun:1.3-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
+# O bun NÃO iça as dependências para a raiz neste workspace: `/app/node_modules` guarda só o
+# store (`.bun/`), e os links de cada pacote vivem em `apps/<app>/node_modules`. Copiar apenas a
+# raiz deixava a imagem sem `tsc` (o typecheck abaixo morria com exit 127) e, pior, sem
+# `drizzle-orm`, `bullmq` e `ioredis` em tempo de execução. Os links são relativos e apontam para
+# `../../../node_modules/.bun/...`, que a linha anterior já trouxe.
+COPY --from=deps /app/apps/worker-quickcart/node_modules ./apps/worker-quickcart/node_modules
 COPY . .
 RUN bun run --filter @quickcart/worker typecheck
 
@@ -18,6 +24,7 @@ WORKDIR /app
 RUN apk add --no-cache dumb-init
 
 COPY --from=deps /app/node_modules ./node_modules
+# `apps/worker-quickcart` vem inteiro do builder, com o `node_modules` dele junto.
 COPY --from=builder /app/apps/worker-quickcart ./apps/worker-quickcart
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 
