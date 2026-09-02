@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+    branches: [main, staging]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    # Os testes de integração falam com Postgres e Redis de verdade. Sem eles, 11 testes viram
+    # falha e o gate perde justamente a parte que cobre concorrência e isolamento.
+    services:
+      postgres:
+        # pgvector e não postgres puro: a busca por texto do catálogo usa pg_trgm, e o mesmo
+        # serviço cobre o pgvector de quando o catálogo migrar para o catalog-module.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: quickcart
+          POSTGRES_PASSWORD: quickcart
+          POSTGRES_DB: quickcart_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
+
+      - name: Instalar dependências
+        run: bun install --frozen-lockfile
+
+      # Os três apps, e não só a api: o worker e o web compilam separado, e um erro de tipo neles
+      # só apareceria no build da imagem, dentro do deploy.
+      - name: Typecheck
+        run: |
+          bun run --cwd apps/api-quickcart typecheck
+          bun run --cwd apps/worker-quickcart typecheck
+          bun run --cwd apps/frontend-web typecheck
+
+      - name: Migrations
+        run: bun run --cwd apps/api-quickcart db:migrate
+        env:
+          DATABASE_URL: postgres://quickcart:quickcart@localhost:5432/quickcart_test
+
+      - name: Testes
+        run: bun run --cwd apps/api-quickcart test
+        env:
+          DATABASE_URL: postgres://quickcart:quickcart@localhost:5432/quickcart_test
+          REDIS_URL: redis://localhost:6379

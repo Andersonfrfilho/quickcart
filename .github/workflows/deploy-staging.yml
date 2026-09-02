@@ -1,0 +1,43 @@
+name: Deploy staging
+
+# `workflow_run` e não `push`: o deploy só existe depois de o CI passar na mesma branch. Com dois
+# gatilhos independentes, um push com teste vermelho subiria para staging assim mesmo, e o gate
+# seria decorativo.
+on:
+  workflow_run:
+    workflows: ['CI']
+    branches: [staging]
+    types: [completed]
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # `workflow_run` dispara com o CI passando OU falhando; sem esta guarda, deploy de build
+    # quebrado.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar a CLI do Railway
+        run: curl -fsSL https://railway.com/install.sh | sh
+
+      # Cada serviço sobe separado porque cada um tem seu Dockerfile. `--detach` não espera o
+      # build: quem observa o resultado é o passo seguinte, para uma falha de deploy não passar
+      # como sucesso do job.
+      - name: Subir api, worker e web
+        run: |
+          for servico in api worker web; do
+            echo "--- $servico"
+            railway up --service "$servico" --environment staging --detach
+          done
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+      - name: Conferir que os três subiram
+        run: railway status --environment staging
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
