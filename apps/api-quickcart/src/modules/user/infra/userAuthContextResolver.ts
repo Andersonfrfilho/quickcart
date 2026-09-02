@@ -30,13 +30,23 @@ export function extractBearerToken(authorizationHeader: string | undefined): str
 }
 
 /**
- * `admin` é o escopo que as rotas administrativas dos módulos exigem, e ele sai de UM papel só.
- * Todo papel autenticado ganha `user`; nenhum outro papel ganha `admin` por herança, porque não há
- * hierarquia de papéis neste produto — quem precisar de mais escopo entra aqui explicitamente.
+ * O escopo que o `user-module` exige nas rotas de `/admin/users`.
+ *
+ * String literal porque o pacote NÃO a exporta — ela vive só dentro do `requiredScopes` das rotas
+ * dele. E é `user:admin`, não `admin`: o campo `scope: 'admin'` da rota é a categoria, enquanto o
+ * que o despachante compara é `requiredScopes`. Conceder `admin` dava 403 num admin legítimo, e o
+ * typecheck não tinha como ver — só apareceu com a api de pé.
+ */
+const USER_MODULE_ADMIN_SCOPE = 'user:admin'
+
+/**
+ * O escopo administrativo sai de UM papel só. Todo papel autenticado ganha `user`; nenhum outro
+ * ganha o de admin por herança, porque não há hierarquia de papéis neste produto — quem precisar
+ * de mais escopo entra aqui explicitamente.
  */
 export function resolveScopesForRole(role: string): readonly string[] {
   const scopes = ['user', role]
-  if (role === QUICKCART_ROLE.ADMIN) scopes.push('admin')
+  if (role === QUICKCART_ROLE.ADMIN) scopes.push('admin', USER_MODULE_ADMIN_SCOPE)
   return scopes
 }
 

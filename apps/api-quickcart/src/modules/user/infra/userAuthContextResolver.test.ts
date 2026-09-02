@@ -59,7 +59,17 @@ describe('resolveScopesForRole', () => {
 
     for (const role of [QUICKCART_ROLE.ATTENDANT, QUICKCART_ROLE.PICKER, QUICKCART_ROLE.DRIVER, QUICKCART_ROLE.CUSTOMER]) {
       expect(resolveScopesForRole(role)).not.toContain('admin')
+      expect(resolveScopesForRole(role)).not.toContain('user:admin')
     }
+  })
+
+  it('concede `user:admin`, que é o escopo REAL das rotas de /admin/users', () => {
+    /*
+     * O `scope: 'admin'` da rota é a categoria; o despachante compara `requiredScopes`, e lá está
+     * `user:admin`. Conceder só `admin` dava 403 num admin legítimo — e nada além da api de pé
+     * mostrava isso, porque o pacote não exporta a constante para o typecheck comparar.
+     */
+    expect(resolveScopesForRole(QUICKCART_ROLE.ADMIN)).toContain('user:admin')
   })
 
   it('todo papel autenticado carrega o próprio papel como escopo, além de user', () => {

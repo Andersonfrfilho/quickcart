@@ -20,6 +20,7 @@ const REQUIRED_ENVIRONMENT = {
   DATABASE_URL: 'postgres://user:pass@localhost:5432/quickcart',
   WHATSAPP_WEBHOOK_VERIFY_TOKEN: 'verify-token',
   NOTIFICATION_SUPPRESSION_KEY: 'a'.repeat(32),
+  USER_ACCESS_TOKEN_SECRET: 'b'.repeat(32),
 } as const
 
 const BOOLEAN_FLAGS = [
