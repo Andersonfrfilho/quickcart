@@ -2,10 +2,13 @@ import React, { useState } from 'react'
 import { useRouter, Link } from '@/app/router'
 import { TYPOGRAPHY } from '@/shared/theme'
 import { useCartStore } from '@/modules/store/shared/cartStore'
-import { Badge } from '@/components/ui'
+import { Badge, Button } from '@/components/ui'
 import { usePendingOrdersAlert } from '@/modules/admin/hooks/usePendingOrdersAlert.hook'
 import { NotificationBell } from '@adatechnology/notification-ui'
 import { useUnreadCount } from '@adatechnology/notification-ui/headless'
+import { useUser, useUserApi } from '@adatechnology/user-ui'
+import { ROLE_LABEL } from '@/modules/auth/shared/roles.constant'
+import type { QuickCartRole } from '@/modules/auth/shared/roles.constant'
 
 type NavItem = {
   label: string
@@ -60,12 +63,19 @@ const STORE_NAV: NavItem[] = [
 
 export function AdminLayout({ children }: { children: React.ReactNode }) {
   const { currentPath, navigate } = useRouter()
+  const { user } = useUser()
+  const { signOut } = useUserApi()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const { pendingCount } = usePendingOrdersAlert()
   // Do pacote: o hook headless cuida de cache e do stream, e a sidebar só desenha o número.
   const { data: unreadCount = 0 } = useUnreadCount()
 
   const isActive = (path: string) => currentPath.startsWith(path)
+
+  async function handleSignOut() {
+    await signOut()
+    navigate('/entrar')
+  }
 
   return (
     <div className="flex h-screen bg-background">
@@ -132,7 +142,26 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
             ))}
           </nav>
 
-          <div className="p-4 border-t border-border">
+          {/*
+            Sair existe porque a sessão agora SOBREVIVE ao fechar da aba: o refresh mora num cookie
+            de 30 dias. Com o token antigo em sessionStorage, fechar a aba já era o logout — agora,
+            sem este botão, o tablet do balcão fica logado para quem pegar depois.
+          */}
+          <div className="p-4 border-t border-border space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="truncate font-medium" style={{ fontSize: TYPOGRAPHY.size.sm }}>{user?.name}</p>
+                <p className="truncate text-muted-foreground" style={{ fontSize: TYPOGRAPHY.size.xs }}>
+                  {user ? ROLE_LABEL[user.role as QuickCartRole] ?? user.role : ''}
+                </p>
+              </div>
+              <Button type="button" variant="ghost" size="sm" onClick={handleSignOut}>
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+                </svg>
+                <span className="ml-2">Sair</span>
+              </Button>
+            </div>
             <div className="flex items-center gap-2 text-muted-foreground" style={{ fontSize: TYPOGRAPHY.size.xs }}>
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
