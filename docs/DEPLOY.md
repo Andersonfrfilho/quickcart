@@ -51,9 +51,12 @@ A semeadura é idempotente — do segundo boot em diante ela encontra o usuário
 as duas variáveis depois do primeiro acesso: com a conta criada, elas só guardam uma senha em
 variável de ambiente sem servir para mais nada.
 
-⚠️ As migrations do `user-module` são separadas, como as do `notification-module`. Rode
-`make user-migrate` (ou `bun run db:migrate-user`) **antes** do primeiro boot com bootstrap
-configurado — sem as tabelas, a semeadura derruba o processo.
+As migrations rodam **no boot da api**, nesta ordem: `meta_whatsapp`, o schema do produto,
+`notification` e `user`. Cada uma mantém schema e journal próprios; o que é comum é o disparo.
+Antes elas dependiam de alguém rodar `make notification-migrate` e `make user-migrate` à mão, e
+nenhum deploy os chamava — a api subia, a semeadura procurava `user.users` e o processo morria.
+
+Os alvos do Makefile continuam existindo para rodar isoladamente em desenvolvimento.
 
 ### Têm default, e o default está errado em produção
 
