@@ -21,7 +21,10 @@ jobs:
           POSTGRES_USER: quickcart
           POSTGRES_PASSWORD: quickcart
           POSTGRES_DB: quickcart_test
-        ports: ['5432:5432']
+        # 5443 e não 5432: é a porta que `envs/env.test` já usa. Casar a porta aqui deixa o CI
+        # rodar com EXATAMENTE o mesmo arquivo de ambiente do desenvolvedor, em vez de uma segunda
+        # cópia das variáveis dentro do workflow — que é onde as duas divergem no primeiro ajuste.
+        ports: ['5443:5432']
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -29,7 +32,7 @@ jobs:
           --health-retries 5
       redis:
         image: redis:7-alpine
-        ports: ['6379:6379']
+        ports: ['6391:6379']
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s
@@ -54,13 +57,22 @@ jobs:
           bun run --cwd apps/worker-quickcart typecheck
           bun run --cwd apps/frontend-web typecheck
 
+      # Pelo Makefile, e não pelo script direto: `db:migrate` carrega o schema de ambiente INTEIRO,
+      # não só o `DATABASE_URL`. Passar uma variável só derrubava o passo com ZodError reclamando de
+      # `WHATSAPP_WEBHOOK_VERIFY_TOKEN` — o alvo do Makefile é quem sabe apontar o `--env-file`.
       - name: Migrations
-        run: bun run --cwd apps/api-quickcart db:migrate
-        env:
-          DATABASE_URL: postgres://quickcart:quickcart@localhost:5432/quickcart_test
+        run: make migrate ENV=test
 
+      # Sem isto, cinco testes de busca do catálogo falham num banco novo — eles consultam o
+      # catálogo semeado, e o próprio arquivo de teste diz que depende de `make seed ENV=test`.
+      # Local passava por acaso, com o banco semeado de outra rodada; o CI começa vazio sempre.
+      - name: Seed do catálogo
+        run: make seed ENV=test
+
+      # `make test` cobre api e worker; o web tem suíte própria. Rodar só a api deixava passar erro
+      # nos outros dois até o build da imagem, dentro do deploy.
       - name: Testes
-        run: bun run --cwd apps/api-quickcart test
-        env:
-          DATABASE_URL: postgres://quickcart:quickcart@localhost:5432/quickcart_test
-          REDIS_URL: redis://localhost:6379
+        run: make test
+
+      - name: Testes do frontend
+        run: bun run --cwd apps/frontend-web test

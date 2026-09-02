@@ -3,10 +3,14 @@ name: Deploy staging
 # `workflow_run` e não `push`: o deploy só existe depois de o CI passar na mesma branch. Com dois
 # gatilhos independentes, um push com teste vermelho subiria para staging assim mesmo, e o gate
 # seria decorativo.
+#
+# `branches: [main]` porque não existe branch `staging` neste repositório — o ambiente é que se
+# chama staging, e todo deploy sempre saiu de `main`. Com `[staging]` o gatilho nunca dispararia, e
+# o pipeline pareceria montado enquanto nada subia.
 on:
   workflow_run:
     workflows: ['CI']
-    branches: [staging]
+    branches: [main]
     types: [completed]
   workflow_dispatch: {}
 
@@ -21,6 +25,21 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      # Falha ALTO e cedo, em vez de deixar o `railway up` morrer com erro de CLI três passos
+      # adiante. Deploy que não acontece calado é pior que deploy vermelho: a branch fica com cara
+      # de publicada. Mesmo raciocínio do Bull Board sem credencial.
+      - name: Conferir credencial do Railway
+        run: |
+          if [ -z "${RAILWAY_TOKEN}" ]; then
+            echo "::error::RAILWAY_TOKEN não está configurado nos secrets do repositório."
+            echo "Crie um TOKEN DE PROJETO no Railway (Project Settings → Tokens), com escopo do"
+            echo "ambiente staging, e adicione como secret RAILWAY_TOKEN. Token de conta pessoal"
+            echo "daria ao CI acesso a todos os projetos, e não só a este."
+            exit 1
+          fi
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
 
       - name: Instalar a CLI do Railway
         run: curl -fsSL https://railway.com/install.sh | sh
