@@ -1,6 +1,5 @@
 import React from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { getAdminToken } from '@/modules/admin/shared/useAdminAuth.hook'
 import { adminListOrders } from '@/shared/api/client'
 import { ORDER_STATUS } from '@/shared/api/api.types'
 
@@ -63,17 +62,14 @@ function playNewOrderChime(): void {
  * página, abrir em outra aba ou atender pelo celular não podem zerar o que ainda não foi preparado.
  */
 export function usePendingOrdersAlert() {
-  const token = getAdminToken()
-
   const { data } = useQuery({
     queryKey: ['admin-pending-orders-count'],
     queryFn: () =>
-      adminListOrders(token as string, {
+      adminListOrders({
         status: [ORDER_STATUS.PENDING_CONFIRMATION],
         page: 1,
         perPage: COUNT_ONLY_PER_PAGE,
       }),
-    enabled: !!token,
     refetchInterval: REFETCH_INTERVAL_MS,
     // Voltar para a aba é exatamente quando o lojista quer o número certo.
     refetchOnWindowFocus: true,

@@ -28,10 +28,35 @@ default que não serve em produção**. A segunda lista é a perigosa: sobe, fic
 | `DATABASE_URL` | ✅ | ✅ | |
 | `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | ✅ | — | o valor que a Meta ecoa no handshake do webhook |
 | `NOTIFICATION_SUPPRESSION_KEY` | ✅ | ✅ | ≥32 chars, **o mesmo valor nos dois** — chaves diferentes fazem a API gravar a supressão sob um hash e o worker consultar outro, e endereço suprimido volta a receber |
-| `ADMIN_API_TOKEN` | ✅ | — | |
-| `INTERNAL_API_TOKEN` | ✅ | ✅ | mesmo valor nos dois |
+| `USER_REFRESH_COOKIE_SAME_SITE` | ✅ | — | `lax` (padrão) ou `none`. `none` é obrigatório quando a tela e a api não compartilham o **site registrável** (eTLD+1): dois subdomínios de `up.railway.app` são cross-site entre si, porque `railway.app` está na Public Suffix List, e com `lax` o cookie de refresh não é enviado — o login funciona e recarregar a aba desloga. Com `none`, a defesa contra CSRF é só o CORS: `ALLOWED_ORIGINS` deixa de ser conforto e vira a tranca |
+| `USER_ACCESS_TOKEN_SECRET` | ✅ | — | ≥32 chars, assina o access token da sessão. Sem default de propósito: um valor de fábrica assinaria tokens que qualquer instalação saberia forjar. Trocar este valor invalida toda sessão aberta |
 | `API_BASE_URL` | — | ✅ | URL interna da api; é por onde o worker retoma a conversa |
+| `WORKER_SERVICE_EMAIL` / `WORKER_SERVICE_PASSWORD` | — | ✅ | credencial da conta de serviço. Precisam bater com `BOOTSTRAP_SERVICE_*` da api, senão o worker não entra |
+| `BOOTSTRAP_SERVICE_EMAIL` / `BOOTSTRAP_SERVICE_PASSWORD` | ✅ | — | criam a conta de papel `servico` que o worker usa. Diferente do bootstrap de admin, estas ficam: é por elas que o worker reautentica a cada reinício |
 | `BULL_BOARD_USER` / `BULL_BOARD_PASSWORD` | — | ✅ | o painel de filas sobe junto com o worker; credencial vazia autenticaria requisição sem credencial |
+
+### Primeiro acesso ao painel
+
+O painel autentica por sessão de pessoa — `ADMIN_API_TOKEN` não existe mais. Com o banco vazio não
+há por onde entrar, então a api semeia o primeiro administrador quando estas duas variáveis estão
+presentes, e só então:
+
+| Variável | Nota |
+|---|---|
+| `BOOTSTRAP_ADMIN_EMAIL` | e-mail do primeiro administrador |
+| `BOOTSTRAP_ADMIN_PASSWORD` | ≥12 chars. Sem default: um default aqui seria a credencial de admin conhecida de toda instalação do produto |
+| `BOOTSTRAP_ADMIN_NAME` | opcional, default `Administrador` |
+
+A semeadura é idempotente — do segundo boot em diante ela encontra o usuário e não faz nada. Remova
+as duas variáveis depois do primeiro acesso: com a conta criada, elas só guardam uma senha em
+variável de ambiente sem servir para mais nada.
+
+As migrations rodam **no boot da api**, nesta ordem: `meta_whatsapp`, o schema do produto,
+`notification` e `user`. Cada uma mantém schema e journal próprios; o que é comum é o disparo.
+Antes elas dependiam de alguém rodar `make notification-migrate` e `make user-migrate` à mão, e
+nenhum deploy os chamava — a api subia, a semeadura procurava `user.users` e o processo morria.
+
+Os alvos do Makefile continuam existindo para rodar isoladamente em desenvolvimento.
 
 ### Têm default, e o default está errado em produção
 

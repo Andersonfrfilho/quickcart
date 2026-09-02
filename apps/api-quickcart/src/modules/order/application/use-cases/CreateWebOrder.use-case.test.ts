@@ -66,6 +66,14 @@ class FakeCacheProvider implements CacheProvider {
 }
 
 class FakeCustomerRepository implements CustomerRepositoryInterface {
+  async findByUserId(): Promise<Customer | undefined> {
+    return undefined
+  }
+
+  async linkToUser(): Promise<Customer> {
+    throw new Error('not used in this test')
+  }
+
   readonly upsertCalls: UpsertCustomerByPhoneParams[] = []
 
   async findById(): Promise<Customer | undefined> {
@@ -83,6 +91,7 @@ class FakeCustomerRepository implements CustomerRepositoryInterface {
       phone: params.phone,
       name: params.name ?? null,
       email: null,
+      userId: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -94,6 +103,7 @@ class FakeCustomerRepository implements CustomerRepositoryInterface {
       phone: '',
       name: null,
       email: params.email ?? null,
+      userId: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }

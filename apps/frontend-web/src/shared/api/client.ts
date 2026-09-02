@@ -1,4 +1,5 @@
 import axios from 'axios'
+import type { InternalAxiosRequestConfig } from 'axios'
 import type {
   ApiCollectionResponse,
   ApiItemResponse,
@@ -16,15 +17,38 @@ import type {
   UnmatchedDemand,
   UnmatchedDemandSortableField,
 } from '@/shared/api/api.types'
+import { getAccessToken, refreshSession } from '@/modules/auth/shared/sessionStore'
+
+const UNAUTHORIZED_STATUS = 401
 
 const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_URL ?? '/',
   headers: { 'Content-Type': 'application/json' },
 })
 
+/*
+ * O token entra aqui, e não em cada chamada, porque ele ROTACIONA: um token passado por parâmetro
+ * fica preso na closure do react-query e vence em 15 minutos com a aba aberta. Lido no interceptor,
+ * toda requisição sai com o valor corrente.
+ */
+apiClient.interceptors.request.use((config) => {
+  const token = getAccessToken()
+  if (token) config.headers.set('Authorization', `Bearer ${token}`)
+  return config
+})
+
 apiClient.interceptors.response.use(
   (response) => response.data,
-  (error) => {
+  async (error) => {
+    const request = error.config as (InternalAxiosRequestConfig & { hasRetried?: boolean }) | undefined
+
+    // Uma renovação e uma repetição. `hasRetried` é o que impede o laço quando o refresh também cai.
+    if (error.response?.status === UNAUTHORIZED_STATUS && request && !request.hasRetried) {
+      request.hasRetried = true
+      const renewed = await refreshSession()
+      if (renewed) return apiClient.request(request)
+    }
+
     const message = error.response?.data?.error?.message ?? 'Erro inesperado'
     return Promise.reject(new Error(message))
   },
@@ -58,7 +82,8 @@ export type CreateOrderAddressInput = {
 }
 
 export type CreateOrderInput = {
-  customer: { name: string; phone: string; email?: string }
+  // Sem `phone`: a api usa o telefone da conta logada e descarta o do corpo.
+  customer: { name: string; email?: string }
   items: { productId: string; quantity: number }[]
   deliveryType: DeliveryType
   address?: CreateOrderAddressInput
@@ -108,28 +133,27 @@ export async function getOrderStatus(shortCode: string, phone: string): Promise<
   return apiClient.get(`/v1/orders/${shortCode}`, { params: { phone } })
 }
 
-export async function adminListCategories(token: string): Promise<ApiCollectionResponse<Category>> {
-  return apiClient.get('/v1/admin/categories', { headers: { Authorization: `Bearer ${token}` } })
+export async function adminListCategories(): Promise<ApiCollectionResponse<Category>> {
+  return apiClient.get('/v1/admin/categories', { })
 }
 
-export async function adminListProducts(token: string, params: ListAdminProductsParams = {}): Promise<ApiListResponse<Product>> {
+export async function adminListProducts(params: ListAdminProductsParams = {}): Promise<ApiListResponse<Product>> {
   const { categoryId, ...rest } = params
   return apiClient.get('/v1/admin/products', {
-    headers: { Authorization: `Bearer ${token}` },
     params: { ...rest, categoryId: categoryId && categoryId.length > 0 ? categoryId.join(',') : undefined },
   })
 }
 
-export async function adminCreateProduct(token: string, body: unknown): Promise<ApiItemResponse<Product>> {
-  return apiClient.post('/v1/admin/products', body, { headers: { Authorization: `Bearer ${token}` } })
+export async function adminCreateProduct(body: unknown): Promise<ApiItemResponse<Product>> {
+  return apiClient.post('/v1/admin/products', body, { })
 }
 
-export async function adminUpdateProduct(token: string, id: string, body: unknown): Promise<ApiItemResponse<Product>> {
-  return apiClient.put(`/v1/admin/products/${id}`, body, { headers: { Authorization: `Bearer ${token}` } })
+export async function adminUpdateProduct(id: string, body: unknown): Promise<ApiItemResponse<Product>> {
+  return apiClient.put(`/v1/admin/products/${id}`, body, { })
 }
 
-export async function adminAdjustStock(token: string, id: string, body: { delta: number }): Promise<ApiItemResponse<Product>> {
-  return apiClient.patch(`/v1/admin/products/${id}/stock`, body, { headers: { Authorization: `Bearer ${token}` } })
+export async function adminAdjustStock(id: string, body: { delta: number }): Promise<ApiItemResponse<Product>> {
+  return apiClient.patch(`/v1/admin/products/${id}/stock`, body, { })
 }
 
 export type ListUnmatchedDemandsParams = {
@@ -152,13 +176,10 @@ function toCsvParam(values: string[] | undefined): string | undefined {
   return values && values.length > 0 ? values.join(',') : undefined
 }
 
-export async function adminListUnmatchedDemands(
-  token: string,
-  params: ListUnmatchedDemandsParams = {},
+export async function adminListUnmatchedDemands(params: ListUnmatchedDemandsParams = {},
 ): Promise<UnmatchedDemandsResponse> {
   const { source, search, ...rest } = params
   return apiClient.get('/v1/admin/demands/unmatched', {
-    headers: { Authorization: `Bearer ${token}` },
     params: {
       ...rest,
       source: toCsvParam(source),
@@ -167,10 +188,9 @@ export async function adminListUnmatchedDemands(
   })
 }
 
-export async function adminListOrders(token: string, params: ListAdminOrdersParams = {}): Promise<ApiListResponse<Order>> {
+export async function adminListOrders(params: ListAdminOrdersParams = {}): Promise<ApiListResponse<Order>> {
   const { status, deliveryType, paymentMethod, search, ...rest } = params
   return apiClient.get('/v1/admin/orders', {
-    headers: { Authorization: `Bearer ${token}` },
     params: {
       ...rest,
       status: toCsvParam(status),
@@ -181,18 +201,16 @@ export async function adminListOrders(token: string, params: ListAdminOrdersPara
   })
 }
 
-export async function adminGetOrderDetail(token: string, id: string): Promise<ApiItemResponse<OrderDetail>> {
-  return apiClient.get(`/v1/admin/orders/${id}`, { headers: { Authorization: `Bearer ${token}` } })
+export async function adminGetOrderDetail(id: string): Promise<ApiItemResponse<OrderDetail>> {
+  return apiClient.get(`/v1/admin/orders/${id}`, { })
 }
 
-export async function adminSetOrderItemUnavailable(
-  token: string,
-  params: { readonly orderId: string; readonly itemId: string; readonly unavailable: boolean },
+export async function adminSetOrderItemUnavailable(params: { readonly orderId: string; readonly itemId: string; readonly unavailable: boolean },
 ): Promise<ApiItemResponse<OrderDetail>> {
   return apiClient.patch(
     `/v1/admin/orders/${params.orderId}/items/${params.itemId}/unavailable`,
     { unavailable: params.unavailable },
-    { headers: { Authorization: `Bearer ${token}` } },
+    { },
   )
 }
 
@@ -203,14 +221,12 @@ export async function adminSetOrderItemUnavailable(
  * num pedido que a esteira já dava como separado. Em lote numa requisição porque trinta itens seriam
  * trinta chances de metade ficar marcada se a rede cair no meio.
  */
-export async function adminSetOrderItemPicked(
-  token: string,
-  params: { readonly orderId: string; readonly itemId?: string | undefined; readonly picked: boolean },
+export async function adminSetOrderItemPicked(params: { readonly orderId: string; readonly itemId?: string | undefined; readonly picked: boolean },
 ): Promise<ApiItemResponse<OrderDetail>> {
   const path = params.itemId
     ? `/v1/admin/orders/${params.orderId}/items/${params.itemId}/picked`
     : `/v1/admin/orders/${params.orderId}/items/picked`
-  return apiClient.patch(path, { picked: params.picked }, { headers: { Authorization: `Bearer ${token}` } })
+  return apiClient.patch(path, { picked: params.picked }, { })
 }
 
 export type NotifyUnavailableItemsResponse = {
@@ -218,17 +234,13 @@ export type NotifyUnavailableItemsResponse = {
   readonly meta: { readonly notifiedCount: number }
 }
 
-export async function adminNotifyUnavailableItems(
-  token: string,
-  orderId: string,
+export async function adminNotifyUnavailableItems(orderId: string,
 ): Promise<NotifyUnavailableItemsResponse> {
   return apiClient.post(`/v1/admin/orders/${orderId}/unavailable-items/notify`, undefined, {
-    headers: { Authorization: `Bearer ${token}` },
   })
 }
 
-export async function adminUpdateOrderStatus(token: string, id: string, status: string): Promise<ApiItemResponse<Order>> {
+export async function adminUpdateOrderStatus(id: string, status: string): Promise<ApiItemResponse<Order>> {
   return apiClient.patch(`/v1/admin/orders/${id}/status`, { status }, {
-    headers: { Authorization: `Bearer ${token}` },
   })
 }

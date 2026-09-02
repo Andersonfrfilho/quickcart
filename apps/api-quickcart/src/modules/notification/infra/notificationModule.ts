@@ -20,66 +20,84 @@ import type { RecipientResolverPort, ChannelDrivers } from '@adatechnology/notif
 import { eq } from 'drizzle-orm'
 
 import { db } from '@/infra/database/connection'
+import {
+  extractBearerToken,
+  isKnownRole,
+  resolveScopesForRole,
+} from '@/modules/user/infra/userAuthContextResolver'
+import { getQuickCartUserModule } from '@/modules/user/infra/userModule'
+
+const DEFAULT_LOCALE = 'pt-BR'
 import { customers } from '@/infra/database/schema/customers'
 import { environment } from '@/infra/config/environment'
 import { notificationDeliveryQueue } from '@/infra/queue/queues'
 
 import { withBullMqSafeJobId } from './bullMqJobIdSafeQueue'
 
-const BEARER_PREFIX = 'Bearer '
-
 /**
- * Identidade do operador, como UUID fixo.
+ * Identidade do operador, agora vinda da SESSÃO — não mais um sentinela.
  *
- * O quickcart não tem tabela de usuários de painel nesta fase — a autenticação do admin é um Bearer
- * estático, então não existe id de usuário real a devolver. A primeira versão disto devolvia
- * `userId: 'admin'`, e o efeito só apareceu com a api de pé: `recipientUserId` é UUID no contrato,
- * então enviar dava 400 e o contador de não lidas dava 500 ao comparar a coluna `uuid` com a string
- * `'admin'`. Nem o typecheck nem o E2E pegaram — o E2E usa cliente de verdade.
+ * A versão anterior devolvia um UUID fixo (`00000000-…-ad`) porque o quickcart não tinha tabela de
+ * usuários e a autorização era um Bearer estático: não havia id de pessoa a devolver. O comentário
+ * dizia "quando houver usuários de painel, isto vira o id deles" — é o que acontece aqui.
  *
- * Sentinela e não `randomUUID()`: precisa ser estável entre reinícios, senão a inbox do operador
- * troca de dono a cada deploy. Quando houver usuários de painel, isto vira o id deles.
- */
-const ADMIN_OPERATOR_USER_ID = '00000000-0000-4000-8000-0000000000ad'
-
-/**
- * O módulo não valida token: recebe identidade pronta (`security.md` §2). O quickcart tem só o
- * Bearer estático de admin nesta fase, então quem passa por aqui é o operador — e o escopo `admin`
- * é o que as rotas de template e de envio exigem.
+ * O efeito prático é o que o sentinela não podia dar: a inbox passa a ser de cada operador, e não
+ * uma caixa única compartilhada por quem tivesse o token.
  */
 export const notificationAuthContextResolver: AuthContextResolverPort = {
   async resolve({ headers }) {
-    const header = headers['authorization']
-    const token = header?.startsWith(BEARER_PREFIX) ? header.slice(BEARER_PREFIX.length) : undefined
-    if (!token || token !== environment.ADMIN_API_TOKEN) return undefined
+    const accessToken = extractBearerToken(headers['authorization'])
+    if (!accessToken) return undefined
 
-    return { companyId: environment.WHATSAPP_COMPANY_ID, userId: ADMIN_OPERATOR_USER_ID, scopes: ['admin'] }
+    const userModule = await getQuickCartUserModule()
+    const claims = await userModule.verifyAccessToken(accessToken)
+    if (!claims || !isKnownRole(claims.role)) return undefined
+
+    return {
+      companyId: environment.WHATSAPP_COMPANY_ID,
+      userId: claims.sub,
+      scopes: resolveScopesForRole(claims.role),
+    }
   },
 }
 
 /**
- * O módulo não conhece a tabela de clientes do host — é a razão desta porta existir.
+ * O módulo não conhece nem a tabela de clientes nem a de usuários do host — é a razão desta porta
+ * existir. Os dois públicos do QuickCart recebem aviso: o cliente pelo WhatsApp, e o operador pela
+ * inbox do painel.
  *
- * `undefined` significa "não sei quem é" e o módulo recusa o envio, o que é correto. Já o operador é
- * CONHECIDO e simplesmente não tem telefone nem e-mail: devolver objeto vazio é o que diz isso, e é
- * o que permite a inbox dele funcionar. Devolvendo `undefined` aqui, todo aviso ao operador morria
- * com 422 — descobri com a api de pé, tentando popular a tela.
+ * Operador primeiro porque o id de sessão é o caso comum de quem chega por rota autenticada. Ele é
+ * CONHECIDO e simplesmente pode não ter telefone: devolver o objeto sem `phone` é o que diz isso, e
+ * é o que permite a inbox funcionar. Devolvendo `undefined` aqui, todo aviso ao operador morria com
+ * 422 — foi assim que apareceu, com a api de pé.
+ *
+ * `undefined` fica reservado a "não sei quem é", e aí o módulo recusa o envio, o que é correto.
  */
 const recipientResolver: RecipientResolverPort = {
   async resolve({ userId }) {
-    if (userId === ADMIN_OPERATOR_USER_ID) return { displayName: 'Operador', locale: 'pt-BR' }
+      const staff = await findStaffRecipient({ userId })
+      if (staff) return staff
 
-    const [customer] = await db
-      .select({ phone: customers.phone, email: customers.email })
-      .from(customers)
-      .where(eq(customers.id, userId))
-      .limit(1)
+      const [customer] = await db
+        .select({ phone: customers.phone, email: customers.email })
+        .from(customers)
+        .where(eq(customers.id, userId))
+        .limit(1)
 
-    if (!customer) return undefined
-    // `exactOptionalPropertyTypes`: a chave é omitida quando não há e-mail, em vez de existir com
-    // `undefined` — a diferença é o que faz o fan-out não planejar um envio para lugar nenhum.
-    return customer.email ? { phone: customer.phone, email: customer.email } : { phone: customer.phone }
+      if (!customer) return undefined
+      return customer.email ? { phone: customer.phone, email: customer.email } : { phone: customer.phone }
   },
+}
+
+/** Catch local de fallback gracioso: "não é usuário de painel" é resposta, não falha. */
+async function findStaffRecipient(params: { userId: string }) {
+  try {
+    const userModule = await getQuickCartUserModule()
+    const profile = await userModule.useCases.getProfile.execute({ id: params.userId })
+    return { displayName: profile.name, email: profile.email, locale: DEFAULT_LOCALE }
+  } catch {
+    return undefined
+  }
 }
 
 export function createQuickCartNotificationModule(params: { channels: ChannelDrivers }): NotificationModule {

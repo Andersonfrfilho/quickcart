@@ -14,7 +14,7 @@ export type AddProductAliasParams = {
  * aviso — e apelido apagado quebra o casamento de fala que já funcionava, o que é pior que não ter
  * adicionado nada. Por isso a mutação recebe o produto inteiro, não só o id.
  */
-export function useAddProductAliasMutation(token: string | null) {
+export function useAddProductAliasMutation() {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -25,7 +25,7 @@ export function useAddProductAliasMutation(token: string | null) {
       // Já existe: não manda requisição nenhuma, para não gerar histórico de update sem mudança.
       if (current.some((existing) => existing.toLowerCase() === normalized)) return product
 
-      const result = await adminUpdateProduct(token as string, product.id, {
+      const result = await adminUpdateProduct(product.id, {
         aliases: [...current, normalized],
       })
       return result.data

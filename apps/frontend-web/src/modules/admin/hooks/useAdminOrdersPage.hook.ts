@@ -1,5 +1,6 @@
 import React from 'react'
-import { useRequireAdmin } from '@/modules/admin/shared/useAdminAuth.hook'
+import { useRequireStaff } from '@/modules/auth/shared/useSession.hook'
+import { STAFF_ROLES } from '@/modules/auth/shared/roles.constant'
 import { useUrlQueryState } from '@/shared/hooks/useUrlQueryState.hook'
 import { useRouter } from '@/app/router'
 import { useAdminOrdersQuery } from '@/modules/admin/shared/queries/useAdminOrders.query'
@@ -37,7 +38,7 @@ function parseCsvParam(value: string | null): string[] {
 }
 
 export function useAdminOrdersPage() {
-  const token = useRequireAdmin()
+  const { isReady } = useRequireStaff(STAFF_ROLES)
   const { searchParams, setQueryParams } = useUrlQueryState()
   const { navigate } = useRouter()
 
@@ -50,7 +51,6 @@ export function useAdminOrdersPage() {
   const sortDirection = (searchParams.get('sortDirection') as SortDirection | null) ?? DEFAULT_SORT_DIRECTION
 
   const { data, isLoading } = useAdminOrdersQuery(
-    token,
     {
       page,
       perPage: ORDERS_PER_PAGE,
@@ -64,7 +64,7 @@ export function useAdminOrdersPage() {
     REFETCH_INTERVAL_MS,
   )
 
-  const updateStatusMutation = useUpdateOrderStatusMutation(token)
+  const updateStatusMutation = useUpdateOrderStatusMutation()
 
   /**
    * Relógio local, para espera e urgência envelhecerem sem recarregar.
@@ -186,7 +186,7 @@ export function useAdminOrdersPage() {
   }
 
   return {
-    token,
+    isReady,
     orders,
     pagination: data?.pagination,
     isLoading,

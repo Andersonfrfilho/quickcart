@@ -9,7 +9,8 @@
  */
 
 import type { RouteHandler } from '@/infra/http/router'
-import { requireAdminToken } from '@/infra/http/middlewares/requireAdminToken'
+import { requireSession } from '@/infra/http/middlewares/requireSession'
+import { ADMIN_ONLY } from '@/modules/user/shared/User.constant'
 import { validateBody } from '@/infra/http/middlewares/validateBody'
 import type { CreateCategoryUseCase } from '@/modules/catalog/application/use-cases/CreateCategory.use-case'
 import type { ListCategoriesUseCase } from '@/modules/catalog/application/use-cases/ListCategories.use-case'
@@ -29,13 +30,13 @@ export class CategoryController {
   }
 
   handleListAdmin: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_ONLY })
     const categories = await this.dependencies.listCategoriesUseCase.execute()
     response.json(200, { data: categories })
   }
 
   handleCreate: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_ONLY })
     const input = validateBody(createCategorySchema, request.body)
     const category = await this.dependencies.createCategoryUseCase.execute(input)
     response.json(201, { data: category })

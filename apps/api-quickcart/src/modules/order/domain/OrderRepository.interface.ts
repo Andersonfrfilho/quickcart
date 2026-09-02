@@ -82,6 +82,14 @@ export type CreateOrderWithItemsResult =
   | { readonly ok: false; readonly insufficientItems: InsufficientStockItem[] }
 
 export type ListOrdersRepositoryParams = {
+  /**
+   * Recorte por dono, para a tela "meus pedidos" do cliente.
+   *
+   * O filtro vive AQUI, na consulta, e não numa filtragem do resultado: trazer a fila inteira da
+   * loja para descartar o que não é da pessoa entregaria os pedidos alheios pela rede antes de
+   * escondê-los da tela.
+   */
+  readonly customerId?: string | undefined
   readonly status?: readonly string[] | undefined
   /** Nome, telefone ou código do pedido. Casa parcialmente e sem diferenciar maiúscula. */
   readonly search?: string | undefined

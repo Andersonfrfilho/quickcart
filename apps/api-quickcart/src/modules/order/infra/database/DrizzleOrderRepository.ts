@@ -188,6 +188,7 @@ export class DrizzleOrderRepository implements OrderRepositoryInterface {
 
   async list(params: ListOrdersRepositoryParams): Promise<ListOrdersRepositoryResult> {
     const conditions: SQL[] = []
+    if (params.customerId) conditions.push(eq(orders.customerId, params.customerId))
     if (params.status && params.status.length > 0) conditions.push(inArray(orders.status, [...params.status]))
     if (params.deliveryType && params.deliveryType.length > 0) {
       conditions.push(inArray(orders.deliveryType, [...params.deliveryType]))

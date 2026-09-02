@@ -6,7 +6,10 @@ import { CategoryPage } from '@/modules/store/pages/Category.page'
 import { CartPage } from '@/modules/store/pages/Cart.page'
 import { CheckoutPage } from '@/modules/store/pages/Checkout.page'
 import { OrderConfirmedPage } from '@/modules/store/pages/OrderConfirmed.page'
-import { AdminLoginPage } from '@/modules/admin/pages/AdminLogin.page'
+import { SignInPage } from '@/modules/auth/pages/SignIn.page'
+import { RegisterPage } from '@/modules/auth/pages/Register.page'
+import { TeamPage } from '@/modules/auth/pages/Team.page'
+import { MyOrdersPage } from '@/modules/store/pages/MyOrders.page'
 import { AdminProductsPage } from '@/modules/admin/pages/AdminProducts.page'
 import { AdminOrdersPage } from '@/modules/admin/pages/AdminOrders.page'
 import { AdminDemandsPage } from '@/modules/admin/pages/AdminDemands.page'
@@ -34,7 +37,8 @@ function withAdminLayout(Component: () => React.ReactElement | null) {
   }
 }
 
-function withStoreLayout(Component: () => React.ReactElement) {
+// `| null` como no layout do painel: página com guarda de sessão não desenha nada enquanto decide.
+function withStoreLayout(Component: () => React.ReactElement | null) {
   return function Wrapped() {
     return (
       <StoreLayout>
@@ -68,7 +72,11 @@ export const { RouterProvider, RouteRenderer } = createRouter([
   { path: '/cart', component: withStoreLayout(CartPage) },
   { path: '/checkout', component: withStoreLayout(CheckoutPage) },
   { path: '/order-confirmed', component: withStoreLayout(OrderConfirmedPage) },
-  { path: '/admin', component: standalone(AdminLoginPage) },
+  { path: '/meus-pedidos', component: withStoreLayout(MyOrdersPage) },
+  // `/entrar` e `/admin` são a MESMA tela: ela decide o destino pelo papel de quem entrou.
+  { path: '/entrar', component: standalone(SignInPage) },
+  { path: '/cadastro', component: standalone(RegisterPage) },
+  { path: '/admin', component: standalone(SignInPage) },
   { path: '/admin/products', component: withAdminLayout(AdminProductsPage) },
   { path: '/admin/orders', component: withAdminLayout(AdminOrdersPage) },
   // Depois da rota fixa: exata vence parametrizada, e deixar as duas juntas mostra a hierarquia.
@@ -82,5 +90,6 @@ export const { RouterProvider, RouteRenderer } = createRouter([
   { path: '/admin/messages', component: withAdminLayout(AdminMessagesPage) },
   { path: '/admin/flows', component: withAdminLayout(AdminFlowsPage) },
   { path: '/admin/templates', component: withAdminLayout(AdminTemplatesPage) },
+  { path: '/admin/equipe', component: withAdminLayout(TeamPage) },
   ...previewRoutes,
 ])

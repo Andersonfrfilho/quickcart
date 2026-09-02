@@ -99,6 +99,13 @@
       "when": 1784464065867,
       "tag": "0013_order_items_picked",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1788363191616,
+      "tag": "0014_customer_user_link",
+      "breakpoints": true
     }
   ]
 }

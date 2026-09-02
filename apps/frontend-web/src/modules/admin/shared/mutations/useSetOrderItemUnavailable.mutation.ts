@@ -13,11 +13,11 @@ export type SetOrderItemUnavailableParams = {
  * Invalida o detalhe E a lista: o total do pedido mudou, e a lista mostra total — deixar a lista com o
  * valor antigo faria a mesma compra aparecer com dois preços em duas telas do mesmo painel.
  */
-export function useSetOrderItemUnavailableMutation(token: string | null) {
+export function useSetOrderItemUnavailableMutation() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (params: SetOrderItemUnavailableParams) => adminSetOrderItemUnavailable(token as string, params),
+    mutationFn: (params: SetOrderItemUnavailableParams) => adminSetOrderItemUnavailable(params),
     onSuccess: (_result, params) => {
       void queryClient.invalidateQueries({ queryKey: ['admin-order-detail', params.orderId] })
       void queryClient.invalidateQueries({ queryKey: ['admin-orders'] })

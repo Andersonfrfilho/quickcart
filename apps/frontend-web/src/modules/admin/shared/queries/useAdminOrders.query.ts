@@ -1,9 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { adminListOrders, type ListAdminOrdersParams } from '@/shared/api/client'
 
-export function useAdminOrdersQuery(
-  token: string | null,
-  params: ListAdminOrdersParams,
+export function useAdminOrdersQuery(params: ListAdminOrdersParams,
   /**
    * Releitura automática, em ms. Ausente = lê uma vez.
    *
@@ -14,8 +12,7 @@ export function useAdminOrdersQuery(
 ) {
   return useQuery({
     queryKey: ['admin-orders', params],
-    queryFn: () => adminListOrders(token as string, params),
-    enabled: !!token,
+    queryFn: () => adminListOrders(params),
     ...(refetchIntervalMs ? { refetchInterval: refetchIntervalMs } : {}),
   })
 }
