@@ -29,7 +29,7 @@ function installFetch(resumeStatuses: readonly number[]): void {
   let resumeIndex = 0
   let issued = 0
 
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
     const url = String(input)
     const authorization = new Headers(init?.headers).get('authorization') ?? undefined
     calls.push({ url, authorization })

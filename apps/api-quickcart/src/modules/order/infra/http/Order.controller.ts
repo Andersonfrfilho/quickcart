@@ -82,6 +82,7 @@ export class OrderController {
      * "meus pedidos" da vítima, com o endereço de entrega de quem pediu.
      *
      * O nome continua do corpo: o cliente pode pedir para outra pessoa receber, e isso é legítimo.
+     * O `phone` do corpo é aceito pelo schema e descartado aqui — nenhuma tela precisa mandá-lo.
      */
     const customer = await this.dependencies.customerRepository.findByUserId(session.userId)
     if (!customer) throw new ForbiddenError('Account has no customer record', SESSION_ROLE_FORBIDDEN)

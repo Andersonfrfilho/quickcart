@@ -82,7 +82,8 @@ export type CreateOrderAddressInput = {
 }
 
 export type CreateOrderInput = {
-  customer: { name: string; phone: string; email?: string }
+  // Sem `phone`: a api usa o telefone da conta logada e descarta o do corpo.
+  customer: { name: string; email?: string }
   items: { productId: string; quantity: number }[]
   deliveryType: DeliveryType
   address?: CreateOrderAddressInput
