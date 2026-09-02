@@ -70,3 +70,6 @@ export const ORDER_NOTIFIERS: readonly QuickCartRole[] = [
 
 /** Rota interna: só o processo sem gente entra, e nenhuma pessoa do painel. */
 export const SERVICE_ONLY: readonly QuickCartRole[] = [QUICKCART_ROLE.SERVICE]
+
+/** Loja: só o cliente final vê os próprios pedidos. Ninguém do painel entra por aqui. */
+export const CUSTOMER_ONLY: readonly QuickCartRole[] = [QUICKCART_ROLE.CUSTOMER]

@@ -23,6 +23,14 @@ import type { Customer } from '@/infra/database/schema'
 import { GetOrderByShortCodeUseCase } from './GetOrderByShortCode.use-case'
 
 class FakeCustomerRepository implements CustomerRepositoryInterface {
+  async findByUserId(): Promise<Customer | undefined> {
+    return undefined
+  }
+
+  async linkToUser(): Promise<Customer> {
+    throw new Error('not used in this test')
+  }
+
   constructor(private readonly customers: Map<string, Customer>) {}
 
   async findById(id: string): Promise<Customer | undefined> {
@@ -39,6 +47,7 @@ class FakeCustomerRepository implements CustomerRepositoryInterface {
       phone: params.phone,
       name: params.name ?? null,
       email: null,
+      userId: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -50,6 +59,7 @@ class FakeCustomerRepository implements CustomerRepositoryInterface {
       phone: '',
       name: null,
       email: params.email ?? null,
+      userId: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -168,6 +178,7 @@ describe('GetOrderByShortCodeUseCase', () => {
       phone: '5511999999999',
       name: 'Maria',
       email: null,
+      userId: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -189,6 +200,7 @@ describe('GetOrderByShortCodeUseCase', () => {
       phone: '5511999999999',
       name: 'Maria',
       email: null,
+      userId: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }

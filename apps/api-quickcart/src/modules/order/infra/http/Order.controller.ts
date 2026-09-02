@@ -30,6 +30,10 @@ import { createWebOrderBodySchema } from './schemas/CreateWebOrder.schema'
 import { getOrderByShortCodeQuerySchema } from './schemas/GetOrderByShortCode.schema'
 import { listOrdersQuerySchema } from './schemas/ListOrders.schema'
 import { updateOrderStatusBodySchema } from './schemas/UpdateOrderStatus.schema'
+import { CUSTOMER_ONLY } from '@/modules/user/shared/User.constant'
+import { ForbiddenError } from '@/shared/errors/AppError.error'
+import { SESSION_ROLE_FORBIDDEN } from '@/shared/errors/codes'
+import type { CustomerRepositoryInterface } from '@/modules/webhook/domain/CustomerRepository.interface'
 
 type OrderControllerDependencies = {
   readonly createWebOrderUseCase: CreateWebOrderUseCase
@@ -40,6 +44,8 @@ type OrderControllerDependencies = {
   readonly setOrderItemUnavailableUseCase: SetOrderItemUnavailableUseCase
   readonly setOrderItemPickedUseCase: SetOrderItemPickedUseCase
   readonly notifyUnavailableItemsUseCase: NotifyUnavailableItemsUseCase
+  /** Para amarrar o pedido a QUEM está logado, e não a quem o corpo disser que é. */
+  readonly customerRepository: CustomerRepositoryInterface
 }
 
 /**
@@ -67,8 +73,24 @@ export class OrderController {
       throw new ValidationError('Header "Idempotency-Key" é obrigatório.', IDEMPOTENCY_KEY_MISSING)
     }
 
+    const session = await requireSession({ request, roles: CUSTOMER_ONLY })
     const input = validateBody(createWebOrderBodySchema, request.body)
-    const result = await this.dependencies.createWebOrderUseCase.execute({ idempotencyKey, ...input })
+
+    /*
+     * O telefone vem da SESSÃO, nunca do corpo. Ele é a chave de `customers`, então aceitá-lo cru
+     * deixaria qualquer pessoa logada lançar pedido no telefone de outra — e o pedido apareceria no
+     * "meus pedidos" da vítima, com o endereço de entrega de quem pediu.
+     *
+     * O nome continua do corpo: o cliente pode pedir para outra pessoa receber, e isso é legítimo.
+     */
+    const customer = await this.dependencies.customerRepository.findByUserId(session.userId)
+    if (!customer) throw new ForbiddenError('Account has no customer record', SESSION_ROLE_FORBIDDEN)
+
+    const result = await this.dependencies.createWebOrderUseCase.execute({
+      idempotencyKey,
+      ...input,
+      customer: { ...input.customer, phone: customer.phone },
+    })
     response.json(201, { data: { ...result.order, items: result.items } })
   }
 

@@ -29,6 +29,10 @@ import { notificationAuthContextResolver } from '@/modules/notification/infra/no
 import { createUserRoutes } from '@adatechnology/user-module'
 import type { UserModule } from '@adatechnology/user-module'
 import { createUserAuthContextResolver } from '@/modules/user/infra/userAuthContextResolver'
+import { StoreController } from '@/modules/store/infra/http/Store.controller'
+import { registerStoreRoutes } from '@/modules/store/infra/http/StoreRoutes'
+import { RegisterCustomerUseCase } from '@/modules/store/application/use-cases/RegisterCustomer.use-case'
+import { ListMyOrdersUseCase } from '@/modules/store/application/use-cases/ListMyOrders.use-case'
 import { environment } from '@/infra/config/environment'
 
 export type CreateRouterParams = {
@@ -93,6 +97,23 @@ export function createRouter({ userModule }: CreateRouterParams): Router {
       }),
     }),
   )
+
+  /*
+   * A loja monta-se aqui, e não no container: `RegisterCustomer` precisa do `userModule`, cuja
+   * criação é assíncrona, e o container do quickcart é síncrono.
+   */
+  const storeController = new StoreController({
+    registerCustomerUseCase: new RegisterCustomerUseCase({
+      userModule,
+      customerRepository: container.storeRepositories.customerRepository,
+    }),
+    listMyOrdersUseCase: new ListMyOrdersUseCase({
+      orderRepository: container.storeRepositories.orderRepository,
+      customerRepository: container.storeRepositories.customerRepository,
+    }),
+  })
+
+  registerStoreRoutes({ router, storeController })
 
   registerOpenApiRoutes({ router, notificationRoutes })
 

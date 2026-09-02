@@ -13,8 +13,12 @@ Envelope: sucesso `{ "data": ... }` · lista `{ "data": [...], "pagination": { t
 | GET | `/v1/categories` | — | ordenadas por `sort_order` |
 | GET | `/v1/products` | — | `categoryId`, `page`, `perPage` (máx 100), `sortBy` (`name`,`priceInCents`), `sortDirection` |
 | GET | `/v1/products/search` | — | `query` (mín 2 chars), `limit` (default 8) — autocomplete trigram |
-| POST | `/v1/orders` | — | header `Idempotency-Key` obrigatório. Body: `{ customer: { name, phone, email? }, items: [{ productId, quantity }], deliveryType: 'delivery'\|'pickup', address?, paymentMethod: 'pix'\|'card_on_delivery'\|'cash', receiptPreference: 'whatsapp'\|'email'\|'both', notes? }`. 409 `ORDER_INSUFFICIENT_STOCK` com `details.items` quando faltar estoque. A `Idempotency-Key` é reservada atomicamente (Redis `SET NX`); uma segunda requisição concorrente com a mesma chave aguarda o pedido em criação e devolve o mesmo resultado, ou recebe 409 `ORDER_IDEMPOTENCY_CONFLICT` se o timeout de espera (5s) expirar |
+| POST | `/v1/orders` | sessão papel `cliente` | header `Idempotency-Key` obrigatório. **O telefone vem da sessão, não do corpo** — o `customer.phone` enviado é ignorado, porque ele é a chave de `customers` e aceitá-lo cru deixaria lançar pedido no telefone de outra pessoa. Body: `{ customer: { name, phone, email? }, items: [{ productId, quantity }], deliveryType: 'delivery'\|'pickup', address?, paymentMethod: 'pix'\|'card_on_delivery'\|'cash', receiptPreference: 'whatsapp'\|'email'\|'both', notes? }`. 409 `ORDER_INSUFFICIENT_STOCK` com `details.items` quando faltar estoque. A `Idempotency-Key` é reservada atomicamente (Redis `SET NX`); uma segunda requisição concorrente com a mesma chave aguarda o pedido em criação e devolve o mesmo resultado, ou recebe 409 `ORDER_IDEMPOTENCY_CONFLICT` se o timeout de espera (5s) expirar |
 | GET | `/v1/orders/:shortCode?phone=` | — | phone deve conferir; 404 caso contrário |
+| POST | `/v1/store/register` | — | cadastro do cliente final. Body: `{ name, email, phone, password }`. O papel é FIXO em `cliente` e nunca vem do corpo. O telefone liga o cadastro ao histórico: quem já comprou pelo WhatsApp tem o customer adotado, com os pedidos antigos. 409 `CUSTOMER_PHONE_ALREADY_REGISTERED` se o telefone já pertence a outra conta |
+| GET | `/v1/store/orders` | sessão papel `cliente` | os pedidos de quem está logado. O dono sai do token, nunca da query — aceitar `customerId` do cliente entregaria o histórico alheio |
+
+Navegar na loja (categorias, produtos, busca, carrinho) não exige login. **Fechar o pedido exige.**
 
 ## Webhook Meta
 
