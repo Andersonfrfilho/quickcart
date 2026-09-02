@@ -13,6 +13,10 @@
  * A escolha é autenticação LOCAL nesta fase, com o Keycloak previsto para depois. Trocar não muda
  * rota nem middleware: o pacote expõe `authenticateKeycloak` pelo mesmo `verifyAccessToken`, então
  * a troca é este arquivo e a variável de ambiente — nada acima disto conhece o provedor.
+ *
+ * O `sameSite` do cookie de refresh é de AMBIENTE, não de código: em `localhost` a tela e a api
+ * compartilham o site registrável e `lax` protege sozinho; no staging elas são subdomínios de
+ * `up.railway.app`, que está na Public Suffix List — logo cross-site, e `lax` não anexaria o cookie.
  */
 
 import { createUserModule } from '@adatechnology/user-module'
@@ -71,7 +75,10 @@ export function createQuickCartUserModule(): Promise<UserModule> {
         issuer: 'quickcart',
         audience: 'quickcart',
       },
-      refreshToken: { expiresInSeconds: environment.USER_REFRESH_TOKEN_EXPIRES_IN_SECONDS },
+      refreshToken: {
+        expiresInSeconds: environment.USER_REFRESH_TOKEN_EXPIRES_IN_SECONDS,
+        sameSite: environment.USER_REFRESH_COOKIE_SAME_SITE,
+      },
       ...(passwordReset ? { passwordReset } : {}),
     },
     providers: { ...(email ? { email } : {}) },

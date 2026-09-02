@@ -128,6 +128,13 @@ export const environmentSchema = z.object({
   USER_ACCESS_TOKEN_EXPIRES_IN_SECONDS: z.coerce.number().int().positive().max(900).default(900),
   USER_REFRESH_TOKEN_EXPIRES_IN_SECONDS: z.coerce.number().int().positive().default(60 * 60 * 24 * 30),
   /*
+   * `lax` por padrão porque é o seguro: ele sozinho barra CSRF. `none` só quando a tela viver em
+   * outro site REGISTRÁVEL (eTLD+1) — dois subdomínios de `up.railway.app` são cross-site entre si,
+   * porque `railway.app` está na Public Suffix List. Com `none`, a defesa passa a ser só o CORS,
+   * então `ALLOWED_ORIGINS` deixa de ser conforto e vira a tranca.
+   */
+  USER_REFRESH_COOKIE_SAME_SITE: z.enum(['lax', 'none']).default('lax'),
+  /*
    * Primeiro administrador. Existe para a instalação ter por onde entrar: sem nenhum usuário no
    * banco, a tela de login não tem resposta possível e não há rota para criar o primeiro.
    *

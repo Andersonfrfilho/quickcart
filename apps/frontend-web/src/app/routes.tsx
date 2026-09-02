@@ -8,6 +8,7 @@ import { CheckoutPage } from '@/modules/store/pages/Checkout.page'
 import { OrderConfirmedPage } from '@/modules/store/pages/OrderConfirmed.page'
 import { SignInPage } from '@/modules/auth/pages/SignIn.page'
 import { RegisterPage } from '@/modules/auth/pages/Register.page'
+import { TeamPage } from '@/modules/auth/pages/Team.page'
 import { MyOrdersPage } from '@/modules/store/pages/MyOrders.page'
 import { AdminProductsPage } from '@/modules/admin/pages/AdminProducts.page'
 import { AdminOrdersPage } from '@/modules/admin/pages/AdminOrders.page'
@@ -89,5 +90,6 @@ export const { RouterProvider, RouteRenderer } = createRouter([
   { path: '/admin/messages', component: withAdminLayout(AdminMessagesPage) },
   { path: '/admin/flows', component: withAdminLayout(AdminFlowsPage) },
   { path: '/admin/templates', component: withAdminLayout(AdminTemplatesPage) },
+  { path: '/admin/equipe', component: withAdminLayout(TeamPage) },
   ...previewRoutes,
 ])

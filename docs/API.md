@@ -48,6 +48,20 @@ refresh token e emite outro. Cada rota exige um conjunto explícito de papéis �
 | GET | `/v1/admin/orders` | `status` (valores separados por vírgula), `page`, `perPage`, `sortBy` (`createdAt`,`totalInCents`,`status`), `sortDirection` |
 | PATCH | `/v1/admin/orders/:id/status` | transições válidas; dispara notificação WhatsApp; cancel devolve estoque |
 
+## Equipe (papel `admin`)
+
+Rotas do `@adatechnology/user-module`, servidas em `/v1`. A tela é `/admin/equipe`, o `TeamWorkspace`
+do `user-ui` com os papéis do QuickCart.
+
+| Método | Rota | Notas |
+|---|---|---|
+| GET | `/v1/admin/users` | paginada. Devolve `{ data, pagination }` na RAIZ, sem `{ data: … }` em volta |
+| POST | `/v1/admin/users` | cria com senha inicial. `409 USER_EMAIL_ALREADY_EXISTS` |
+| POST | `/v1/admin/users/:id/password-reset` | só existe com SMTP configurado |
+
+Editar e desativar membro **não têm rota** no pacote — o `user-ui` não desenha esses controles, por
+ausência da capacidade no cliente.
+
 ## Códigos de erro (em `shared/errors/codes.ts`)
 
 `VALIDATION_ERROR`, `PRODUCT_NOT_FOUND`, `CATEGORY_NOT_FOUND`, `ORDER_NOT_FOUND`,

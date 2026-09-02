@@ -7,7 +7,12 @@ import { usePendingOrdersAlert } from '@/modules/admin/hooks/usePendingOrdersAle
 import { NotificationBell } from '@adatechnology/notification-ui'
 import { useUnreadCount } from '@adatechnology/notification-ui/headless'
 import { useUser, useUserApi } from '@adatechnology/user-ui'
-import { ROLE_LABEL } from '@/modules/auth/shared/roles.constant'
+import {
+  ADMIN_AND_ATTENDANT,
+  ADMIN_ONLY,
+  ROLE_LABEL,
+  STAFF_ROLES,
+} from '@/modules/auth/shared/roles.constant'
 import type { QuickCartRole } from '@/modules/auth/shared/roles.constant'
 
 type NavItem = {
@@ -23,7 +28,18 @@ type NavItem = {
   showsPendingOrders?: boolean
   /** Mesma mecânica: o número vem do notification-ui e fica visível de qualquer tela. */
   showsUnreadNotifications?: boolean
+  /**
+   * Quem enxerga o item. Os mesmos conjuntos que a guarda da rota usa.
+   *
+   * Sem isto o separador via "Produtos" e era devolvido ao login ao clicar — link que existe só
+   * para recusar é pior que link ausente. Isto é NAVEGAÇÃO, não segurança: quem decide é a api,
+   * que valida o papel em toda requisição.
+   */
+  roles: readonly QuickCartRole[]
 }
+
+/** A loja não tem papéis: ela é para quem está comprando, logado ou não. */
+type StoreNavItem = Omit<NavItem, 'roles'>
 
 type NavSection = {
   label: string
@@ -38,25 +54,45 @@ const ADMIN_SECTIONS: NavSection[] = [
   {
     label: 'Loja',
     items: [
-      { label: 'Produtos', path: '/admin/products', icon: '📦' },
-      { label: 'Pedidos', path: '/admin/orders', icon: '🛒', showsPendingOrders: true },
-      { label: 'Demanda', path: '/admin/demands', icon: '🔎' },
-      { label: 'Notificações', path: '/admin/notifications', icon: '🔔', showsUnreadNotifications: true },
+      { label: 'Produtos', path: '/admin/products', icon: '📦', roles: ADMIN_ONLY },
+      { label: 'Pedidos', path: '/admin/orders', icon: '🛒', showsPendingOrders: true, roles: STAFF_ROLES },
+      { label: 'Demanda', path: '/admin/demands', icon: '🔎', roles: ADMIN_AND_ATTENDANT },
+      {
+        label: 'Notificações',
+        path: '/admin/notifications',
+        icon: '🔔',
+        showsUnreadNotifications: true,
+        roles: STAFF_ROLES,
+      },
     ],
   },
   {
     label: 'Atendimento',
     items: [
-      { label: 'Conversas', path: '/admin/conversations', icon: '💬' },
-      { label: 'Documentos', path: '/admin/documents', icon: '📎' },
-      { label: 'Mensagens', path: '/admin/messages', icon: '✉️' },
-      { label: 'Fluxo do bot', path: '/admin/flows', icon: '🔀' },
-      { label: 'Templates', path: '/admin/templates', icon: '📄' },
+      { label: 'Conversas', path: '/admin/conversations', icon: '💬', roles: ADMIN_AND_ATTENDANT },
+      { label: 'Documentos', path: '/admin/documents', icon: '📎', roles: ADMIN_AND_ATTENDANT },
+      { label: 'Mensagens', path: '/admin/messages', icon: '✉️', roles: ADMIN_AND_ATTENDANT },
+      { label: 'Fluxo do bot', path: '/admin/flows', icon: '🔀', roles: ADMIN_ONLY },
+      { label: 'Templates', path: '/admin/templates', icon: '📄', roles: ADMIN_ONLY },
     ],
+  },
+  {
+    label: 'Administração',
+    items: [{ label: 'Equipe', path: '/admin/equipe', icon: '👥', roles: ADMIN_ONLY }],
   },
 ]
 
-const STORE_NAV: NavItem[] = [
+/** Seção sem nenhum item visível não vira cabeçalho órfão. */
+function visibleSections(role: QuickCartRole | undefined): NavSection[] {
+  if (!role) return []
+
+  return ADMIN_SECTIONS.map((section) => ({
+    ...section,
+    items: section.items.filter((item) => item.roles.includes(role)),
+  })).filter((section) => section.items.length > 0)
+}
+
+const STORE_NAV: StoreNavItem[] = [
   { label: 'Loja', path: '/', icon: '🏪' },
   { label: 'Carrinho', path: '/cart', icon: '🛒' },
 ]
@@ -105,7 +141,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
           </div>
 
           <nav className="flex-1 overflow-y-auto p-4 space-y-5">
-            {ADMIN_SECTIONS.map((section) => (
+            {visibleSections(user?.role as QuickCartRole | undefined).map((section) => (
               <div key={section.label} className="space-y-1">
                 <p className="px-3 pb-1 font-semibold uppercase tracking-wide text-muted-foreground" style={{ fontSize: TYPOGRAPHY.size.xs }}>
                   {section.label}
