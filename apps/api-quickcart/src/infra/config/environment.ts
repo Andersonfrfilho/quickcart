@@ -117,6 +117,21 @@ export const environmentSchema = z.object({
   INTERNAL_API_TOKEN: z.string().min(1),
   ALLOWED_ORIGINS: z.string().default('http://localhost:5183'),
 
+  /*
+   * ── Sessão de usuário ──
+   *
+   * O segredo não tem default: um valor de fábrica assinaria tokens que qualquer instalação do
+   * produto saberia forjar, e a falta dele tem de derrubar o boot (`security.md` §2, §4).
+   *
+   * 15 minutos é o teto do access token na regra; a renovação é do refresh rotativo, com 30 dias.
+   */
+  USER_ACCESS_TOKEN_SECRET: z.string().min(32, 'USER_ACCESS_TOKEN_SECRET precisa de ao menos 32 caracteres'),
+  USER_ACCESS_TOKEN_EXPIRES_IN_SECONDS: z.coerce.number().int().positive().max(900).default(900),
+  USER_REFRESH_TOKEN_EXPIRES_IN_SECONDS: z.coerce.number().int().positive().default(60 * 60 * 24 * 30),
+  /** Sem template não há reset a oferecer, e o pacote deixa de publicar as rotas. */
+  USER_PASSWORD_RESET_URL_TEMPLATE: z.string().optional(),
+  USER_RESET_TOKEN_EXPIRES_IN_SECONDS: z.coerce.number().int().positive().default(60 * 60),
+
   // ── Observabilidade ──
   SENTRY_DSN: z.string().optional(),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),

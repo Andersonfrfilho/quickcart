@@ -58,6 +58,10 @@ notification-migrate: ## 🔔 Roda as migrations do notification-module (schema 
 	@echo "🔔 Migrations de notificação ($(ENV))..."
 	@cd apps/api-quickcart && bun --env-file=../../$(ENV_FILE) $(ENV_LOCAL_ARG) run db:migrate-notification
 
+user-migrate: ## 👤 Roda as migrations do user-module (schema próprio, journal próprio)
+	@echo "👤 Migrations de usuário ($(ENV))..."
+	@cd apps/api-quickcart && bun --env-file=../../$(ENV_FILE) $(ENV_LOCAL_ARG) run db:migrate-user
+
 mail-ui: ## 📬 Abre a caixa de entrada falsa do Mailpit
 	@echo "📬 Mailpit em http://localhost:$${MAILPIT_UI_PORT:-8025}"
 	@open "http://localhost:$${MAILPIT_UI_PORT:-8025}" 2>/dev/null || true

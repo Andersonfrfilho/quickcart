@@ -7,10 +7,11 @@
  *
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  *
- * Monta o Router e registra as rotas de cada módulo. Deliberadamente mais
- * enxuto que o server.ts de referência (sem SSE, GatedRouter ou sessão JWT —
- * quickcart usa apenas Bearer estático para admin/interno nesta fase). O
- * listening socket em si é responsabilidade do index.ts via Bun.serve().
+ * Monta o Router e registra as rotas de cada módulo. O listening socket em si é
+ * responsabilidade do index.ts via Bun.serve().
+ *
+ * O `userModule` chega pronto por parâmetro porque sua criação é assíncrona (o pacote resolve
+ * provedores no boot) e o container do quickcart é montado de forma síncrona.
  */
 
 import { Router } from './router'
@@ -25,8 +26,16 @@ import { createNotificationRoutes } from '@adatechnology/notification-module'
 import { createModuleFetchRouter } from '@adatechnology/module-http/fetch'
 import { registerOpenApiRoutes } from '@/modules/notification/infra/http/OpenApiRoutes'
 import { notificationAuthContextResolver } from '@/modules/notification/infra/notificationModule'
+import { createUserRoutes } from '@adatechnology/user-module'
+import type { UserModule } from '@adatechnology/user-module'
+import { createUserAuthContextResolver } from '@/modules/user/infra/userAuthContextResolver'
+import { environment } from '@/infra/config/environment'
 
-export function createRouter(): Router {
+export type CreateRouterParams = {
+  readonly userModule: UserModule
+}
+
+export function createRouter({ userModule }: CreateRouterParams): Router {
   const router = new Router()
 
   router.registerCorsPreflight()
@@ -63,6 +72,25 @@ export function createRouter(): Router {
       basePath: '/v1',
       // O resolvedor é do HOST, não do módulo — o pacote recebe identidade pronta e não a produz.
       authResolver: notificationAuthContextResolver,
+    }),
+  )
+
+  /*
+   * Usuário e sessão inteiros — login, refresh, logout, perfil, reset de senha — vindos do pacote.
+   *
+   * O resolvedor é do HOST mesmo aqui: o pacote assina o token e sabe verificá-lo, mas quem traduz
+   * `role` em `scope` é o produto, porque papel é vocabulário do produto.
+   */
+  const userRoutes = createUserRoutes({ module: userModule })
+
+  router.mount(
+    createModuleFetchRouter({
+      routes: userRoutes,
+      basePath: '/v1',
+      authResolver: createUserAuthContextResolver({
+        userModule,
+        companyId: environment.WHATSAPP_COMPANY_ID,
+      }),
     }),
   )
 

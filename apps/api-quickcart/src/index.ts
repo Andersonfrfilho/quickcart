@@ -13,6 +13,7 @@
  */
 
 import { createRouter } from '@/infra/http/server'
+import { createQuickCartUserModule } from '@/modules/user/infra/userModule'
 import { environment } from '@/infra/config/environment'
 import { logger } from '@/shared/logger'
 import { LOG_EVENTS } from '@/shared/constants/log-events.constant'
@@ -40,7 +41,8 @@ async function start(): Promise<void> {
 await seedMainFlow()
   await checkRedisConnection()
 
-  const router = createRouter()
+  const userModule = await createQuickCartUserModule()
+  const router = createRouter({ userModule })
 
   server = Bun.serve({
     port: environment.PORT,
