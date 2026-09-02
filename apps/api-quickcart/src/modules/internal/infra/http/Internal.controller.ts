@@ -14,7 +14,8 @@
  */
 
 import type { RouteHandler } from '@/infra/http/router'
-import { requireInternalToken } from '@/infra/http/middlewares/requireInternalToken'
+import { requireSession } from '@/infra/http/middlewares/requireSession'
+import { SERVICE_ONLY } from '@/modules/user/shared/User.constant'
 import { validateBody } from '@/infra/http/middlewares/validateBody'
 import type { ResumeConversationUseCase } from '@/modules/webhook/application/use-cases/ResumeConversation.use-case'
 import { resumeConversationBodySchema } from './schemas/ResumeConversation.schema'
@@ -27,7 +28,7 @@ export class InternalController {
   constructor(private readonly dependencies: InternalControllerDependencies) {}
 
   handleResumeConversation: RouteHandler = async (request, response) => {
-    requireInternalToken(request)
+    await requireSession({ request, roles: SERVICE_ONLY })
     const input = validateBody(resumeConversationBodySchema, request.body)
     const result = await this.dependencies.resumeConversationUseCase.execute(input)
     response.json(200, { data: result })

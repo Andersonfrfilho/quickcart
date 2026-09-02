@@ -27,7 +27,7 @@ Envelope: sucesso `{ "data": ... }` · lista `{ "data": [...], "pagination": { t
 
 | Método | Rota | Auth |
 |---|---|---|
-| POST | `/v1/internal/conversation/resume` | `Authorization: Bearer <INTERNAL_API_TOKEN>` — body `{ sessionId, transcript: string \| null }`. `transcript: null` (STT falhou/sem chave) envia `AUDIO_NOT_SUPPORTED_YET` ao cliente sem retomar a conversa |
+| POST | `/v1/internal/conversation/resume` | `Authorization: Bearer <access token da conta de serviço>` (papel `servico`) — body `{ sessionId, transcript: string \| null }`. `transcript: null` (STT falhou/sem chave) envia `AUDIO_NOT_SUPPORTED_YET` ao cliente sem retomar a conversa |
 
 ## Admin (`Authorization: Bearer <access token da sessão>`)
 

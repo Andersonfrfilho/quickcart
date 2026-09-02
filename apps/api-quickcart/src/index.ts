@@ -14,7 +14,7 @@
 
 import { createRouter } from '@/infra/http/server'
 import { getQuickCartUserModule } from '@/modules/user/infra/userModule'
-import { seedBootstrapAdmin } from '@/modules/user/infra/seedBootstrapAdmin'
+import { seedBootstrapUsers } from '@/modules/user/infra/seedBootstrapUsers'
 import { environment } from '@/infra/config/environment'
 import { logger } from '@/shared/logger'
 import { LOG_EVENTS } from '@/shared/constants/log-events.constant'
@@ -43,7 +43,7 @@ await seedMainFlow()
   await checkRedisConnection()
 
   const userModule = await getQuickCartUserModule()
-  await seedBootstrapAdmin({ userModule })
+  await seedBootstrapUsers({ userModule })
   const router = createRouter({ userModule })
 
   server = Bun.serve({

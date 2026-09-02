@@ -28,9 +28,10 @@ default que não serve em produção**. A segunda lista é a perigosa: sobe, fic
 | `DATABASE_URL` | ✅ | ✅ | |
 | `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | ✅ | — | o valor que a Meta ecoa no handshake do webhook |
 | `NOTIFICATION_SUPPRESSION_KEY` | ✅ | ✅ | ≥32 chars, **o mesmo valor nos dois** — chaves diferentes fazem a API gravar a supressão sob um hash e o worker consultar outro, e endereço suprimido volta a receber |
-| `INTERNAL_API_TOKEN` | ✅ | ✅ | mesmo valor nos dois |
 | `USER_ACCESS_TOKEN_SECRET` | ✅ | — | ≥32 chars, assina o access token da sessão. Sem default de propósito: um valor de fábrica assinaria tokens que qualquer instalação saberia forjar. Trocar este valor invalida toda sessão aberta |
 | `API_BASE_URL` | — | ✅ | URL interna da api; é por onde o worker retoma a conversa |
+| `WORKER_SERVICE_EMAIL` / `WORKER_SERVICE_PASSWORD` | — | ✅ | credencial da conta de serviço. Precisam bater com `BOOTSTRAP_SERVICE_*` da api, senão o worker não entra |
+| `BOOTSTRAP_SERVICE_EMAIL` / `BOOTSTRAP_SERVICE_PASSWORD` | ✅ | — | criam a conta de papel `servico` que o worker usa. Diferente do bootstrap de admin, estas ficam: é por elas que o worker reautentica a cada reinício |
 | `BULL_BOARD_USER` / `BULL_BOARD_PASSWORD` | — | ✅ | o painel de filas sobe junto com o worker; credencial vazia autenticaria requisição sem credencial |
 
 ### Primeiro acesso ao painel

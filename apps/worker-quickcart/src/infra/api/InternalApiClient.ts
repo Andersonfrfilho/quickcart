@@ -13,6 +13,9 @@
  */
 
 import { environment } from '@/infra/config/environment'
+import { getServiceAccessToken, invalidateServiceSession } from './ServiceSession'
+
+const UNAUTHORIZED_STATUS = 401
 
 export type ResumeConversationParams = {
   readonly sessionId: string
@@ -25,15 +28,29 @@ class InternalApiError extends Error {
   }
 }
 
-export async function resumeConversation(params: ResumeConversationParams): Promise<void> {
-  const response = await fetch(`${environment.API_BASE_URL}/v1/internal/conversation/resume`, {
+async function postResume(params: ResumeConversationParams): Promise<Response> {
+  return fetch(`${environment.API_BASE_URL}/v1/internal/conversation/resume`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${environment.INTERNAL_API_TOKEN}`,
+      Authorization: `Bearer ${await getServiceAccessToken()}`,
     },
     body: JSON.stringify(params),
   })
+}
+
+export async function resumeConversation(params: ResumeConversationParams): Promise<void> {
+  let response = await postResume(params)
+
+  /*
+   * Uma única retentativa no 401, e só nele: o access token dura 15 minutos, então um job que ficou
+   * na fila além disso encontra a sessão vencida. Descartar e reautenticar é mais barato — e mais
+   * correto — do que devolver o job ao BullMQ para falhar de novo pelo mesmo motivo.
+   */
+  if (response.status === UNAUTHORIZED_STATUS) {
+    invalidateServiceSession()
+    response = await postResume(params)
+  }
 
   if (!response.ok) {
     const body = await response.text()

@@ -113,8 +113,7 @@ export const environmentSchema = z.object({
   MAIL_FROM: z.string().optional(),
 
   // ── Tokens internos ──
-  // `ADMIN_API_TOKEN` saiu: o painel autentica por sessão de usuário, não por segredo compartilhado.
-  INTERNAL_API_TOKEN: z.string().min(1),
+  // `ADMIN_API_TOKEN` e `INTERNAL_API_TOKEN` saíram: painel e worker autenticam por sessão.
   ALLOWED_ORIGINS: z.string().default('http://localhost:5183'),
 
   /*
@@ -138,6 +137,10 @@ export const environmentSchema = z.object({
   BOOTSTRAP_ADMIN_EMAIL: z.string().email().optional(),
   BOOTSTRAP_ADMIN_PASSWORD: z.string().min(12).optional(),
   BOOTSTRAP_ADMIN_NAME: z.string().default('Administrador'),
+
+  /** Conta de serviço do worker — mesmas regras do bootstrap de admin. */
+  BOOTSTRAP_SERVICE_EMAIL: z.string().email().optional(),
+  BOOTSTRAP_SERVICE_PASSWORD: z.string().min(12).optional(),
 
   /** Sem template não há reset a oferecer, e o pacote deixa de publicar as rotas. */
   USER_PASSWORD_RESET_URL_TEMPLATE: z.string().optional(),

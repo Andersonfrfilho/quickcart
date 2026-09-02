@@ -21,7 +21,13 @@ const environmentSchema = z.object({
 
   // ── API interna (rota de resume da conversa) ──
   API_BASE_URL: z.string().min(1),
-  INTERNAL_API_TOKEN: z.string().min(1),
+  /*
+   * Credencial da conta de serviço na api. Substitui o `INTERNAL_API_TOKEN`: em vez de um segredo
+   * eterno com permissão fixa, o worker entra como um usuário de papel `servico` e recebe sessão de
+   * vida curta, revogável sem trocar o segredo de todo mundo.
+   */
+  WORKER_SERVICE_EMAIL: z.string().email(),
+  WORKER_SERVICE_PASSWORD: z.string().min(12),
 
   // ── WhatsApp (Meta Cloud API) ──
   WHATSAPP_ACCESS_TOKEN: z.string().default(''),
