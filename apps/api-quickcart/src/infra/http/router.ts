@@ -27,7 +27,7 @@ import { serializeError } from '@/shared/serializeError'
 
 const BODY_READ_TIMEOUT_MS = 10_000
 const CORS_ALLOWED_METHODS = 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
-const CORS_ALLOWED_HEADERS = 'Content-Type, Authorization'
+const CORS_ALLOWED_HEADERS = 'Content-Type, Authorization, Idempotency-Key'
 
 const httpLog = logger.child('Http')
 
@@ -76,7 +76,15 @@ export type RouteHandler = (
 
 function resolveCorsOrigin(origin: string | undefined): string | undefined {
   const allowedOrigins = getAllowedOrigins()
-  if (allowedOrigins.includes('*')) return '*'
+
+  /*
+   * Com credenciais, `*` é INVÁLIDO por especificação — o navegador recusa a resposta. Como toda
+   * requisição do painel manda `credentials: 'include'` (o cookie de refresh depende disso),
+   * devolver `*` deixaria a allowlist curinga sem efeito prático: a tela não carregaria.
+   *
+   * Ecoar a origem da requisição preserva a intenção de "qualquer origem" e continua válido.
+   */
+  if (allowedOrigins.includes('*')) return origin
   if (origin && allowedOrigins.includes(origin)) return origin
   return undefined
 }
@@ -119,6 +127,17 @@ function buildCorsHeaders(origin: string | undefined): Headers {
   if (corsOrigin) {
     headers.set('Access-Control-Allow-Origin', corsOrigin)
     headers.set('Vary', 'Origin')
+    /*
+     * O cookie de refresh é `HttpOnly` e só viaja com `credentials: 'include'` no cliente — e o
+     * navegador exige este header para ACEITAR a resposta de uma requisição assim. Sem ele, o
+     * preflight é recusado e NENHUMA chamada sai: o painel abria e ficava vazio.
+     *
+     * curl não aplica CORS, então os testes de linha de comando passavam. Só o navegador mostra.
+     *
+     * Note que `Access-Control-Allow-Origin` aqui é sempre uma origem específica, vinda da
+     * allowlist: com credenciais, `*` é inválido por especificação.
+     */
+    headers.set('Access-Control-Allow-Credentials', 'true')
   }
   return headers
 }
