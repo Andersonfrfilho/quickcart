@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+    branches: [main, staging]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    # Os testes de integração falam com Postgres e Redis de verdade. Sem eles, 11 testes viram
+    # falha e o gate perde justamente a parte que cobre concorrência e isolamento.
+    services:
+      postgres:
+        # pgvector e não postgres puro: a busca por texto do catálogo usa pg_trgm, e o mesmo
+        # serviço cobre o pgvector de quando o catálogo migrar para o catalog-module.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: quickcart
+          POSTGRES_PASSWORD: quickcart
+          POSTGRES_DB: quickcart_test
+        # 5443 e não 5432: é a porta que `envs/env.test` já usa. Casar a porta aqui deixa o CI
+        # rodar com EXATAMENTE o mesmo arquivo de ambiente do desenvolvedor, em vez de uma segunda
+        # cópia das variáveis dentro do workflow — que é onde as duas divergem no primeiro ajuste.
+        ports: ['5443:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ['6391:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
+
+      - name: Instalar dependências
+        run: bun install --frozen-lockfile
+
+      # Os três apps, e não só a api: o worker e o web compilam separado, e um erro de tipo neles
+      # só apareceria no build da imagem, dentro do deploy.
+      - name: Typecheck
+        run: |
+          bun run --cwd apps/api-quickcart typecheck
+          bun run --cwd apps/worker-quickcart typecheck
+          bun run --cwd apps/frontend-web typecheck
+
+      # Pelo Makefile, e não pelo script direto: `db:migrate` carrega o schema de ambiente INTEIRO,
+      # não só o `DATABASE_URL`. Passar uma variável só derrubava o passo com ZodError reclamando de
+      # `WHATSAPP_WEBHOOK_VERIFY_TOKEN` — o alvo do Makefile é quem sabe apontar o `--env-file`.
+      - name: Migrations
+        run: make migrate ENV=test
+
+      # Sem isto, cinco testes de busca do catálogo falham num banco novo — eles consultam o
+      # catálogo semeado, e o próprio arquivo de teste diz que depende de `make seed ENV=test`.
+      # Local passava por acaso, com o banco semeado de outra rodada; o CI começa vazio sempre.
+      - name: Seed do catálogo
+        run: make seed ENV=test
+
+      # `make test` cobre api e worker; o web tem suíte própria. Rodar só a api deixava passar erro
+      # nos outros dois até o build da imagem, dentro do deploy.
+      - name: Testes
+        run: make test
+
+      - name: Testes do frontend
+        run: bun run --cwd apps/frontend-web test
