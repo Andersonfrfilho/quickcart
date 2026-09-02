@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { useRequireAdmin } from '@/modules/admin/shared/useAdminAuth.hook'
+import { useRequireStaff } from '@/modules/auth/shared/useSession.hook'
+import { ADMIN_ONLY } from '@/modules/auth/shared/roles.constant'
 import { useUrlQueryState } from '@/shared/hooks/useUrlQueryState.hook'
 import { useAdminProductsQuery } from '@/modules/admin/shared/queries/useAdminProducts.query'
 import { useAdminCategoriesQuery } from '@/modules/admin/shared/queries/useAdminCategories.query'
@@ -11,7 +12,7 @@ const DEFAULT_SORT_BY: ProductSortableField = 'name'
 const DEFAULT_SORT_DIRECTION: SortDirection = 'asc'
 
 export function useAdminProductsPage() {
-  const token = useRequireAdmin()
+  const { isReady } = useRequireStaff(ADMIN_ONLY)
   const { searchParams, setQueryParams } = useUrlQueryState()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [stockDelta, setStockDelta] = useState('')
@@ -21,15 +22,15 @@ export function useAdminProductsPage() {
   const sortBy = (searchParams.get('sortBy') as ProductSortableField | null) ?? DEFAULT_SORT_BY
   const sortDirection = (searchParams.get('sortDirection') as SortDirection | null) ?? DEFAULT_SORT_DIRECTION
 
-  const { data, isLoading } = useAdminProductsQuery(token, {
+  const { data, isLoading } = useAdminProductsQuery({
     page,
     perPage: PRODUCTS_PER_PAGE,
     categoryId: categoryFilter,
     sortBy,
     sortDirection,
   })
-  const { data: categoriesData } = useAdminCategoriesQuery(token)
-  const adjustStockMutation = useAdjustStockMutation(token)
+  const { data: categoriesData } = useAdminCategoriesQuery()
+  const adjustStockMutation = useAdjustStockMutation()
 
   function setPage(nextPage: number) {
     setQueryParams({ page: String(nextPage) })
@@ -68,7 +69,7 @@ export function useAdminProductsPage() {
   }
 
   return {
-    token,
+    isReady,
     products: data?.data ?? [],
     pagination: data?.pagination,
     isLoading,

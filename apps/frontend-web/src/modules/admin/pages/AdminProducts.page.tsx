@@ -16,7 +16,7 @@ import type { ProductSortableField } from '@/shared/api/api.types'
 
 export function AdminProductsPage() {
   const {
-    token,
+    isReady,
     products,
     pagination,
     isLoading,
@@ -37,7 +37,7 @@ export function AdminProductsPage() {
     confirmStockAdjustment,
   } = useAdminProductsPage()
 
-  if (!token) return null
+  if (!isReady) return null
 
   function sortHeaderProps(field: ProductSortableField) {
     return { active: sortBy === field, direction: sortDirection, onSort: () => handleSort(field) }

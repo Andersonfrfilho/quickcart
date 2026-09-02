@@ -1,7 +1,8 @@
 import React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useRouter } from '@/app/router'
-import { useRequireAdmin } from '@/modules/admin/shared/useAdminAuth.hook'
+import { useRequireStaff } from '@/modules/auth/shared/useSession.hook'
+import { STAFF_ROLES } from '@/modules/auth/shared/roles.constant'
 import { useUpdateOrderStatusMutation } from '@/modules/admin/shared/mutations/useUpdateOrderStatus.mutation'
 import { useSetOrderItemUnavailableMutation } from '@/modules/admin/shared/mutations/useSetOrderItemUnavailable.mutation'
 import { useNotifyUnavailableItemsMutation } from '@/modules/admin/shared/mutations/useNotifyUnavailableItems.mutation'
@@ -9,20 +10,20 @@ import { useSetOrderItemPickedMutation } from '@/modules/admin/shared/mutations/
 import { adminGetOrderDetail } from '@/shared/api/client'
 
 export function useAdminOrderDetailPage() {
-  const token = useRequireAdmin()
+  const { isReady } = useRequireStaff(STAFF_ROLES)
   const { params, navigate } = useRouter()
   const orderId = params.id ?? ''
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['admin-order-detail', orderId],
-    queryFn: () => adminGetOrderDetail(token as string, orderId),
-    enabled: !!token && orderId.length > 0,
+    queryFn: () => adminGetOrderDetail(orderId),
+    enabled: orderId.length > 0,
   })
 
-  const updateStatusMutation = useUpdateOrderStatusMutation(token)
-  const setUnavailableMutation = useSetOrderItemUnavailableMutation(token)
-  const notifyUnavailableMutation = useNotifyUnavailableItemsMutation(token)
-  const setPickedMutation = useSetOrderItemPickedMutation(token)
+  const updateStatusMutation = useUpdateOrderStatusMutation()
+  const setUnavailableMutation = useSetOrderItemUnavailableMutation()
+  const notifyUnavailableMutation = useNotifyUnavailableItemsMutation()
+  const setPickedMutation = useSetOrderItemPickedMutation()
 
   const [hidePickedItems, setHidePickedItems] = React.useState(false)
 
@@ -77,7 +78,7 @@ export function useAdminOrderDetailPage() {
   }
 
   return {
-    token,
+    isReady,
     notifyUnavailable: () => notifyUnavailableMutation.mutate(orderId),
     isNotifyingUnavailable: notifyUnavailableMutation.isPending,
     /**

@@ -9,12 +9,12 @@ import { adminUpdateOrderStatus } from '@/shared/api/client'
  * também precisa: confirmar um pedido tira ele da fila, e um contador que só atualiza no próximo ciclo
  * de 20s mostra trabalho que já foi feito.
  */
-export function useUpdateOrderStatusMutation(token: string | null) {
+export function useUpdateOrderStatusMutation() {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) =>
-      adminUpdateOrderStatus(token as string, id, status),
+      adminUpdateOrderStatus(id, status),
     onSuccess: (_result, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['admin-order-detail', variables.id] })
       void queryClient.invalidateQueries({ queryKey: ['admin-orders'] })

@@ -17,7 +17,7 @@ const SORT_LABELS: Record<string, string> = {
 
 export function AdminOrdersPage() {
   const {
-    token,
+    isReady,
     orders,
     pagination,
     isLoading,
@@ -52,7 +52,7 @@ export function AdminOrdersPage() {
   const [searchDraft, setSearchDraft] = React.useState(search)
   React.useEffect(() => setSearchDraft(search), [search])
 
-  if (!token) return null
+  if (!isReady) return null
 
   const totalPages = pagination ? Math.max(1, Math.ceil(pagination.total / perPage)) : 1
 

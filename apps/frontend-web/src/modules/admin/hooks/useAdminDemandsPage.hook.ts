@@ -1,5 +1,6 @@
 import React from 'react'
-import { useRequireAdmin } from '@/modules/admin/shared/useAdminAuth.hook'
+import { useRequireStaff } from '@/modules/auth/shared/useSession.hook'
+import { ADMIN_AND_ATTENDANT } from '@/modules/auth/shared/roles.constant'
 import { useUrlQueryState } from '@/shared/hooks/useUrlQueryState.hook'
 import { useAdminDemandsQuery } from '@/modules/admin/shared/queries/useAdminDemands.query'
 import { useAdminProductsQuery } from '@/modules/admin/shared/queries/useAdminProducts.query'
@@ -40,7 +41,7 @@ function parseCsvParam(value: string | null): string[] {
 }
 
 export function useAdminDemandsPage() {
-  const token = useRequireAdmin()
+  const { isReady } = useRequireStaff(ADMIN_AND_ATTENDANT)
   const { searchParams, setQueryParams } = useUrlQueryState()
 
   const windowDays = Number(searchParams.get('windowDays') ?? String(DEFAULT_WINDOW_DAYS))
@@ -49,7 +50,7 @@ export function useAdminDemandsPage() {
   const sortBy = (searchParams.get('sortBy') as UnmatchedDemandSortableField | null) ?? DEFAULT_SORT_BY
   const sortDirection = (searchParams.get('sortDirection') as SortDirection | null) ?? DEFAULT_SORT_DIRECTION
 
-  const { data, isLoading } = useAdminDemandsQuery(token, {
+  const { data, isLoading } = useAdminDemandsQuery({
     limit: DEMANDS_LIMIT,
     windowDays,
     source: sourceFilter,
@@ -57,8 +58,8 @@ export function useAdminDemandsPage() {
     sortBy,
     sortDirection,
   })
-  const { data: productsData } = useAdminProductsQuery(token, { page: 1, perPage: PRODUCTS_FOR_PICKER })
-  const addAliasMutation = useAddProductAliasMutation(token)
+  const { data: productsData } = useAdminProductsQuery({ page: 1, perPage: PRODUCTS_FOR_PICKER })
+  const addAliasMutation = useAddProductAliasMutation()
 
   // Qual linha está com o seletor de produto aberto. Uma por vez: duas buscas abertas na mesma tela
   // fazem o lojista perder de vista a qual termo está respondendo.
@@ -170,7 +171,7 @@ export function useAdminDemandsPage() {
   }
 
   return {
-    token,
+    isReady,
     demands: data?.data ?? [],
     meta: data?.meta,
     isLoading,

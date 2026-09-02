@@ -6,7 +6,7 @@ import { CategoryPage } from '@/modules/store/pages/Category.page'
 import { CartPage } from '@/modules/store/pages/Cart.page'
 import { CheckoutPage } from '@/modules/store/pages/Checkout.page'
 import { OrderConfirmedPage } from '@/modules/store/pages/OrderConfirmed.page'
-import { AdminLoginPage } from '@/modules/admin/pages/AdminLogin.page'
+import { SignInPage } from '@/modules/auth/pages/SignIn.page'
 import { AdminProductsPage } from '@/modules/admin/pages/AdminProducts.page'
 import { AdminOrdersPage } from '@/modules/admin/pages/AdminOrders.page'
 import { AdminDemandsPage } from '@/modules/admin/pages/AdminDemands.page'
@@ -68,7 +68,7 @@ export const { RouterProvider, RouteRenderer } = createRouter([
   { path: '/cart', component: withStoreLayout(CartPage) },
   { path: '/checkout', component: withStoreLayout(CheckoutPage) },
   { path: '/order-confirmed', component: withStoreLayout(OrderConfirmedPage) },
-  { path: '/admin', component: standalone(AdminLoginPage) },
+  { path: '/admin', component: standalone(SignInPage) },
   { path: '/admin/products', component: withAdminLayout(AdminProductsPage) },
   { path: '/admin/orders', component: withAdminLayout(AdminOrdersPage) },
   // Depois da rota fixa: exata vence parametrizada, e deixar as duas juntas mostra a hierarquia.
