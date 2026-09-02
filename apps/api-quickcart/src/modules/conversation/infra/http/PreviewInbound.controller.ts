@@ -38,7 +38,8 @@ import type { MetaWhatsAppModule } from '@adatechnology/meta-whatsapp-module'
 
 import type { RouteHandler } from '@/infra/http/router'
 import { environment } from '@/infra/config/environment'
-import { requireAdminToken } from '@/infra/http/middlewares/requireAdminToken'
+import { requireSession } from '@/infra/http/middlewares/requireSession'
+import { ADMIN_AND_ATTENDANT } from '@/modules/user/shared/User.constant'
 import { previewInboundCommandSchema, PREVIEW_INBOUND_KIND } from './PreviewInbound.schema'
 import type { PreviewInboundCommand } from './PreviewInbound.schema'
 
@@ -91,7 +92,7 @@ export function createPreviewInboundController(metaWhatsApp: MetaWhatsAppModule)
   }
 
   const handleSend: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_AND_ATTENDANT })
     await deliver(request, response)
   }
 

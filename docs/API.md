@@ -29,7 +29,11 @@ Envelope: sucesso `{ "data": ... }` · lista `{ "data": [...], "pagination": { t
 |---|---|---|
 | POST | `/v1/internal/conversation/resume` | `Authorization: Bearer <INTERNAL_API_TOKEN>` — body `{ sessionId, transcript: string \| null }`. `transcript: null` (STT falhou/sem chave) envia `AUDIO_NOT_SUPPORTED_YET` ao cliente sem retomar a conversa |
 
-## Admin (`Authorization: Bearer <ADMIN_API_TOKEN>`)
+## Admin (`Authorization: Bearer <access token da sessão>`)
+
+O access token vem de `POST /v1/auth/login` e vale 15 minutos; `POST /v1/auth/refresh` rotaciona o
+refresh token e emite outro. Cada rota exige um conjunto explícito de papéis — não há hierarquia:
+`admin` não herda nada de ninguém, e nenhum papel herda de `admin`.
 
 | Método | Rota | Notas |
 |---|---|---|

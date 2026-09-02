@@ -43,6 +43,18 @@ function resolvePasswordReset() {
   }
 }
 
+/**
+ * Memoizado: o módulo é caro de montar e precisa ser o MESMO em todo lugar — o boot monta as rotas
+ * com ele, e cada `requireSession` verifica assinatura com ele. Duas instâncias funcionariam por
+ * acidente (mesmo segredo) até alguém plugar um provedor com estado.
+ */
+let userModulePromise: Promise<UserModule> | undefined
+
+export function getQuickCartUserModule(): Promise<UserModule> {
+  userModulePromise ??= createQuickCartUserModule()
+  return userModulePromise
+}
+
 export function createQuickCartUserModule(): Promise<UserModule> {
   const email = createSmtpEmailDriver()
   const passwordReset = email ? resolvePasswordReset() : undefined

@@ -58,4 +58,6 @@ export const WHATSAPP_NETWORK_ERROR = 'WHATSAPP_NETWORK_ERROR'
 
 // ── Admin/auth interno ────────────────────────────────────────────────
 export const ADMIN_TOKEN_INVALID = 'ADMIN_TOKEN_INVALID'
+export const SESSION_INVALID = 'SESSION_INVALID'
+export const SESSION_ROLE_FORBIDDEN = 'SESSION_ROLE_FORBIDDEN'
 export const INTERNAL_TOKEN_INVALID = 'INTERNAL_TOKEN_INVALID'

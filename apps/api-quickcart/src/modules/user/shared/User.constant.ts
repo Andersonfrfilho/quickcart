@@ -36,3 +36,34 @@ export const STAFF_ROLES: readonly QuickCartRole[] = [
   QUICKCART_ROLE.PICKER,
   QUICKCART_ROLE.DRIVER,
 ]
+
+/*
+ * Conjuntos de papéis por tipo de rota. Declarar aqui, e não em cada controller, é o que impede
+ * duas rotas equivalentes de divergirem em quem pode chamá-las.
+ */
+
+/** Catálogo, configuração de conversa, integrações: mexer aqui muda a operação inteira. */
+export const ADMIN_ONLY: readonly QuickCartRole[] = [QUICKCART_ROLE.ADMIN]
+
+/** Conversas e mensagens com o cliente — é o trabalho do atendente. */
+export const ADMIN_AND_ATTENDANT: readonly QuickCartRole[] = [QUICKCART_ROLE.ADMIN, QUICKCART_ROLE.ATTENDANT]
+
+/** Leitura da fila de pedidos: todo mundo que trabalha no pedido precisa vê-lo. */
+export const ORDER_READERS: readonly QuickCartRole[] = STAFF_ROLES
+
+/** Separação: quem monta a sacola e resolve item em falta. */
+export const ORDER_PICKERS: readonly QuickCartRole[] = [QUICKCART_ROLE.ADMIN, QUICKCART_ROLE.PICKER]
+
+/** Status do pedido: o separador avança até "pronto", o motorista dali até "entregue". */
+export const ORDER_STATUS_WRITERS: readonly QuickCartRole[] = [
+  QUICKCART_ROLE.ADMIN,
+  QUICKCART_ROLE.PICKER,
+  QUICKCART_ROLE.DRIVER,
+]
+
+/** Avisar o cliente sobre item em falta é conversa, e o atendente também faz. */
+export const ORDER_NOTIFIERS: readonly QuickCartRole[] = [
+  QUICKCART_ROLE.ADMIN,
+  QUICKCART_ROLE.ATTENDANT,
+  QUICKCART_ROLE.PICKER,
+]

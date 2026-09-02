@@ -15,7 +15,8 @@
 
 import { issueSseTicket, redeemSseTicket, type SseHub, type TicketStoreInterface } from '@adatechnology/meta-whatsapp-module'
 import type { RouteHandler } from '@/infra/http/router'
-import { requireAdminToken } from '@/infra/http/middlewares/requireAdminToken'
+import { requireSession } from '@/infra/http/middlewares/requireSession'
+import { ADMIN_AND_ATTENDANT } from '@/modules/user/shared/User.constant'
 import { UnauthorizedError } from '@/shared/errors/AppError.error'
 import { UNAUTHORIZED } from '@/shared/errors/codes'
 import { environment } from '@/infra/config/environment'
@@ -50,7 +51,7 @@ export class ConversationStreamController {
   handleIssueTicket: RouteHandler = async (request, response) => {
     // Esta é a rota autenticada da dupla: quem consegue um ticket já provou ser admin. Os
     // streams em si não podem exigir header, então o ticket é a credencial deles.
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_AND_ATTENDANT })
 
     const whatsappNumber = request.query.get('conversation') ?? GLOBAL_STREAM_SCOPE
     const ticket = await issueSseTicket(this.dependencies.ticketStore, COMPANY_ID, whatsappNumber)

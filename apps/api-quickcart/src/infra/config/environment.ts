@@ -113,7 +113,7 @@ export const environmentSchema = z.object({
   MAIL_FROM: z.string().optional(),
 
   // ── Tokens internos ──
-  ADMIN_API_TOKEN: z.string().min(1),
+  // `ADMIN_API_TOKEN` saiu: o painel autentica por sessão de usuário, não por segredo compartilhado.
   INTERNAL_API_TOKEN: z.string().min(1),
   ALLOWED_ORIGINS: z.string().default('http://localhost:5183'),
 
@@ -128,6 +128,17 @@ export const environmentSchema = z.object({
   USER_ACCESS_TOKEN_SECRET: z.string().min(32, 'USER_ACCESS_TOKEN_SECRET precisa de ao menos 32 caracteres'),
   USER_ACCESS_TOKEN_EXPIRES_IN_SECONDS: z.coerce.number().int().positive().max(900).default(900),
   USER_REFRESH_TOKEN_EXPIRES_IN_SECONDS: z.coerce.number().int().positive().default(60 * 60 * 24 * 30),
+  /*
+   * Primeiro administrador. Existe para a instalação ter por onde entrar: sem nenhum usuário no
+   * banco, a tela de login não tem resposta possível e não há rota para criar o primeiro.
+   *
+   * Os dois juntos ou nenhum — e a senha nunca tem default, porque um default aqui seria a
+   * credencial de administrador conhecida de toda instalação do produto.
+   */
+  BOOTSTRAP_ADMIN_EMAIL: z.string().email().optional(),
+  BOOTSTRAP_ADMIN_PASSWORD: z.string().min(12).optional(),
+  BOOTSTRAP_ADMIN_NAME: z.string().default('Administrador'),
+
   /** Sem template não há reset a oferecer, e o pacote deixa de publicar as rotas. */
   USER_PASSWORD_RESET_URL_TEMPLATE: z.string().optional(),
   USER_RESET_TOKEN_EXPIRES_IN_SECONDS: z.coerce.number().int().positive().default(60 * 60),

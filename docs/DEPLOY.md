@@ -28,10 +28,30 @@ default que não serve em produção**. A segunda lista é a perigosa: sobe, fic
 | `DATABASE_URL` | ✅ | ✅ | |
 | `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | ✅ | — | o valor que a Meta ecoa no handshake do webhook |
 | `NOTIFICATION_SUPPRESSION_KEY` | ✅ | ✅ | ≥32 chars, **o mesmo valor nos dois** — chaves diferentes fazem a API gravar a supressão sob um hash e o worker consultar outro, e endereço suprimido volta a receber |
-| `ADMIN_API_TOKEN` | ✅ | — | |
 | `INTERNAL_API_TOKEN` | ✅ | ✅ | mesmo valor nos dois |
+| `USER_ACCESS_TOKEN_SECRET` | ✅ | — | ≥32 chars, assina o access token da sessão. Sem default de propósito: um valor de fábrica assinaria tokens que qualquer instalação saberia forjar. Trocar este valor invalida toda sessão aberta |
 | `API_BASE_URL` | — | ✅ | URL interna da api; é por onde o worker retoma a conversa |
 | `BULL_BOARD_USER` / `BULL_BOARD_PASSWORD` | — | ✅ | o painel de filas sobe junto com o worker; credencial vazia autenticaria requisição sem credencial |
+
+### Primeiro acesso ao painel
+
+O painel autentica por sessão de pessoa — `ADMIN_API_TOKEN` não existe mais. Com o banco vazio não
+há por onde entrar, então a api semeia o primeiro administrador quando estas duas variáveis estão
+presentes, e só então:
+
+| Variável | Nota |
+|---|---|
+| `BOOTSTRAP_ADMIN_EMAIL` | e-mail do primeiro administrador |
+| `BOOTSTRAP_ADMIN_PASSWORD` | ≥12 chars. Sem default: um default aqui seria a credencial de admin conhecida de toda instalação do produto |
+| `BOOTSTRAP_ADMIN_NAME` | opcional, default `Administrador` |
+
+A semeadura é idempotente — do segundo boot em diante ela encontra o usuário e não faz nada. Remova
+as duas variáveis depois do primeiro acesso: com a conta criada, elas só guardam uma senha em
+variável de ambiente sem servir para mais nada.
+
+⚠️ As migrations do `user-module` são separadas, como as do `notification-module`. Rode
+`make user-migrate` (ou `bun run db:migrate-user`) **antes** do primeiro boot com bootstrap
+configurado — sem as tabelas, a semeadura derruba o processo.
 
 ### Têm default, e o default está errado em produção
 
