@@ -19,6 +19,7 @@ import type { FlowActionHandler } from '@adatechnology/meta-whatsapp-contracts'
 import type { SessionRepository } from '@adatechnology/meta-whatsapp-module'
 import { environment } from '@/infra/config/environment'
 import { logger } from '@/shared/logger'
+import { sendCategoryList } from '@/modules/conversation/application/handlers/support/sendCategoryList'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import { MESSAGES } from '@/modules/conversation/shared/Messages.constant'
 import { judgeCustomerName } from '@/modules/conversation/application/customerNameGuard'
@@ -26,6 +27,7 @@ import type { WhatsAppSender } from '@/modules/webhook/infra/whatsapp/WhatsAppSe
 import type { RepeatLastOrderUseCase } from '@/modules/order/application/use-cases/RepeatLastOrder.use-case'
 import type { CustomerRepositoryInterface } from '@/modules/webhook/domain/CustomerRepository.interface'
 import type { CartRepositoryInterface } from '@/modules/cart/domain/CartRepository.interface'
+import type { CategoryRepositoryInterface } from '@/modules/catalog/domain/CategoryRepository.interface'
 import type { ProductRepositoryInterface } from '@/modules/catalog/domain/ProductRepository.interface'
 import { sendCartSummary } from '@/modules/conversation/application/handlers/support/CartSummary'
 import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInCents'
@@ -85,6 +87,8 @@ export type RegisterQuickCartFlowActionsParams = {
   readonly repeatLastOrderUseCase: RepeatLastOrderUseCase
   readonly cartRepository: CartRepositoryInterface
   readonly productRepository: ProductRepositoryInterface
+  /** Para a ação de "ver produtos" montar a lista de categorias na hora. */
+  readonly categoryRepository: CategoryRepositoryInterface
   readonly orderRepository: OrderRepositoryInterface
 }
 
@@ -97,6 +101,7 @@ export function registerQuickCartFlowActions(params: RegisterQuickCartFlowAction
     repeatLastOrderUseCase,
     cartRepository,
     productRepository,
+    categoryRepository,
     orderRepository,
   } = params
 
@@ -200,10 +205,27 @@ export function registerQuickCartFlowActions(params: RegisterQuickCartFlowAction
   })
 
   registerFlowAction(QUICKCART_FLOW_ACTION.BROWSE_CATALOG, async ({ session, context }) => {
-    // Só posiciona o estado e devolve: quem monta a lista de categorias é o BrowseHandler, na
-    // próxima mensagem. Duplicar essa montagem aqui criaria duas fontes para a mesma tela.
-    await handOver(session.whatsappNumber, CONVERSATION_STATE.BROWSING_CATEGORIES, context)
+    /*
+     * A lista sai AGORA, não "na próxima mensagem".
+     *
+     * Antes esta ação só posicionava o estado e prometia a lista adiante — quem clicava em "ver
+     * produtos" lia "só um instante" e o bot emudecia até a pessoa escrever de novo. A preocupação
+     * de não ter duas fontes para a mesma tela continua válida, e é por isso que ela agora sai de
+     * `sendCategoryList`, a mesma que o menu do motor usa.
+     */
     await whatsAppSender.sendText(session.whatsappNumber, MESSAGES.BROWSE_CATALOG_PROMPT)
+
+    const sent = await sendCategoryList({
+      categoryRepository,
+      whatsAppSender,
+      customerPhone: session.whatsappNumber,
+    })
+
+    // Catálogo vazio não vira estado de navegação: a pessoa já foi avisada e volta ao menu.
+    if (!sent) return { next: MAIN_FLOW_NODE.MENU }
+
+    await handOver(session.whatsappNumber, CONVERSATION_STATE.BROWSING_CATEGORIES, context)
+    return undefined
   })
 
   // Espelha o caminho do GlobalHandler para "repetir pedido": mesmas mensagens, mesmo resumo
