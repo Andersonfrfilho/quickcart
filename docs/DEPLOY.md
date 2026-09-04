@@ -35,6 +35,24 @@ default que não serve em produção**. A segunda lista é a perigosa: sobe, fic
 | `BOOTSTRAP_SERVICE_EMAIL` / `BOOTSTRAP_SERVICE_PASSWORD` | ✅ | — | criam a conta de papel `servico` que o worker usa. Diferente do bootstrap de admin, estas ficam: é por elas que o worker reautentica a cada reinício |
 | `BULL_BOARD_USER` / `BULL_BOARD_PASSWORD` | — | ✅ | o painel de filas sobe junto com o worker; credencial vazia autenticaria requisição sem credencial |
 
+### A infraestrutura é declarada
+
+`.railway/railway.ts` descreve serviços, imagens, volumes, bucket e nomes de variáveis. Os VALORES
+ficam no Railway — `preserve()` declara o nome e preserva o valor, então nenhum segredo entra no
+repositório.
+
+```bash
+railway config plan    # mostra a diferença contra o ambiente ligado
+railway config apply   # aplica (pede confirmação antes de destruir)
+```
+
+⚠️ **O que não está declarado é APAGADO no `apply`.** Omitir o Postgres faz o plano pedir para
+deletá-lo. Leia a saída do `plan` inteira antes de aplicar.
+
+⚠️ A imagem do Postgres é declarada explicitamente. Sem isso o helper assume `postgres:18`, e a
+imagem em uso é a única com `pg_trgm` e `pgvector` — a troca derrubaria a busca do catálogo em
+silêncio, com o serviço subindo normalmente.
+
 ### Como o deploy acontece
 
 Os três serviços têm **gatilho de deploy** ligado ao repositório, na branch `main`: todo merge
