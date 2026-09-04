@@ -44,9 +44,23 @@ const USER_MODULE_ADMIN_SCOPE = 'user:admin'
  * ganha o de admin por herança, porque não há hierarquia de papéis neste produto — quem precisar
  * de mais escopo entra aqui explicitamente.
  */
+/*
+ * Escopos do cadastro de clientes, do pacote. Quem atende PRECISA ler a ficha de quem está do outro
+ * lado da conversa e corrigir um nome errado; quem separa e quem entrega, não — eles trabalham
+ * sobre o pedido, que já traz o endereço.
+ *
+ * `customers:admin` fica só no admin porque é lá que se desliga a máscara de telefone da listagem e
+ * se muda o catálogo de campos — ação sensível, e não edição de ficha.
+ */
+const CUSTOMER_SCOPE_BY_ROLE: Readonly<Record<string, readonly string[]>> = {
+  [QUICKCART_ROLE.ADMIN]: ['customers:read', 'customers:write', 'customers:admin'],
+  [QUICKCART_ROLE.ATTENDANT]: ['customers:read', 'customers:write'],
+}
+
 export function resolveScopesForRole(role: string): readonly string[] {
   const scopes = ['user', role]
   if (role === QUICKCART_ROLE.ADMIN) scopes.push('admin', USER_MODULE_ADMIN_SCOPE)
+  scopes.push(...(CUSTOMER_SCOPE_BY_ROLE[role] ?? []))
   return scopes
 }
 

@@ -27,6 +27,9 @@ import { createModuleFetchRouter } from '@adatechnology/module-http/fetch'
 import { registerOpenApiRoutes } from '@/modules/notification/infra/http/OpenApiRoutes'
 import { notificationAuthContextResolver } from '@/modules/notification/infra/notificationModule'
 import { createUserRoutes } from '@adatechnology/user-module'
+import { createCustomerModule, createCustomerRoutes } from '@adatechnology/customer-module'
+import { db } from '@/infra/database/connection'
+import { DEFAULT_COUNTRY_CODE } from '@/shared/phone.constant'
 import type { UserModule } from '@adatechnology/user-module'
 import { createUserAuthContextResolver } from '@/modules/user/infra/userAuthContextResolver'
 import { StoreController } from '@/modules/store/infra/http/Store.controller'
@@ -90,6 +93,32 @@ export function createRouter({ userModule }: CreateRouterParams): Router {
   router.mount(
     createModuleFetchRouter({
       routes: userRoutes,
+      basePath: '/v1',
+      authResolver: createUserAuthContextResolver({
+        userModule,
+        companyId: environment.WHATSAPP_COMPANY_ID,
+      }),
+    }),
+  )
+
+  /*
+   * Cadastro de clientes, do pacote. O `db` e a configuração vêm do host; o pacote não escolhe
+   * driver nem decide se o produto é multiempresa.
+   *
+   * `single` porque o QuickCart é uma loja só: `company_id` fica nulo, e o índice único de WhatsApp
+   * usa `NULLS NOT DISTINCT` justamente para continuar valendo nesse caso.
+   *
+   * Sem cifra e sem `encryptedDocuments`: o QuickCart não guarda CPF hoje. Declarar documento
+   * cifrado sem plugar a cifra falha no boot — capacidade por ausência, e não uma flag esquecida.
+   */
+  const customerModule = createCustomerModule({
+    db,
+    config: { tenancy: { mode: 'single' }, defaultCountryCode: DEFAULT_COUNTRY_CODE },
+  })
+
+  router.mount(
+    createModuleFetchRouter({
+      routes: createCustomerRoutes({ module: customerModule }),
       basePath: '/v1',
       authResolver: createUserAuthContextResolver({
         userModule,

@@ -90,7 +90,7 @@ describe('createUserAuthContextResolver', () => {
     expect(context).toEqual({
       companyId: COMPANY_ID,
       userId: USER_ID,
-      scopes: ['user', QUICKCART_ROLE.ATTENDANT],
+      scopes: ['user', QUICKCART_ROLE.ATTENDANT, 'customers:read', 'customers:write'],
     })
   })
 
@@ -108,5 +108,43 @@ describe('createUserAuthContextResolver', () => {
 
   it('recusa papel que o produto não conhece, ainda que o token seja válido', async () => {
     expect(await resolveWith(`Bearer ${await signFor('superusuario')}`)).toBeUndefined()
+  })
+})
+
+/**
+ * Cadastro de clientes: quem pode ler, quem pode escrever e quem pode mexer na configuração.
+ *
+ * Este teste é o único lugar que cobra a tradução papel → escopo do cadastro. Um papel novo que
+ * ganhe acesso por descuido não aparece em nenhum outro teste — a rota do pacote só sabe cobrar o
+ * escopo, não quem deveria tê-lo.
+ */
+describe('escopos do cadastro de clientes', () => {
+  it('admin lê, escreve e configura', () => {
+    const scopes = resolveScopesForRole(QUICKCART_ROLE.ADMIN)
+
+    expect(scopes).toContain('customers:read')
+    expect(scopes).toContain('customers:write')
+    expect(scopes).toContain('customers:admin')
+  })
+
+  it('atendente lê e escreve, mas NÃO configura — lá se desliga a máscara de telefone', () => {
+    const scopes = resolveScopesForRole(QUICKCART_ROLE.ATTENDANT)
+
+    expect(scopes).toContain('customers:read')
+    expect(scopes).toContain('customers:write')
+    expect(scopes).not.toContain('customers:admin')
+  })
+
+  it('separador, motorista, cliente e serviço não acessam o cadastro', () => {
+    for (const role of [
+      QUICKCART_ROLE.PICKER,
+      QUICKCART_ROLE.DRIVER,
+      QUICKCART_ROLE.CUSTOMER,
+      QUICKCART_ROLE.SERVICE,
+    ]) {
+      const scopes = resolveScopesForRole(role)
+
+      expect(scopes.filter((scope) => scope.startsWith('customers:'))).toEqual([])
+    }
   })
 })
