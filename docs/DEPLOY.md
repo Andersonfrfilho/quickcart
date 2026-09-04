@@ -35,6 +35,16 @@ default que não serve em produção**. A segunda lista é a perigosa: sobe, fic
 | `BOOTSTRAP_SERVICE_EMAIL` / `BOOTSTRAP_SERVICE_PASSWORD` | ✅ | — | criam a conta de papel `servico` que o worker usa. Diferente do bootstrap de admin, estas ficam: é por elas que o worker reautentica a cada reinício |
 | `BULL_BOARD_USER` / `BULL_BOARD_PASSWORD` | — | ✅ | o painel de filas sobe junto com o worker; credencial vazia autenticaria requisição sem credencial |
 
+### Como o deploy acontece
+
+Os três serviços têm **gatilho de deploy** ligado ao repositório, na branch `main`: todo merge
+publica sozinho, sem passar por secret nenhum no GitHub. `api` já tinha; `worker` e `web` estavam
+sem — por isso só a api chegava a subir, e mesmo assim precisando de `railway up` à mão.
+
+O workflow `Deploy staging` existe como caminho MANUAL (`workflow_dispatch`), para redeploy sem
+commit. Ele exige `RAILWAY_TOKEN` nos secrets, e sem o secret falha alto de propósito — mas não
+roda mais a cada push, porque o deploy de rotina é do Railway.
+
 ### Primeiro acesso ao painel
 
 O painel autentica por sessão de pessoa — `ADMIN_API_TOKEN` não existe mais. Com o banco vazio não
