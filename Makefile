@@ -62,6 +62,10 @@ user-migrate: ## 👤 Roda as migrations do user-module (schema próprio, journa
 	@echo "👤 Migrations de usuário ($(ENV))..."
 	@cd apps/api-quickcart && bun --env-file=../../$(ENV_FILE) $(ENV_LOCAL_ARG) run db:migrate-user
 
+seed-bulk: ## 🏪 Carrega o catálogo de porte de mercado (12,6 mil SKUs) — separado do `seed`
+	@echo "🏪 Carregando catálogo de carga ($(ENV))... leva alguns minutos"
+	@cd apps/api-quickcart && bun --env-file=../../$(ENV_FILE) $(ENV_LOCAL_ARG) run db:seed-bulk
+
 mail-ui: ## 📬 Abre a caixa de entrada falsa do Mailpit
 	@echo "📬 Mailpit em http://localhost:$${MAILPIT_UI_PORT:-8025}"
 	@open "http://localhost:$${MAILPIT_UI_PORT:-8025}" 2>/dev/null || true
