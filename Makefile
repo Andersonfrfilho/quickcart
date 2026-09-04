@@ -23,7 +23,7 @@ COMPOSE := docker compose -p $(COMPOSE_PROJECT) -f infra/docker-compose.yml --en
 SDK_PATH ?= $(HOME)/Documents/personal/adatechnology-packages
 SDK_PACKAGES := packages/backend/meta-whatsapp-contracts packages/backend/meta-whatsapp-module packages/backend/text-moderation packages/backend/object-storage-provider packages/frontend/conversations-ui
 
-.PHONY: help all setup up down clean logs migrate seed reseed-flow dev-api dev-worker dev-web test-msg test-audio test-reply test-button test test-api test-worker build-web validate link-sdk unlink-sdk watch-sdk
+.PHONY: help all setup up down clean logs migrate customer-migrate seed reseed-flow dev-api dev-worker dev-web test-msg test-audio test-reply test-button test test-api test-worker build-web validate link-sdk unlink-sdk watch-sdk
 
 help: ## 📖 Lista os comandos disponíveis
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -61,6 +61,10 @@ notification-migrate: ## 🔔 Roda as migrations do notification-module (schema 
 user-migrate: ## 👤 Roda as migrations do user-module (schema próprio, journal próprio)
 	@echo "👤 Migrations de usuário ($(ENV))..."
 	@cd apps/api-quickcart && bun --env-file=../../$(ENV_FILE) $(ENV_LOCAL_ARG) run db:migrate-user
+
+customer-migrate: ## 🧑 Roda as migrations do customer-module e copia os clientes do legado (schema próprio, journal próprio)
+	@echo "👤 Migrations de usuário ($(ENV))..."
+	@cd apps/api-quickcart && bun --env-file=../../$(ENV_FILE) $(ENV_LOCAL_ARG) run db:migrate-customer
 
 seed-bulk: ## 🏪 Carrega o catálogo de porte de mercado (12,6 mil SKUs) — separado do `seed`
 	@echo "🏪 Carregando catálogo de carga ($(ENV))... leva alguns minutos"

@@ -195,13 +195,18 @@ export function createQuickCartWhatsAppModule(params: CreateQuickCartWhatsAppMod
         }
       },
 
-      onMessageReceived: async (message, session) => {
+      onMessageReceived: async (message, session, contact) => {
         // O cliente precisa existir antes da engine rodar — ela desiste com
         // conversation_customer_not_found se não achar. O módulo cuida da sessão, mas
         // `customers` é tabela do QuickCart e ele não a conhece; este upsert é a metade da
         // antiga ReceiveWhatsAppWebhook que continua sendo regra de negócio daqui.
         // Aguardado (a sessão já foi gravada pelo módulo, então isto é rápido e local).
-        await params.customerRepository.upsertByPhone({ phone: message.from })
+        // `fallbackName` e não `name`: o nome do perfil do WhatsApp preenche a ficha em branco e
+        // não encosta na que alguém já corrigiu à mão.
+        await params.customerRepository.upsertByPhone({
+          phone: message.from,
+          ...(contact?.profileName ? { fallbackName: contact.profileName } : {}),
+        })
 
         // Deliberadamente NÃO aguardado: a Meta reenvia o webhook se não receber 200 a tempo,
         // e tanto o grafo quanto a engine fazem I/O longo (LLM, catálogo, carrinho).
