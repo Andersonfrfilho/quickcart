@@ -78,6 +78,18 @@ presentes, e só então:
 | `BOOTSTRAP_ADMIN_PASSWORD` | ≥12 chars. Sem default: um default aqui seria a credencial de admin conhecida de toda instalação do produto |
 | `BOOTSTRAP_ADMIN_NAME` | opcional, default `Administrador` |
 
+**Para girar a senha depois** — e senha queimada tem de girar — não dependa do fluxo de "esqueci
+minha senha": ele exige SMTP, e sem driver de e-mail o pacote nem publica essas rotas. Use:
+
+```bash
+railway ssh --service api --environment staging -- \
+  sh -lc 'cd /app && USER_EMAIL=... NEW_PASSWORD=... bun run apps/api-quickcart/src/infra/database/setUserPassword.ts'
+```
+
+A senha vai por variável de ambiente, nunca por argumento — argumento aparece em `ps` e no
+histórico do shell. O script emite um token de redefinição de vida curta e chama o caso de uso do
+pacote: o hash é derivado por quem sabe derivá-lo, não escrito à mão.
+
 A semeadura é idempotente — do segundo boot em diante ela encontra o usuário e não faz nada. Remova
 as duas variáveis depois do primeiro acesso: com a conta criada, elas só guardam uma senha em
 variável de ambiente sem servir para mais nada.
