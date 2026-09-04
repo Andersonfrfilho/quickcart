@@ -11,6 +11,7 @@
     "db:migrate-user": "bun run src/infra/database/migrateUser.ts",
     "db:reseed-flow": "bun run src/infra/database/seeds/reseedMainFlow.ts",
     "db:seed": "bun run src/infra/database/seeds/index.ts",
+    "db:seed-bulk": "bun run src/infra/database/seedBulkCatalog.ts",
     "dev": "bun --watch src/index.ts",
     "start": "bun run src/index.ts",
     "test": "bun test --preload ./tests/setup.ts",

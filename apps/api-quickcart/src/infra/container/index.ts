@@ -472,6 +472,7 @@ function buildWebhookModule(
       readonly repeatLastOrderUseCase: RepeatLastOrderUseCase
       readonly cartRepository: CartRepositoryInterface
       readonly productRepository: ProductRepositoryInterface
+      readonly categoryRepository: CategoryRepositoryInterface
       readonly orderRepository: OrderRepositoryInterface
     },
 ): WebhookModule {
@@ -549,6 +550,7 @@ function buildWebhookModule(
       whatsAppSender,
       customerRepository,
       repeatLastOrderUseCase,
+      categoryRepository: params.categoryRepository,
       cartRepository: params.cartRepository,
       productRepository: params.productRepository,
       orderRepository: params.orderRepository,
@@ -662,6 +664,7 @@ const webhookModule = buildWebhookModule({
   repeatLastOrderUseCase: orderModule.repeatLastOrderUseCase,
   cartRepository: cartModule.cartRepository,
   productRepository: catalogModule.productRepository,
+  categoryRepository: catalogModule.categoryRepository,
   orderRepository: orderModule.orderRepository,
 })
 
