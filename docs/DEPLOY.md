@@ -59,9 +59,12 @@ Os três serviços têm **gatilho de deploy** ligado ao repositório, na branch 
 publica sozinho, sem passar por secret nenhum no GitHub. `api` já tinha; `worker` e `web` estavam
 sem — por isso só a api chegava a subir, e mesmo assim precisando de `railway up` à mão.
 
-O workflow `Deploy staging` existe como caminho MANUAL (`workflow_dispatch`), para redeploy sem
-commit. Ele exige `RAILWAY_TOKEN` nos secrets, e sem o secret falha alto de propósito — mas não
-roda mais a cada push, porque o deploy de rotina é do Railway.
+O workflow `Deploy staging` é **manual** (`workflow_dispatch`), para redeploy sem commit — subir de
+novo a mesma revisão depois de mexer numa variável, por exemplo. Ele exige `RAILWAY_TOKEN` (token de
+PROJETO, criado no painel) e, sem o secret, falha alto de propósito em vez de não fazer nada calado.
+
+Como o deploy de rotina é do Railway, ele não roda mais a cada push: antes pintava de vermelho todo
+merge por um deploy que já tinha acontecido.
 
 ### Primeiro acesso ao painel
 
