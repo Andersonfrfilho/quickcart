@@ -51,10 +51,17 @@ export class DrizzleCustomerRepository implements CustomerRepositoryInterface {
   async upsertByPhone(params: UpsertCustomerByPhoneParams): Promise<Customer> {
     const [customer] = await db
       .insert(customers)
-      .values({ id: generateId(), phone: params.phone, name: params.name ?? null })
+      .values({ id: generateId(), phone: params.phone, name: params.name ?? params.fallbackName ?? null })
       .onConflictDoUpdate({
         target: customers.phone,
-        set: { updatedAt: new Date(), ...(params.name ? { name: params.name } : {}) },
+        set: {
+          updatedAt: new Date(),
+          ...(params.name ? { name: params.name } : {}),
+          // COALESCE e não atribuição: o nome do perfil do WhatsApp só entra onde não há nome.
+          ...(!params.name && params.fallbackName
+            ? { name: sql`coalesce(${customers.name}, ${params.fallbackName})` }
+            : {}),
+        },
       })
       .returning()
 
@@ -98,7 +105,9 @@ async function mirrorIntoRegistry(customer: Customer): Promise<void> {
       INSERT INTO "customer"."customers" ("id", "name", "email", "external_user_id", "created_at", "updated_at")
       VALUES (${customer.id}, ${customer.name}, ${customer.email}, ${customer.userId}, ${customer.createdAt}, ${customer.updatedAt})
       ON CONFLICT ("id") DO UPDATE SET
-        "name" = COALESCE(EXCLUDED."name", "customer"."customers"."name"),
+        -- A ficha do cadastro manda no nome depois de ter um: o legado é preenchido pelo perfil do
+        -- WhatsApp, e sobrescrever daqui desfaria a correção feita no painel.
+        "name" = COALESCE("customer"."customers"."name", EXCLUDED."name"),
         "email" = COALESCE(EXCLUDED."email", "customer"."customers"."email"),
         "external_user_id" = COALESCE(EXCLUDED."external_user_id", "customer"."customers"."external_user_id"),
         "updated_at" = EXCLUDED."updated_at"
