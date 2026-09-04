@@ -1,27 +1,20 @@
 name: Deploy staging
 
-# `workflow_run` e não `push`: o deploy só existe depois de o CI passar na mesma branch. Com dois
-# gatilhos independentes, um push com teste vermelho subiria para staging assim mesmo, e o gate
-# seria decorativo.
+# MANUAL, e só. O deploy de rotina é do gatilho do Railway: os três serviços publicam sozinhos a
+# cada merge em `main`, sem passar por secret nenhum aqui.
 #
-# `branches: [main]` porque não existe branch `staging` neste repositório — o ambiente é que se
-# chama staging, e todo deploy sempre saiu de `main`. Com `[staging]` o gatilho nunca dispararia, e
-# o pipeline pareceria montado enquanto nada subia.
+# Este workflow fica como o caminho de redeploy SEM commit — subir de novo a mesma revisão depois
+# de mexer numa variável, por exemplo. Ele exige `RAILWAY_TOKEN` (token de PROJETO) nos secrets.
+#
+# Com `workflow_run` ele disparava a cada push e falhava por falta desse secret, pintando de
+# vermelho todo merge por um deploy que já tinha acontecido pelo Railway. Dois mecanismos
+# publicando a mesma coisa também rendem deploy duplicado difícil de explicar.
 on:
-  workflow_run:
-    workflows: ['CI']
-    branches: [main]
-    types: [completed]
   workflow_dispatch: {}
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    # `workflow_run` dispara com o CI passando OU falhando; sem esta guarda, deploy de build
-    # quebrado.
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
 
     steps:
       - uses: actions/checkout@v4
