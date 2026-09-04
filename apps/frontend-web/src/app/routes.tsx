@@ -13,6 +13,8 @@ import { MyOrdersPage } from '@/modules/store/pages/MyOrders.page'
 import { AdminProductsPage } from '@/modules/admin/pages/AdminProducts.page'
 import { AdminOrdersPage } from '@/modules/admin/pages/AdminOrders.page'
 import { AdminDemandsPage } from '@/modules/admin/pages/AdminDemands.page'
+import { AdminCustomersPage } from '@/modules/customers/pages/AdminCustomers.page'
+import { AdminCustomerSettingsPage } from '@/modules/customers/pages/AdminCustomerSettings.page'
 import { AdminOrderDetailPage } from '@/modules/admin/pages/AdminOrderDetail.page'
 import { OrderDetailPreviewPage } from '@/modules/preview/pages/OrderDetailPreview.page'
 import { OrdersPreviewPage } from '@/modules/preview/pages/OrdersPreview.page'
@@ -82,6 +84,8 @@ export const { RouterProvider, RouteRenderer } = createRouter([
   // Depois da rota fixa: exata vence parametrizada, e deixar as duas juntas mostra a hierarquia.
   { path: '/admin/orders/:id', component: withAdminLayout(AdminOrderDetailPage) },
   { path: '/admin/demands', component: withAdminLayout(AdminDemandsPage) },
+  { path: '/admin/customers', component: withAdminLayout(AdminCustomersPage) },
+  { path: '/admin/customer-settings', component: withAdminLayout(AdminCustomerSettingsPage) },
   { path: '/admin/notifications', component: withAdminLayout(AdminNotificationsPage) },
   // Depois da exata: a hierarquia fica visível, e o roteador casa exata antes de parametrizada.
   { path: '/admin/notifications/settings', component: withAdminLayout(AdminNotificationSettingsPage) },

@@ -57,6 +57,7 @@ const ADMIN_SECTIONS: NavSection[] = [
       { label: 'Produtos', path: '/admin/products', icon: '📦', roles: ADMIN_ONLY },
       { label: 'Pedidos', path: '/admin/orders', icon: '🛒', showsPendingOrders: true, roles: STAFF_ROLES },
       { label: 'Demanda', path: '/admin/demands', icon: '🔎', roles: ADMIN_AND_ATTENDANT },
+      { label: 'Clientes', path: '/admin/customers', icon: '🧑', roles: ADMIN_AND_ATTENDANT },
       {
         label: 'Notificações',
         path: '/admin/notifications',
@@ -78,7 +79,10 @@ const ADMIN_SECTIONS: NavSection[] = [
   },
   {
     label: 'Administração',
-    items: [{ label: 'Equipe', path: '/admin/equipe', icon: '👥', roles: ADMIN_ONLY }],
+    items: [
+      { label: 'Equipe', path: '/admin/equipe', icon: '👥', roles: ADMIN_ONLY },
+      { label: 'Cadastro de clientes', path: '/admin/customer-settings', icon: '⚙️', roles: ADMIN_ONLY },
+    ],
   },
 ]
 

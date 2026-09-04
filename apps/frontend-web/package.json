@@ -10,10 +10,11 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@adatechnology/conversations-ui": "0.1.0-rc.29",
-    "@adatechnology/notification-client": "0.1.0-rc.2",
-    "@adatechnology/notification-contracts": "0.1.0-rc.2",
-    "@adatechnology/notification-ui": "0.1.0-rc.2",
+    "@adatechnology/conversations-ui": "0.1.0",
+    "@adatechnology/customers-ui": "0.1.0",
+    "@adatechnology/notification-client": "0.1.0",
+    "@adatechnology/notification-contracts": "0.1.0",
+    "@adatechnology/notification-ui": "0.1.0",
     "@adatechnology/user-contracts": "0.2.0",
     "@adatechnology/user-ui": "0.2.0",
     "@tanstack/react-query": "^5.62.8",

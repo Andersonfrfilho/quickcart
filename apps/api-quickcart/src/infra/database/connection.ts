@@ -12,6 +12,7 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import { runNotificationMigrations } from '@adatechnology/notification-module'
 import { runUserMigrations } from '@adatechnology/user-module'
+import { runCustomerMigrations } from '@adatechnology/customer-module'
 import { runMetaWhatsAppMigrations } from '@adatechnology/meta-whatsapp-module'
 import { Pool } from 'pg'
 import path from 'node:path'
@@ -88,6 +89,13 @@ export async function runMigrations(): Promise<void> {
 
   dbLog.info('running_user_migrations')
   await runUserMigrations({ db, migrate })
+
+  dbLog.info('running_customer_migrations')
+  await runCustomerMigrations({ db, migrate })
+
+  // Depois da migration do pacote, nunca antes: a cópia escreve num schema que ela acabou de criar.
+  const { backfillCustomerRegistry } = await import('./backfillCustomerRegistry')
+  await backfillCustomerRegistry()
 
   dbLog.info('migrations_completed')
 }
