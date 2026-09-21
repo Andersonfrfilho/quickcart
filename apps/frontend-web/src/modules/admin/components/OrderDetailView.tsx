@@ -473,6 +473,10 @@ export function OrderDetailView({
         <Card className="p-3 md:p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pagamento</p>
           <p className="mt-0.5 font-medium">{PAYMENT_LABELS[order.paymentMethod] ?? order.paymentMethod}</p>
+          {/* Só aparece em dinheiro com troco pedido — "Não preciso" grava `null`, e a linha some. */}
+          {order.cashChangeForInCents !== null && (
+            <p className="mt-0.5 text-sm">Troco para {formatMoney(order.cashChangeForInCents)}</p>
+          )}
           <p className="mt-0.5 text-xs text-muted-foreground">
             {/* Valor fora da lista vira travessão: "Recibo: none" na tela é código vazando para o
                 lojista, e ele não tem como saber que 'none' significa "não escolheu". */}

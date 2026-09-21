@@ -73,6 +73,7 @@ function toOrderRecord(order: Order): OrderRecord {
     deliveryFailureReason: order.deliveryFailureReason,
     customerDecisionAskedAt: order.customerDecisionAskedAt,
     customerDecisionRemindedAt: order.customerDecisionRemindedAt,
+    cashChangeForInCents: order.cashChangeForInCents,
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
   }
@@ -210,6 +211,7 @@ export class DrizzleOrderRepository implements OrderRepositoryInterface {
             paymentMethod: params.paymentMethod,
             receiptPreference: params.receiptPreference,
             notes: params.notes ?? null,
+            cashChangeForInCents: params.cashChangeForInCents ?? null,
           })
           .returning()
 

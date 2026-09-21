@@ -77,6 +77,12 @@ export const PAYMENT_METHOD_BUTTON_ID = {
   CASH: 'cash',
 } as const
 
+/** Resposta sim/não sobre troco no pagamento em dinheiro (roteiro §9). */
+export const CASH_CHANGE_BUTTON_ID = {
+  NOT_NEEDED: 'cash_change_not_needed',
+  NEEDED: 'cash_change_needed',
+} as const
+
 export const RECEIPT_PREFERENCE_BUTTON_ID = {
   WHATSAPP: 'whatsapp',
   EMAIL: 'email',
@@ -303,6 +309,13 @@ export const MESSAGES = {
   CHECKOUT_ASK_ADDRESS_FALLBACK: 'Não achei esse CEP 🤔 Pode me mandar o endereço completo de entrega?',
   CHECKOUT_ASK_ADDRESS_NUMBER: 'Qual o número? (e o complemento, se tiver — ex: "412, apto 71")',
   CHECKOUT_ASK_PAYMENT: 'Como você vai pagar?',
+  /** Só perguntado quando o pagamento escolhido é em dinheiro (roteiro §9). */
+  CHECKOUT_ASK_CASH_CHANGE: 'Precisa de troco?',
+  CHECKOUT_ASK_CASH_CHANGE_AMOUNT:
+    'Troco para quanto? Ex.: se a compra deu R$ 132,50 e você vai pagar com R$ 150,00, responda 150.',
+  CHECKOUT_CASH_CHANGE_INVALID: 'Não entendi esse valor 🤔 Pode me mandar só o número? Ex.: 150.',
+  /** `{total}` é o total a pagar — a mensagem some se o troco pedido não cobrir a compra. */
+  CHECKOUT_CASH_CHANGE_TOO_LOW: 'Esse valor não cobre a compra de {total}. Troco para quanto?',
   CHECKOUT_ASK_RECEIPT_PREFERENCE: 'Como você quer receber a nota/recibo?',
   CHECKOUT_ASK_EMAIL: '📧 Pode me mandar seu e-mail?',
   CHECKOUT_EMAIL_INVALID: 'Esse e-mail não parece válido 🤔 Pode conferir e mandar de novo?',
@@ -310,7 +323,11 @@ export const MESSAGES = {
   CONFIRMING_SUMMARY_HEADER: '📋 Confira seu pedido:',
   CONFIRMING_ASK: 'Posso confirmar?',
   CONFIRMING_UNEXPECTED_INPUT: 'Por favor, escolha uma das opções acima ☝️',
+  /** Sufixo do pagamento no resumo e na confirmação, quando há troco. `{valor}` é o valor pago. */
+  CASH_CHANGE_SUMMARY_SUFFIX: ' — troco para {valor}',
   ORDER_CONFIRMED_PREFIX: '✅ Pedido confirmado! Código:',
+  /** Linha de troco na confirmação final. `{valor}` é o valor com que o cliente vai pagar. */
+  ORDER_CONFIRMED_CASH_CHANGE_LINE: 'Troco para {valor}.',
   ORDER_CANCELLED: 'Pedido cancelado. Seu carrinho continua salvo — quando quiser é só chamar de novo!',
   ORDER_INSUFFICIENT_STOCK: '😕 Alguns itens não têm estoque suficiente no momento. Vamos revisar seu carrinho.',
   ORDER_CART_EMPTY_ERROR: 'Seu carrinho está vazio, não dá pra fechar o pedido ainda.',
@@ -339,6 +356,11 @@ export const PAYMENT_METHOD_BUTTONS = [
   { id: PAYMENT_METHOD_BUTTON_ID.PIX, title: '💳 Pix' },
   { id: PAYMENT_METHOD_BUTTON_ID.CARD_ON_DELIVERY, title: '💳 Cartão na entrega' },
   { id: PAYMENT_METHOD_BUTTON_ID.CASH, title: '💵 Dinheiro' },
+] as const
+
+export const CASH_CHANGE_BUTTONS = [
+  { id: CASH_CHANGE_BUTTON_ID.NOT_NEEDED, title: '🙅 Não preciso' },
+  { id: CASH_CHANGE_BUTTON_ID.NEEDED, title: '💵 Preciso de troco' },
 ] as const
 
 export const RECEIPT_PREFERENCE_BUTTONS = [

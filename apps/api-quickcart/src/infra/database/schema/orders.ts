@@ -63,6 +63,12 @@ export const orders = pgTable('orders', {
   customerDecisionAskedAt: timestamp('customer_decision_asked_at', { withTimezone: true }),
   /** Cobrança única (a resposta escolhida na regra de fluxo). Preenchido = não cobra de novo. */
   customerDecisionRemindedAt: timestamp('customer_decision_reminded_at', { withTimezone: true }),
+  /**
+   * Troco no pagamento em dinheiro (roteiro §9). `null` = não precisa de troco, ou pagamento não é
+   * em dinheiro — os dois casos são a mesma ausência, e não um "zero" que se confundiria com troco
+   * de R$ 0,00.
+   */
+  cashChangeForInCents: integer('cash_change_for_in_cents'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })

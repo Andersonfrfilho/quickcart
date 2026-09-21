@@ -62,6 +62,11 @@ export type ConversationContext = {
     readonly state: string
   }
   readonly checkoutPaymentMethod?: string
+  /**
+   * Troco no pagamento em dinheiro (roteiro §9). Ausente enquanto a pergunta não foi respondida;
+   * `null` para "Não preciso"; um número para o valor com que o cliente vai pagar.
+   */
+  readonly checkoutCashChangeForInCents?: number | null
   readonly checkoutReceiptPreference?: string
   readonly checkoutEmail?: string
   /**

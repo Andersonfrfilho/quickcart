@@ -39,6 +39,8 @@ export type OrderRecord = {
   readonly customerDecisionAskedAt: Date | null
   /** Quando a pergunta foi cobrada — uma vez só. `null` com `askedAt` preenchido = ainda dá para cobrar. */
   readonly customerDecisionRemindedAt: Date | null
+  /** Troco no pagamento em dinheiro. `null` = não precisa, ou pagamento não é em dinheiro. */
+  readonly cashChangeForInCents: number | null
   readonly createdAt: Date
   readonly updatedAt: Date
 }
@@ -86,6 +88,8 @@ export type CreateOrderWithItemsParams = {
   readonly paymentMethod: string
   readonly receiptPreference: string
   readonly notes?: string | undefined
+  /** Troco no pagamento em dinheiro. Ausente ou `null` = não precisa, ou pagamento não é em dinheiro. */
+  readonly cashChangeForInCents?: number | null | undefined
   readonly items: ReadonlyArray<CreateOrderItemInput>
 }
 

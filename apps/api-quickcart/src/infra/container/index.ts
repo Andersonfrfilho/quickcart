@@ -86,6 +86,7 @@ import { BrowseHandler } from '@/modules/conversation/application/handlers/Brows
 import { GlobalHandler } from '@/modules/conversation/application/handlers/GlobalHandler'
 import { CartHandler } from '@/modules/conversation/application/handlers/CartHandler'
 import { CheckoutHandler } from '@/modules/conversation/application/handlers/CheckoutHandler'
+import { CashChangeHandler } from '@/modules/conversation/application/handlers/CashChangeHandler'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import type { CartRepositoryInterface } from '@/modules/cart/domain/CartRepository.interface'
 import { DrizzleCartRepository } from '@/modules/cart/infra/database/DrizzleCartRepository'
@@ -475,6 +476,12 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     createOrderFromCartUseCase,
     addressLookupProvider,
   })
+  const cashChangeHandler = new CashChangeHandler({
+    conversationSessionRepository,
+    whatsAppSender,
+    cartRepository,
+    productRepository,
+  })
   const globalHandler = new GlobalHandler({
     conversationSessionRepository,
     whatsAppSender,
@@ -504,6 +511,8 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
       [CONVERSATION_STATE.AWAITING_DELIVERY_TYPE]: checkoutHandler,
       [CONVERSATION_STATE.AWAITING_ADDRESS]: checkoutHandler,
       [CONVERSATION_STATE.AWAITING_PAYMENT]: checkoutHandler,
+      [CONVERSATION_STATE.AWAITING_CASH_CHANGE]: cashChangeHandler,
+      [CONVERSATION_STATE.AWAITING_CASH_CHANGE_AMOUNT]: cashChangeHandler,
       [CONVERSATION_STATE.AWAITING_RECEIPT_PREFERENCE]: checkoutHandler,
       [CONVERSATION_STATE.AWAITING_EMAIL]: checkoutHandler,
       [CONVERSATION_STATE.CONFIRMING]: checkoutHandler,

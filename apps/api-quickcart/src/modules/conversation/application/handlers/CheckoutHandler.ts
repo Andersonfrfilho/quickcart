@@ -30,6 +30,7 @@ import { sendCartSummary } from '@/modules/conversation/application/handlers/sup
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInCents'
 import {
+  CASH_CHANGE_BUTTONS,
   CONFIRMING_BUTTON_ID,
   CONFIRMING_BUTTONS,
   REMEMBERED_CHECKOUT_BUTTON_ID,
@@ -267,10 +268,31 @@ export class CheckoutHandler implements ConversationHandlerInterface {
       return
     }
 
+    const nextContext = { ...checkoutContext, checkoutPaymentMethod: message.buttonId }
+
+    /*
+     * Só dinheiro pergunta troco (roteiro §9). Os outros meios seguem direto para o recibo, como
+     * antes — o `CashChangeHandler` (arquivo próprio, spec/tasks.md T1.1) cuida do resto e devolve
+     * o cliente para `AWAITING_RECEIPT_PREFERENCE` sozinho.
+     */
+    if (message.buttonId === PAYMENT_METHOD_BUTTON_ID.CASH) {
+      await this.dependencies.conversationSessionRepository.updateStateByPhone({
+        customerPhone: session.customerPhone,
+        currentState: CONVERSATION_STATE.AWAITING_CASH_CHANGE,
+        context: nextContext,
+      })
+      await this.dependencies.whatsAppSender.sendInteractiveButtons(
+        session.customerPhone,
+        MESSAGES.CHECKOUT_ASK_CASH_CHANGE,
+        CASH_CHANGE_BUTTONS,
+      )
+      return
+    }
+
     await this.dependencies.conversationSessionRepository.updateStateByPhone({
       customerPhone: session.customerPhone,
       currentState: CONVERSATION_STATE.AWAITING_RECEIPT_PREFERENCE,
-      context: { ...checkoutContext, checkoutPaymentMethod: message.buttonId },
+      context: nextContext,
     })
     await this.dependencies.whatsAppSender.sendInteractiveButtons(
       session.customerPhone,
@@ -379,6 +401,7 @@ export class CheckoutHandler implements ConversationHandlerInterface {
         address: checkoutContext.checkoutAddress,
         paymentMethod: checkoutPaymentMethod,
         receiptPreference: checkoutReceiptPreference,
+        cashChangeForInCents: checkoutContext.checkoutCashChangeForInCents,
       })
 
       await this.dependencies.conversationSessionRepository.updateStateByPhone({
@@ -386,7 +409,13 @@ export class CheckoutHandler implements ConversationHandlerInterface {
         currentState: CONVERSATION_STATE.GREETING,
         context: {},
       })
-      await this.dependencies.whatsAppSender.sendText(session.customerPhone, `${MESSAGES.ORDER_CONFIRMED_PREFIX} ${order.shortCode}`)
+      const confirmationLines = [
+        `${MESSAGES.ORDER_CONFIRMED_PREFIX} ${order.shortCode}`,
+        ...(order.cashChangeForInCents !== null
+          ? [MESSAGES.ORDER_CONFIRMED_CASH_CHANGE_LINE.replace('{valor}', formatPriceInCents(order.cashChangeForInCents))]
+          : []),
+      ]
+      await this.dependencies.whatsAppSender.sendText(session.customerPhone, confirmationLines.join('\n'))
     } catch (error) {
       await this.handleConfirmOrderError(session, cart.id, error)
     }
@@ -465,7 +494,12 @@ export class CheckoutHandler implements ConversationHandlerInterface {
      */
     const formattedAddress = formatAddressLine(checkoutContext.checkoutAddress)
     const addressLine = formattedAddress ? `📍 ${formattedAddress}` : undefined
-    const paymentLine = this.describeSelection(PAYMENT_METHOD_BUTTONS, checkoutContext.checkoutPaymentMethod)
+    const cashChangeForInCents = checkoutContext.checkoutCashChangeForInCents
+    const paymentLine =
+      this.describeSelection(PAYMENT_METHOD_BUTTONS, checkoutContext.checkoutPaymentMethod) +
+      (typeof cashChangeForInCents === 'number'
+        ? MESSAGES.CASH_CHANGE_SUMMARY_SUFFIX.replace('{valor}', formatPriceInCents(cashChangeForInCents))
+        : '')
     const receiptLine = this.describeSelection(RECEIPT_PREFERENCE_BUTTONS, checkoutContext.checkoutReceiptPreference)
 
     return [

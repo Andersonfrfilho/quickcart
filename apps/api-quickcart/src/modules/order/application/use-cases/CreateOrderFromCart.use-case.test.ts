@@ -194,6 +194,7 @@ class FakeOrderRepository implements OrderRepositoryInterface {
       deliveryFailureReason: null,
       customerDecisionAskedAt: null,
       customerDecisionRemindedAt: null,
+      cashChangeForInCents: params.cashChangeForInCents ?? null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }

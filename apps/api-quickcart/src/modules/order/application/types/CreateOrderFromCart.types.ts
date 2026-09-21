@@ -19,6 +19,8 @@ export type CreateOrderFromCartParams = {
   readonly paymentMethod: string
   readonly receiptPreference: string
   readonly notes?: string | undefined
+  /** Troco no pagamento em dinheiro. Ausente ou `null` = não precisa, ou pagamento não é em dinheiro. */
+  readonly cashChangeForInCents?: number | null | undefined
 }
 
 export type CreateOrderFromCartResult = {

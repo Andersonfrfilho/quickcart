@@ -58,6 +58,7 @@ export class CreateOrderFromCartUseCase {
       paymentMethod: params.paymentMethod,
       receiptPreference: params.receiptPreference,
       notes: params.notes,
+      cashChangeForInCents: params.cashChangeForInCents,
       items,
     })
 

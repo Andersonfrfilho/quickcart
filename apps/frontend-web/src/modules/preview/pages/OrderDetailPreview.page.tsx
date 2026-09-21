@@ -170,6 +170,8 @@ const PREVIEW_ORDER: OrderDetail = {
   notes: 'Se não tiver banana prata, pode trocar por nanica. Interfone quebrado, ligar ao chegar.',
   // Nenhuma pergunta em aberto: em `preparing`, o painel de espera pelo cliente não faz parte da tela.
   customerDecisionAskedAt: null,
+  // Preview base paga no Pix — sem troco a mostrar.
+  cashChangeForInCents: null,
   // Uma hora atrás: cai na faixa de atraso, que é o estado em que a tela mais precisa funcionar.
   createdAt: new Date(Date.now() - 62 * 60 * 1000).toISOString(),
   totalInCents: PREVIEW_ITEMS.reduce((total, item) => total + item.totalInCents, 0),

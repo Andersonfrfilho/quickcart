@@ -170,6 +170,7 @@ function buildOrder(overrides: Partial<OrderRecord> = {}): OrderRecord {
     deliveryFailureReason: null,
     customerDecisionAskedAt: null,
     customerDecisionRemindedAt: null,
+      cashChangeForInCents: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,

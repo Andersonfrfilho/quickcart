@@ -236,6 +236,8 @@ export type OrderDetail = Order & {
    * É a hora que diz se a espera é de dez minutos ou de ontem — e é ela que decide se o lojista liga.
    */
   readonly customerDecisionAskedAt: string | null
+  /** Troco no pagamento em dinheiro (roteiro §9). `null` = não precisa, ou pagamento não é em dinheiro. */
+  readonly cashChangeForInCents: number | null
   readonly items: readonly OrderItem[]
   /**
    * Uma linha por viagem da sacola, na ordem em que saíram.
