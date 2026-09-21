@@ -14,13 +14,13 @@ export type UpdateProductAisleParams = {
  * Manda só o campo do corredor: a rota aceita atualização parcial, e enviar o produto inteiro faria a
  * tela de estoque disputar a escrita com quem estiver ajustando preço na mesma linha.
  */
-export function useUpdateProductAisleMutation(token: string | null) {
+export function useUpdateProductAisleMutation() {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: async ({ id, aisle }: UpdateProductAisleParams): Promise<Product> => {
       const trimmed = aisle.trim()
-      const result = await adminUpdateProduct(token as string, id, { aisle: trimmed.length > 0 ? trimmed : null })
+      const result = await adminUpdateProduct(id, { aisle: trimmed.length > 0 ? trimmed : null })
       return result.data
     },
     onSuccess: () => {

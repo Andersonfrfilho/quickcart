@@ -43,7 +43,7 @@ export class InternalController {
    * novo — devolver erro aí só produziria três tentativas inúteis por pedido resolvido a tempo.
    */
   handleRemindCustomerDecision: RouteHandler = async (request, response) => {
-    requireInternalToken(request)
+    await requireSession({ request, roles: SERVICE_ONLY })
     const orderId = request.params[0] ?? ''
     const result = await this.dependencies.remindCustomerDecisionUseCase.execute({ orderId })
     response.json(200, { data: result })
