@@ -40,11 +40,12 @@ migrado — ver nota) · frontend tocado: `cd apps/frontend-web && bun run typec
 > 🤖 Modelo: `sonnet` — **só verifica, não mergeia**
 
 ### T0.1 — Conferir que a branch da substituição está no main
-- **Checar:** `git merge-base --is-ancestor 30fa0d2 origin/main` (commit do ADR 0003).
+- **Checar:** `awaiting_customer_decision` presente em `Order.constant.ts` do `origin/main`. **Não** usar
+  `merge-base --is-ancestor 30fa0d2`: o #21 entrou por *squash*, e o commit original nunca é ancestral.
 - **Se NÃO estiver:** **PARAR e perguntar ao usuário.** Não mergear, não fazer rebase, não tocar
   no worktree `/Users/anderson.filho/Documents/personal/quickcart` — ele tem trabalho não commitado
   de outra sessão na branch `chore/notification-sdk-bump`.
-- **Se estiver:** `git rebase origin/main` nesta branch e seguir.
+- **Se estiver:** `git rebase origin/main` nesta branch e seguir. ✅ Concluída — #21 mergeado (`c1f4779`).
 - **Aceite:** `awaiting_customer_decision` existe em `Order.constant.ts` do main.
 
 ---
