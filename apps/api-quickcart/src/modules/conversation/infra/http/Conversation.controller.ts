@@ -24,7 +24,8 @@ import { MetaWhatsAppError } from '@adatechnology/meta-whatsapp-contracts'
 import type { ObjectStorageInterface } from '@adatechnology/meta-whatsapp-contracts'
 import type { ObjectStorageProvider } from '@adatechnology/object-storage-provider'
 import type { RouteHandler } from '@/infra/http/router'
-import { requireAdminToken } from '@/infra/http/middlewares/requireAdminToken'
+import { requireSession } from '@/infra/http/middlewares/requireSession'
+import { ADMIN_AND_ATTENDANT } from '@/modules/user/shared/User.constant'
 import { environment } from '@/infra/config/environment'
 import { ValidationError, NotFoundError, TooManyRequestsError } from '@/shared/errors/AppError.error'
 import { logger } from '@/shared/logger'
@@ -183,7 +184,7 @@ export class ConversationController {
   constructor(private readonly dependencies: ConversationControllerDependencies) {}
 
   handleList: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_AND_ATTENDANT })
     const search = request.query.get('search')
     const waitingHuman = request.query.get('waitingHuman')
 
@@ -206,7 +207,7 @@ export class ConversationController {
   }
 
   handleListMessages: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_AND_ATTENDANT })
     const before = request.query.get('before')
 
     const messages = await this.dependencies.metaWhatsApp.conversations.listMessages.execute({
@@ -221,7 +222,7 @@ export class ConversationController {
 
   /** Biblioteca da empresa inteira — a tela de Documentos do painel, fora da conversa. */
   handleListAllDocuments: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_AND_ATTENDANT })
     const search = request.query.get('search')
     const page = Number(request.query.get('page') ?? 1)
     const limit = Math.min(
@@ -247,7 +248,7 @@ export class ConversationController {
    * que aqui é o atendente quem escolhe a que conversa o arquivo pertence.
    */
   handleUploadDocument: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_AND_ATTENDANT })
 
     const storage = this.dependencies.objectStorage
     if (!storage) throw new NotFoundError('Biblioteca de documentos indisponível', CONVERSATION_NOT_FOUND)
@@ -297,7 +298,7 @@ export class ConversationController {
   }
 
   handleListDocuments: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_AND_ATTENDANT })
     const search = request.query.get('search')
     const page = Number(request.query.get('page') ?? 1)
     const limit = Math.min(
@@ -324,7 +325,7 @@ export class ConversationController {
   // atendente vai direto ao storage. Sem storage configurado a rota é 404 em vez de 500 — a
   // instalação simplesmente não tem biblioteca.
   handleGetDocumentUrl: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_AND_ATTENDANT })
     const uploadId = request.params[0]
     if (!uploadId) throw new ValidationError('Identificador do documento ausente', VALIDATION_ERROR)
 
@@ -359,7 +360,7 @@ export class ConversationController {
    * Por isso o teto: sem ele, selecionar a conversa inteira carregaria tudo na memória da API.
    */
   handleDownloadDocumentsArchive: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_AND_ATTENDANT })
     const whatsappNumber = requireNumber(request)
     const body = request.body as { uploadIds?: unknown }
 
@@ -440,7 +441,7 @@ export class ConversationController {
    * operação poder repetir. Responder `204` nesse caso esconderia arquivo pago e sem ponteiro.
    */
   handleDeleteConversation: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_AND_ATTENDANT })
 
     const result = await this.dependencies.metaWhatsApp.conversations.delete.execute({
       companyId: COMPANY_ID,
@@ -461,7 +462,7 @@ export class ConversationController {
   }
 
   handleSendText: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_AND_ATTENDANT })
     const body = request.body as { text?: unknown }
     if (typeof body?.text !== 'string' || body.text.trim() === '') {
       throw new ValidationError('Campo `text` é obrigatório', VALIDATION_ERROR)
@@ -484,7 +485,7 @@ export class ConversationController {
   // Sem object storage no QuickCart: o binário chega em base64, vai direto para a Meta pelo
   // uploadMedia do provider e não é persistido em lugar nenhum nosso.
   handleSendMedia: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_AND_ATTENDANT })
     const body = request.body as { base64?: unknown; mimeType?: unknown; filename?: unknown; caption?: unknown }
     if (typeof body?.base64 !== 'string' || typeof body?.mimeType !== 'string' || typeof body?.filename !== 'string') {
       throw new ValidationError('Campos `base64`, `mimeType` e `filename` são obrigatórios', VALIDATION_ERROR)
@@ -518,7 +519,7 @@ export class ConversationController {
   }
 
   handleSendTemplate: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_AND_ATTENDANT })
     const body = request.body as { templateName?: unknown; languageCode?: unknown; bodyParams?: unknown }
     if (typeof body?.templateName !== 'string') {
       throw new ValidationError('Campo `templateName` é obrigatório', VALIDATION_ERROR)
@@ -538,7 +539,7 @@ export class ConversationController {
   }
 
   handleMarkRead: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_AND_ATTENDANT })
     await this.dependencies.metaWhatsApp.conversations.repository.markRead(COMPANY_ID, requireNumber(request))
     response.json(204, { data: null })
   }
@@ -556,7 +557,7 @@ export class ConversationController {
    * áudio) e sobem para o handler de erro do router sem tradução aqui.
    */
   handleTranscribeAudio: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_AND_ATTENDANT })
 
     const transcribeAudio = this.dependencies.metaWhatsApp.conversations.transcribeAudio
     if (!transcribeAudio) throw new NotFoundError('Transcrição de áudio não está habilitada', CONVERSATION_NOT_FOUND)
@@ -607,7 +608,7 @@ export class ConversationController {
   }
 
   handleGetContext: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_AND_ATTENDANT })
     const session = await this.dependencies.metaWhatsApp.conversations.repository.getContext(
       COMPANY_ID,
       requireNumber(request),
@@ -620,7 +621,7 @@ export class ConversationController {
   // Transcript completo para download/auditoria. O caso de uso já existia no módulo desde a Fase 3
   // e nunca tinha sido exposto — sem rota, a capacidade estava morta.
   handleExport: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_AND_ATTENDANT })
     const exported = await this.dependencies.metaWhatsApp.conversations.export.execute({
       companyId: COMPANY_ID,
       whatsappNumber: requireNumber(request),
@@ -642,7 +643,7 @@ export class ConversationController {
   // Assume a conversa para atendimento humano: o módulo passa mode='human' e, a partir daí,
   // o webhook para de entregar mensagens ao bot (ver ReceiveWebhook.use-case).
   handleTakeover: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_AND_ATTENDANT })
     const body = request.body as { agentUserId?: unknown }
     if (typeof body?.agentUserId !== 'string') {
       throw new ValidationError('Campo `agentUserId` é obrigatório', VALIDATION_ERROR)
@@ -658,7 +659,7 @@ export class ConversationController {
   }
 
   handleRelease: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_AND_ATTENDANT })
     await this.dependencies.metaWhatsApp.conversations.release.execute({
       companyId: COMPANY_ID,
       whatsappNumber: requireNumber(request),
@@ -671,7 +672,7 @@ export class ConversationController {
   // áudio da lista de compras na inbox — que é o caso que importa aqui — ao custo de só servir
   // mídia recente, já que a Meta expira o conteúdo em ~30 dias.
   handleMediaProxy: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_AND_ATTENDANT })
     const mediaId = request.params[0]
     if (!mediaId) throw new ValidationError('mediaId ausente na rota', VALIDATION_ERROR)
 

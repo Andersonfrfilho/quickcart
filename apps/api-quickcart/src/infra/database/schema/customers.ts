@@ -17,6 +17,12 @@ export const customers = pgTable('customers', {
   phone: varchar('phone', { length: 20 }).notNull().unique(),
   name: varchar('name', { length: 120 }),
   email: varchar('email', { length: 160 }),
+  /*
+   * Identidade de login, quando existe. Sem `references`: `users` vive no schema `user`, versionado
+   * pelo journal do próprio pacote — uma FK daqui para lá amarraria a migration do produto à ordem
+   * de aplicação das migrations do módulo.
+   */
+  userId: uuid('user_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })

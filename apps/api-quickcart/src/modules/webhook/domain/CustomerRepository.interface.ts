@@ -12,7 +12,21 @@ import type { Customer } from '@/infra/database/schema'
 
 export type UpsertCustomerByPhoneParams = {
   readonly phone: string
+  /** Nome informado por uma PESSOA. Sobrescreve o que houver. */
   readonly name?: string | undefined
+  /**
+   * Nome que veio do perfil do WhatsApp. Preenche quando não há nome, e NUNCA sobrescreve.
+   *
+   * Campo separado de `name` de propósito: um booleano `overwrite` deixaria os dois call sites
+   * decidirem a mesma coisa de jeitos diferentes. O atendente que corrige "Joana" para "Joana —
+   * Padaria Central" não pode ver a correção sumir na próxima mensagem que a cliente mandar.
+   */
+  readonly fallbackName?: string | undefined
+}
+
+export type LinkCustomerToUserParams = {
+  readonly customerId: string
+  readonly userId: string
 }
 
 export type UpdateContactInfoParams = {
@@ -25,4 +39,8 @@ export interface CustomerRepositoryInterface {
   findByPhone(phone: string): Promise<Customer | undefined>
   upsertByPhone(params: UpsertCustomerByPhoneParams): Promise<Customer>
   updateContactInfo(params: UpdateContactInfoParams): Promise<Customer>
+  /** Quem é o cliente por trás de um login. `undefined` = login que nunca comprou. */
+  findByUserId(userId: string): Promise<Customer | undefined>
+  /** Liga a identidade de compra à de login. Chamado uma vez, no cadastro. */
+  linkToUser(params: LinkCustomerToUserParams): Promise<Customer>
 }

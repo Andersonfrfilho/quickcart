@@ -28,10 +28,78 @@ default que não serve em produção**. A segunda lista é a perigosa: sobe, fic
 | `DATABASE_URL` | ✅ | ✅ | |
 | `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | ✅ | — | o valor que a Meta ecoa no handshake do webhook |
 | `NOTIFICATION_SUPPRESSION_KEY` | ✅ | ✅ | ≥32 chars, **o mesmo valor nos dois** — chaves diferentes fazem a API gravar a supressão sob um hash e o worker consultar outro, e endereço suprimido volta a receber |
-| `ADMIN_API_TOKEN` | ✅ | — | |
-| `INTERNAL_API_TOKEN` | ✅ | ✅ | mesmo valor nos dois |
+| `USER_REFRESH_COOKIE_SAME_SITE` | ✅ | — | `lax` (padrão) ou `none`. `none` é obrigatório quando a tela e a api não compartilham o **site registrável** (eTLD+1): dois subdomínios de `up.railway.app` são cross-site entre si, porque `railway.app` está na Public Suffix List, e com `lax` o cookie de refresh não é enviado — o login funciona e recarregar a aba desloga. Com `none`, a defesa contra CSRF é só o CORS: `ALLOWED_ORIGINS` deixa de ser conforto e vira a tranca |
+| `USER_ACCESS_TOKEN_SECRET` | ✅ | — | ≥32 chars, assina o access token da sessão. Sem default de propósito: um valor de fábrica assinaria tokens que qualquer instalação saberia forjar. Trocar este valor invalida toda sessão aberta |
 | `API_BASE_URL` | — | ✅ | URL interna da api; é por onde o worker retoma a conversa |
+| `WORKER_SERVICE_EMAIL` / `WORKER_SERVICE_PASSWORD` | — | ✅ | credencial da conta de serviço. Precisam bater com `BOOTSTRAP_SERVICE_*` da api, senão o worker não entra |
+| `BOOTSTRAP_SERVICE_EMAIL` / `BOOTSTRAP_SERVICE_PASSWORD` | ✅ | — | criam a conta de papel `servico` que o worker usa. Diferente do bootstrap de admin, estas ficam: é por elas que o worker reautentica a cada reinício |
 | `BULL_BOARD_USER` / `BULL_BOARD_PASSWORD` | — | ✅ | o painel de filas sobe junto com o worker; credencial vazia autenticaria requisição sem credencial |
+
+### A infraestrutura é declarada
+
+`.railway/railway.ts` descreve serviços, imagens, volumes, bucket e nomes de variáveis. Os VALORES
+ficam no Railway — `preserve()` declara o nome e preserva o valor, então nenhum segredo entra no
+repositório.
+
+```bash
+railway config plan    # mostra a diferença contra o ambiente ligado
+railway config apply   # aplica (pede confirmação antes de destruir)
+```
+
+⚠️ **O que não está declarado é APAGADO no `apply`.** Omitir o Postgres faz o plano pedir para
+deletá-lo. Leia a saída do `plan` inteira antes de aplicar.
+
+⚠️ A imagem do Postgres é declarada explicitamente. Sem isso o helper assume `postgres:18`, e a
+imagem em uso é a única com `pg_trgm` e `pgvector` — a troca derrubaria a busca do catálogo em
+silêncio, com o serviço subindo normalmente.
+
+### Como o deploy acontece
+
+Os três serviços têm **gatilho de deploy** ligado ao repositório, na branch `main`: todo merge
+publica sozinho, sem passar por secret nenhum no GitHub. `api` já tinha; `worker` e `web` estavam
+sem — por isso só a api chegava a subir, e mesmo assim precisando de `railway up` à mão.
+
+O workflow `Deploy staging` é **manual** (`workflow_dispatch`), para redeploy sem commit — subir de
+novo a mesma revisão depois de mexer numa variável, por exemplo. Ele exige `RAILWAY_TOKEN` (token de
+PROJETO, criado no painel) e, sem o secret, falha alto de propósito em vez de não fazer nada calado.
+
+Como o deploy de rotina é do Railway, ele não roda mais a cada push: antes pintava de vermelho todo
+merge por um deploy que já tinha acontecido.
+
+### Primeiro acesso ao painel
+
+O painel autentica por sessão de pessoa — `ADMIN_API_TOKEN` não existe mais. Com o banco vazio não
+há por onde entrar, então a api semeia o primeiro administrador quando estas duas variáveis estão
+presentes, e só então:
+
+| Variável | Nota |
+|---|---|
+| `BOOTSTRAP_ADMIN_EMAIL` | e-mail do primeiro administrador |
+| `BOOTSTRAP_ADMIN_PASSWORD` | ≥12 chars. Sem default: um default aqui seria a credencial de admin conhecida de toda instalação do produto |
+| `BOOTSTRAP_ADMIN_NAME` | opcional, default `Administrador` |
+
+**Para girar a senha depois** — e senha queimada tem de girar — não dependa do fluxo de "esqueci
+minha senha": ele exige SMTP, e sem driver de e-mail o pacote nem publica essas rotas. Use:
+
+```bash
+railway ssh --service api --environment staging -- \
+  sh -lc 'cd /app && USER_EMAIL=... NEW_PASSWORD=... bun run apps/api-quickcart/src/infra/database/setUserPassword.ts'
+```
+
+A senha vai por variável de ambiente, nunca por argumento — argumento aparece em `ps` e no
+histórico do shell. O script emite um token de redefinição de vida curta e chama o caso de uso do
+pacote: o hash é derivado por quem sabe derivá-lo, não escrito à mão.
+
+A semeadura é idempotente — do segundo boot em diante ela encontra o usuário e não faz nada. Remova
+as duas variáveis depois do primeiro acesso: com a conta criada, elas só guardam uma senha em
+variável de ambiente sem servir para mais nada.
+
+As migrations rodam **no boot da api**, nesta ordem: `meta_whatsapp`, o schema do produto,
+`notification` e `user`. Cada uma mantém schema e journal próprios; o que é comum é o disparo.
+Antes elas dependiam de alguém rodar `make notification-migrate` e `make user-migrate` à mão, e
+nenhum deploy os chamava — a api subia, a semeadura procurava `user.users` e o processo morria.
+
+Os alvos do Makefile continuam existindo para rodar isoladamente em desenvolvimento.
 
 ### Têm default, e o default está errado em produção
 

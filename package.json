@@ -11,6 +11,7 @@
     "test:api": "cd apps/api-quickcart && bun run test"
   },
   "devDependencies": {
-    "@types/bun": "^1.3.14"
+    "@types/bun": "^1.3.14",
+    "railway": "^3.11.0"
   }
 }

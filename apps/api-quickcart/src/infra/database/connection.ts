@@ -10,6 +10,9 @@
 
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
+import { runNotificationMigrations } from '@adatechnology/notification-module'
+import { runUserMigrations } from '@adatechnology/user-module'
+import { runCustomerMigrations } from '@adatechnology/customer-module'
 import { runMetaWhatsAppMigrations } from '@adatechnology/meta-whatsapp-module'
 import { Pool } from 'pg'
 import path from 'node:path'
@@ -70,5 +73,29 @@ export async function runMigrations(): Promise<void> {
   const migrationsFolder = path.resolve(import.meta.dir, '../../../drizzle/migrations')
   dbLog.info('running_migrations')
   await migrate(db, { migrationsFolder })
+
+  /*
+   * As migrations dos módulos plugáveis, no boot e não num comando à parte.
+   *
+   * Cada uma tem schema e journal próprios — `notification`, `user` —, e continuam separadas: o que
+   * muda é QUEM as dispara. Havia um `make notification-migrate` e um `make user-migrate` para
+   * alguém rodar à mão, e nenhum deploy os chamava: a api subia, `seedBootstrapUsers` procurava
+   * `user.users` e o processo morria. Semear no boot e migrar à mão era incoerente.
+   *
+   * Os alvos do Makefile continuam, para rodar isoladamente em desenvolvimento.
+   */
+  dbLog.info('running_notification_migrations')
+  await runNotificationMigrations({ db, migrate })
+
+  dbLog.info('running_user_migrations')
+  await runUserMigrations({ db, migrate })
+
+  dbLog.info('running_customer_migrations')
+  await runCustomerMigrations({ db, migrate })
+
+  // Depois da migration do pacote, nunca antes: a cópia escreve num schema que ela acabou de criar.
+  const { backfillCustomerRegistry } = await import('./backfillCustomerRegistry')
+  await backfillCustomerRegistry()
+
   dbLog.info('migrations_completed')
 }

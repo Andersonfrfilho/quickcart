@@ -7,12 +7,12 @@ import { adminNotifyUnavailableItems } from '@/shared/api/client'
  * Separada de marcar item porque são decisões diferentes: marcar é registro interno de quem separa, avisar
  * é falar com o cliente. Antes as duas eram a mesma coisa, e cada item marcado virava uma mensagem.
  */
-export function useNotifyUnavailableItemsMutation(token: string | null) {
+export function useNotifyUnavailableItemsMutation() {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: (params: { readonly orderId: string; readonly requiresCustomerApproval: boolean }) =>
-      adminNotifyUnavailableItems(token as string, params),
+      adminNotifyUnavailableItems(params),
     onSuccess: (_result, params) => {
       void queryClient.invalidateQueries({ queryKey: ['admin-order-detail', params.orderId] })
     },

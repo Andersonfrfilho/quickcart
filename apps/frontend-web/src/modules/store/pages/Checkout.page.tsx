@@ -10,8 +10,6 @@ export function CheckoutPage() {
     totalInCents,
     name,
     setName,
-    phone,
-    setPhone,
     email,
     setEmail,
     deliveryType,
@@ -74,10 +72,6 @@ export function CheckoutPage() {
         <div className="space-y-2">
           <label className="text-sm font-medium">Nome</label>
           <Input required value={name} onChange={(e) => setName(e.target.value)} />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Telefone (WhatsApp)</label>
-          <Input type="tel" required value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="5511999999999" />
         </div>
         <div className="space-y-2">
           <label className="text-sm font-medium">E-mail (opcional)</label>

@@ -16,12 +16,12 @@ export type UpdateOrderStatusVariables = {
   readonly deliveryFailureReason?: string | undefined
 }
 
-export function useUpdateOrderStatusMutation(token: string | null) {
+export function useUpdateOrderStatusMutation() {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: ({ id, status, deliveryFailureReason }: UpdateOrderStatusVariables) =>
-      adminUpdateOrderStatus(token as string, { orderId: id, status, deliveryFailureReason }),
+      adminUpdateOrderStatus({ orderId: id, status, deliveryFailureReason }),
     onSuccess: (_result, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['admin-order-detail', variables.id] })
       void queryClient.invalidateQueries({ queryKey: ['admin-orders'] })

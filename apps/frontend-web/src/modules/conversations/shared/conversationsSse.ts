@@ -16,7 +16,7 @@
  */
 
 import type { ConversationEventSource, SSEProvider } from '@adatechnology/conversations-ui'
-import { getAdminToken } from '@/modules/admin/shared/useAdminAuth.hook'
+import { getAccessToken } from '@/modules/auth/shared/sessionStore'
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
 const ADMIN_BASE_PATH = '/v1/admin'
@@ -30,7 +30,7 @@ async function issueTicket(conversationId?: string): Promise<string> {
   const query = conversationId ? `?conversation=${encodeURIComponent(conversationId)}` : ''
   const response = await fetch(`${API_BASE_URL}${ADMIN_BASE_PATH}/conversations/stream-ticket${query}`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${getAdminToken() ?? ''}` },
+    headers: { Authorization: `Bearer ${getAccessToken() ?? ''}` },
   })
 
   if (!response.ok) throw new Error(`Não foi possível abrir o stream (${response.status}).`)

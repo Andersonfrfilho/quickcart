@@ -21,7 +21,11 @@ export const createWebOrderBodySchema = z
   .object({
     customer: z.object({
       name: z.string().min(1),
-      phone: z.string().min(8),
+      /*
+       * Aceito por compatibilidade e IGNORADO: o telefone efetivo vem da sessão (ver o controller).
+       * Continuar exigindo-o pediria à tela um dado que ela não usa mais.
+       */
+      phone: z.string().min(8).optional(),
       email: z.string().email().optional(),
     }),
     items: z

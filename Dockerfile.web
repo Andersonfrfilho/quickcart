@@ -7,6 +7,8 @@ COPY apps/worker-quickcart/package.json ./apps/worker-quickcart/
 COPY apps/frontend-web/package.json ./apps/frontend-web/
 RUN bun install --frozen-lockfile
 
+# O `.dockerignore` mantém o `node_modules` do host fora do contexto: sem ele, este COPY
+# sobrescreveria o que o `bun install` acabou de resolver para a plataforma da imagem.
 COPY . .
 WORKDIR /app/apps/frontend-web
 ARG VITE_API_URL

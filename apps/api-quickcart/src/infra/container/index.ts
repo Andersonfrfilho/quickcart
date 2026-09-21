@@ -327,6 +327,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     setOrderItemUnavailableUseCase,
     setOrderItemPickedUseCase,
     notifyUnavailableItemsUseCase,
+    customerRepository: dependencies.customerRepository,
   })
 
   return {
@@ -529,6 +530,7 @@ function buildWebhookModule(
       readonly repeatLastOrderUseCase: RepeatLastOrderUseCase
       readonly cartRepository: CartRepositoryInterface
       readonly productRepository: ProductRepositoryInterface
+      readonly categoryRepository: CategoryRepositoryInterface
       readonly orderRepository: OrderRepositoryInterface
     },
 ): WebhookModule {
@@ -606,6 +608,7 @@ function buildWebhookModule(
       whatsAppSender,
       customerRepository,
       repeatLastOrderUseCase,
+      categoryRepository: params.categoryRepository,
       cartRepository: params.cartRepository,
       productRepository: params.productRepository,
       orderRepository: params.orderRepository,
@@ -728,6 +731,7 @@ const webhookModule = buildWebhookModule({
   repeatLastOrderUseCase: orderModule.repeatLastOrderUseCase,
   cartRepository: cartModule.cartRepository,
   productRepository: catalogModule.productRepository,
+  categoryRepository: catalogModule.categoryRepository,
   orderRepository: orderModule.orderRepository,
 })
 
@@ -797,6 +801,14 @@ export const container = {
     orderController: orderModule.orderController,
   },
   webhook: webhookModule,
+  /*
+   * Repositórios expostos para a loja montar seus casos de uso no `createRouter`, e não aqui: eles
+   * dependem do `userModule`, que é assíncrono, e este container é montado de forma síncrona.
+   */
+  storeRepositories: {
+    orderRepository: orderModule.orderRepository,
+    customerRepository: webhookRepositories.customerRepository,
+  },
   conversationHttp: buildConversationHttpModule({
     metaWhatsApp: webhookModule.metaWhatsApp,
     ...(quickCartObjectStorage ? { objectStorage: quickCartObjectStorage.forModule } : {}),

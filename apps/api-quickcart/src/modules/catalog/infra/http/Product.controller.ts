@@ -9,7 +9,8 @@
  */
 
 import type { RouteHandler } from '@/infra/http/router'
-import { requireAdminToken } from '@/infra/http/middlewares/requireAdminToken'
+import { requireSession } from '@/infra/http/middlewares/requireSession'
+import { ADMIN_ONLY } from '@/modules/user/shared/User.constant'
 import { validateBody } from '@/infra/http/middlewares/validateBody'
 import { validateQuery } from '@/infra/http/middlewares/validateQuery'
 import type { AdjustStockUseCase } from '@/modules/catalog/application/use-cases/AdjustStock.use-case'
@@ -41,7 +42,7 @@ export class ProductController {
   }
 
   handleListAdmin: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_ONLY })
     const query = validateQuery(listProductsQuerySchema, request.query)
     const result = await this.dependencies.listProductsUseCase.execute({ ...query, onlyAvailable: false })
     response.json(200, { data: result.items, pagination: { total: result.total, page: result.page, perPage: result.perPage } })
@@ -54,14 +55,14 @@ export class ProductController {
   }
 
   handleCreate: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_ONLY })
     const input = validateBody(createProductSchema, request.body)
     const product = await this.dependencies.createProductUseCase.execute(input)
     response.json(201, { data: product })
   }
 
   handleUpdate: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_ONLY })
     const id = request.params[0] ?? ''
     const input = validateBody(updateProductSchema, request.body)
     const product = await this.dependencies.updateProductUseCase.execute({ id, ...input })
@@ -69,7 +70,7 @@ export class ProductController {
   }
 
   handleAdjustStock: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_ONLY })
     const id = request.params[0] ?? ''
     const { delta } = validateBody(adjustStockSchema, request.body)
     const product = await this.dependencies.adjustStockUseCase.execute({ id, delta })

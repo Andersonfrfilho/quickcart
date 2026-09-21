@@ -1,0 +1,17 @@
+# O `node_modules` do host nunca entra no contexto: ele é resolvido dentro da imagem, para a
+# plataforma dela. Copiar o da máquina de quem builda sobrescreveria o instalado — e é o tipo de
+# divergência que só aparece em produção, porque local "funciona".
+node_modules
+**/node_modules
+
+.git
+.github
+.omc
+.specs
+
+dist
+**/dist
+**/*.tsbuildinfo
+
+envs/env.dev.local
+*.log

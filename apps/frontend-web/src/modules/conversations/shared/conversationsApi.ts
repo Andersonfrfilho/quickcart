@@ -23,7 +23,7 @@ import type {
   SSEProvider,
 } from '@adatechnology/conversations-ui'
 import type { PreviewInboundCommand } from '@adatechnology/conversations-ui/preview'
-import { getAdminToken } from '@/modules/admin/shared/useAdminAuth.hook'
+import { getAccessToken } from '@/modules/auth/shared/sessionStore'
 import { ApiRequestError } from '@/modules/conversations/shared/ApiRequestError'
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
@@ -31,7 +31,7 @@ const ADMIN_BASE_PATH = '/v1/admin'
 
 function adminToken(): string {
   // sessionStorage, pelo mesmo acessor do login — ler localStorage aqui mandava token vazio.
-  return getAdminToken() ?? ''
+  return getAccessToken() ?? ''
 }
 
 async function request<TResponse>(path: string, init?: RequestInit): Promise<TResponse> {

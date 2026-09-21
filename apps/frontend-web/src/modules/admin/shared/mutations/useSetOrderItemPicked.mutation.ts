@@ -19,11 +19,11 @@ export type SetOrderItemPickedParams = {
  * Não invalida `admin-orders`: separar não muda total nem situação do pedido, e recarregar a lista a
  * cada item marcado seria uma consulta por toque numa compra de trinta itens.
  */
-export function useSetOrderItemPickedMutation(token: string | null) {
+export function useSetOrderItemPickedMutation() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (params: SetOrderItemPickedParams) => adminSetOrderItemPicked(token as string, params),
+    mutationFn: (params: SetOrderItemPickedParams) => adminSetOrderItemPicked(params),
 
     onMutate: async (params) => {
       const queryKey = ['admin-order-detail', params.orderId]

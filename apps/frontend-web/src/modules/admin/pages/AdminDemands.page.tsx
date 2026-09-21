@@ -65,7 +65,7 @@ function formatDate(isoDate: string): string {
 
 export function AdminDemandsPage() {
   const {
-    token,
+    isReady,
     demands,
     meta,
     isLoading,
@@ -97,7 +97,7 @@ export function AdminDemandsPage() {
   const [searchDraft, setSearchDraft] = React.useState(search)
   React.useEffect(() => setSearchDraft(search), [search])
 
-  if (!token) return null
+  if (!isReady) return null
 
   function sortHeaderProps(field: UnmatchedDemandSortableField) {
     return { active: sortBy === field, direction: sortDirection, onSort: () => handleSort(field) }

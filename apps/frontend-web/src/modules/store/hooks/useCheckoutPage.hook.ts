@@ -1,18 +1,38 @@
 import React from 'react'
+import { useUser, SESSION_STATUS } from '@adatechnology/user-ui'
 import { useRouter } from '@/app/router'
 import { useCartStore } from '@/modules/store/shared/cartStore'
 import { useCreateOrderMutation } from '@/modules/store/shared/mutations/useCreateOrder.mutation'
 import { lookupAddressByCep } from '@/modules/store/shared/viaCepLookup'
 import type { DeliveryType, PaymentMethod, ReceiptPreference } from '@/shared/api/api.types'
 
+const SIGN_IN_PATH = '/entrar'
+
 export function useCheckoutPage() {
   const { navigate } = useRouter()
+  const { status, user } = useUser()
   const { items, totalInCents, clearCart } = useCartStore()
   const createOrderMutation = useCreateOrderMutation()
 
+  /*
+   * Navegar na loja é livre; FECHAR o pedido exige conta. A trava fica aqui, no checkout, e não na
+   * loja inteira: exigir login para ver preço afasta quem ainda está decidindo.
+   *
+   * `loading` não redireciona — expulsaria quem está com a sessão sendo restaurada no reload.
+   */
+  React.useEffect(() => {
+    if (status === SESSION_STATUS.UNAUTHENTICATED) navigate(SIGN_IN_PATH)
+  }, [status, navigate])
+
   const [name, setName] = React.useState('')
-  const [phone, setPhone] = React.useState('')
   const [email, setEmail] = React.useState('')
+
+  // Prefill do perfil: quem acabou de entrar não deve redigitar o que a conta já sabe.
+  React.useEffect(() => {
+    if (!user) return
+    setName((current) => current || user.name)
+    setEmail((current) => current || user.email)
+  }, [user])
   const [deliveryType, setDeliveryType] = React.useState<DeliveryType>('delivery')
 
   /*
@@ -59,7 +79,8 @@ export function useCheckoutPage() {
     try {
       await createOrderMutation.mutateAsync({
         body: {
-          customer: { name, phone, ...(email ? { email } : {}) },
+          // Sem `phone`: a api usa o da conta logada, e mandar outro não teria efeito nenhum.
+          customer: { name, ...(email ? { email } : {}) },
           items: items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
           deliveryType,
           ...(deliveryType === 'delivery'
@@ -95,8 +116,6 @@ export function useCheckoutPage() {
     totalInCents,
     name,
     setName,
-    phone,
-    setPhone,
     email,
     setEmail,
     deliveryType,

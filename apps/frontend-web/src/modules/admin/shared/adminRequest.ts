@@ -15,7 +15,7 @@
 // Lê pelo mesmo acessor que o login usa para gravar. Ler o storage direto aqui já tinha causado
 // divergência real: o login grava em sessionStorage e o cliente lia localStorage, então toda
 // chamada saía com token vazio.
-import { getAdminToken } from '@/modules/admin/shared/useAdminAuth.hook'
+import { getAccessToken } from '@/modules/auth/shared/sessionStore'
 import { ApiRequestError } from '@/modules/conversations/shared/ApiRequestError'
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
@@ -27,7 +27,7 @@ export async function adminRequest<TResponse>(path: string, init?: RequestInit):
     ...init,
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${getAdminToken() ?? ''}`,
+      Authorization: `Bearer ${getAccessToken() ?? ''}`,
       ...init?.headers,
     },
   })

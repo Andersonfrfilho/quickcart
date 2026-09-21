@@ -19,7 +19,8 @@
 
 import { z } from 'zod'
 import type { RouteHandler } from '@/infra/http/router'
-import { requireAdminToken } from '@/infra/http/middlewares/requireAdminToken'
+import { requireSession } from '@/infra/http/middlewares/requireSession'
+import { ADMIN_AND_ATTENDANT } from '@/modules/user/shared/User.constant'
 import { validateQuery } from '@/infra/http/middlewares/validateQuery'
 import {
   UNMATCHED_DEMAND_SORTABLE_FIELDS,
@@ -73,7 +74,7 @@ export class UnmatchedDemandController {
   constructor(private readonly dependencies: UnmatchedDemandControllerDependencies) {}
 
   handleListAdmin: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_AND_ATTENDANT })
 
     const { limit, windowDays, source, search, sortBy, sortDirection } = validateQuery(
       listUnmatchedDemandsQuerySchema,

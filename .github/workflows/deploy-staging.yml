@@ -1,0 +1,55 @@
+name: Deploy staging
+
+# MANUAL, e só. O deploy de rotina é do gatilho do Railway: os três serviços publicam sozinhos a
+# cada merge em `main`, sem passar por secret nenhum aqui.
+#
+# Este workflow fica como o caminho de redeploy SEM commit — subir de novo a mesma revisão depois
+# de mexer numa variável, por exemplo. Ele exige `RAILWAY_TOKEN` (token de PROJETO) nos secrets.
+#
+# Com `workflow_run` ele disparava a cada push e falhava por falta desse secret, pintando de
+# vermelho todo merge por um deploy que já tinha acontecido pelo Railway. Dois mecanismos
+# publicando a mesma coisa também rendem deploy duplicado difícil de explicar.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Falha ALTO e cedo, em vez de deixar o `railway up` morrer com erro de CLI três passos
+      # adiante. Deploy que não acontece calado é pior que deploy vermelho: a branch fica com cara
+      # de publicada. Mesmo raciocínio do Bull Board sem credencial.
+      - name: Conferir credencial do Railway
+        run: |
+          if [ -z "${RAILWAY_TOKEN}" ]; then
+            echo "::error::RAILWAY_TOKEN não está configurado nos secrets do repositório."
+            echo "Crie um TOKEN DE PROJETO no Railway (Project Settings → Tokens), com escopo do"
+            echo "ambiente staging, e adicione como secret RAILWAY_TOKEN. Token de conta pessoal"
+            echo "daria ao CI acesso a todos os projetos, e não só a este."
+            exit 1
+          fi
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+      - name: Instalar a CLI do Railway
+        run: curl -fsSL https://railway.com/install.sh | sh
+
+      # Cada serviço sobe separado porque cada um tem seu Dockerfile. `--detach` não espera o
+      # build: quem observa o resultado é o passo seguinte, para uma falha de deploy não passar
+      # como sucesso do job.
+      - name: Subir api, worker e web
+        run: |
+          for servico in api worker web; do
+            echo "--- $servico"
+            railway up --service "$servico" --environment staging --detach
+          done
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+      - name: Conferir que os três subiram
+        run: railway status --environment staging
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}

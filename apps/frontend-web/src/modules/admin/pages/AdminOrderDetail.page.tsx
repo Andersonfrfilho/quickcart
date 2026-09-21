@@ -8,7 +8,7 @@ import { Button } from '@/components/ui'
  */
 export function AdminOrderDetailPage() {
   const {
-    token,
+    isReady,
     order,
     items,
     visibleItems,
@@ -31,7 +31,7 @@ export function AdminOrderDetailPage() {
     goBackToList,
   } = useAdminOrderDetailPage()
 
-  if (!token) return null
+  if (!isReady) return null
 
   if (isLoading) return <p className="p-6 text-muted-foreground">Carregando pedido…</p>
 

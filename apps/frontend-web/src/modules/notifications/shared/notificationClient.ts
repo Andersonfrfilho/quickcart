@@ -22,7 +22,7 @@
 import { createNotificationClient } from '@adatechnology/notification-client'
 import type { NotificationClient } from '@adatechnology/notification-client'
 
-import { getAdminToken } from '@/modules/admin/shared/useAdminAuth.hook'
+import { getAccessToken } from '@/modules/auth/shared/sessionStore'
 
 /**
  * `VITE_API_URL` é vazio por padrão neste projeto, de propósito: as chamadas saem same-origin e o
@@ -37,5 +37,5 @@ const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) || win
 
 export const notificationClient: NotificationClient = createNotificationClient({
   baseUrl: `${API_BASE_URL}/v1`,
-  getAuthHeaders: () => ({ authorization: `Bearer ${getAdminToken() ?? ''}` }),
+  getAuthHeaders: () => ({ authorization: `Bearer ${getAccessToken() ?? ''}` }),
 })

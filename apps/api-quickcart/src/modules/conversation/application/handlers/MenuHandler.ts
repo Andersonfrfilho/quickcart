@@ -20,6 +20,7 @@ import type { ConversationSessionRepositoryInterface } from '@/modules/webhook/d
 import type { WhatsAppSender } from '@/modules/webhook/infra/whatsapp/WhatsAppSender'
 import type { ConversationHandlerContext, ConversationHandlerInterface } from '@/modules/conversation/application/handlers/ConversationHandler.interface'
 import type { ProcessParsedListItems } from '@/modules/conversation/application/handlers/support/ProcessParsedListItems'
+import { sendCategoryList } from './support/sendCategoryList'
 import { buildCategorySection } from '@/modules/conversation/application/handlers/support/InteractiveListBuilders'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import { LIST_IMPORT_SOURCE } from '@/modules/conversation/shared/ListImport.constant'
@@ -90,25 +91,20 @@ export class MenuHandler implements ConversationHandlerInterface {
   }
 
   private async enterBrowsingCategories(session: ConversationSession): Promise<void> {
-    const categories = await this.dependencies.categoryRepository.list()
-    if (categories.length === 0) {
-      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.BROWSE_NO_CATEGORIES)
-      return
-    }
+    // Sem categoria não há estado de navegação a assumir: a pessoa recebe o aviso e continua onde
+    // estava, em vez de ficar num estado que não tem como avançar.
+    const sent = await sendCategoryList({
+      categoryRepository: this.dependencies.categoryRepository,
+      whatsAppSender: this.dependencies.whatsAppSender,
+      customerPhone: session.customerPhone,
+    })
+    if (!sent) return
 
     await this.dependencies.conversationSessionRepository.updateStateByPhone({
       customerPhone: session.customerPhone,
       currentState: CONVERSATION_STATE.BROWSING_CATEGORIES,
       context: {},
     })
-
-    const section = buildCategorySection(categories)
-    await this.dependencies.whatsAppSender.sendInteractiveList(
-      session.customerPhone,
-      MESSAGES.BROWSE_PICK_CATEGORY,
-      'Ver categorias',
-      [section],
-    )
   }
 
   private async sendMenuHint(session: ConversationSession): Promise<void> {

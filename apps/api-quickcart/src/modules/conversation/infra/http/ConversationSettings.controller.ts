@@ -18,7 +18,8 @@ import type { FlowGraphData, TranscriptionMode, WhatsAppSettings } from '@adatec
 import { OptimisticLockError } from '@adatechnology/meta-whatsapp-module'
 import type { WhatsAppTemplateProvider } from '@adatechnology/meta-whatsapp-provider'
 import type { RouteHandler } from '@/infra/http/router'
-import { requireAdminToken } from '@/infra/http/middlewares/requireAdminToken'
+import { requireSession } from '@/infra/http/middlewares/requireSession'
+import { ADMIN_ONLY } from '@/modules/user/shared/User.constant'
 import { environment } from '@/infra/config/environment'
 import { ValidationError, ConflictError, NotFoundError } from '@/shared/errors/AppError.error'
 import { CONVERSATION_NOT_FOUND, VALIDATION_ERROR } from '@/shared/errors/codes'
@@ -89,7 +90,7 @@ export class ConversationSettingsController {
   constructor(private readonly dependencies: ConversationSettingsControllerDependencies) {}
 
   handleGetSettings: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_ONLY })
     const settings = await this.dependencies.metaWhatsApp.settings.get(COMPANY_ID)
 
     const transcription = this.dependencies.metaWhatsApp.transcription
@@ -118,7 +119,7 @@ export class ConversationSettingsController {
   }
 
   handleSaveSettings: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_ONLY })
     const body = request.body as Record<string, unknown>
     if (!body || typeof body !== 'object') {
       throw new ValidationError('Corpo da requisição inválido', VALIDATION_ERROR)
@@ -134,13 +135,13 @@ export class ConversationSettingsController {
   // Templates vêm da Meta a cada leitura, não de cópia local: quem aprova/reprova é a Meta, e um
   // cache aqui mostraria como disponível um template já rejeitado.
   handleListTemplates: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_ONLY })
     const templates = await this.dependencies.templates.listTemplates()
     response.json(200, { data: templates })
   }
 
   handleCreateTemplate: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_ONLY })
     const parsed = createTemplateSchema.safeParse(request.body)
     if (!parsed.success) {
       throw new ValidationError('Validation failed', VALIDATION_ERROR)
@@ -156,13 +157,13 @@ export class ConversationSettingsController {
   }
 
   handleListFlows: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_ONLY })
     const flows = await requireFlows(this.dependencies.metaWhatsApp).list.execute({ companyId: COMPANY_ID })
     response.json(200, { data: flows })
   }
 
   handleGetFlow: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_ONLY })
     const key = request.params[0]
     if (!key) throw new ValidationError('Chave do fluxo ausente', VALIDATION_ERROR)
 
@@ -173,7 +174,7 @@ export class ConversationSettingsController {
   }
 
   handleCreateFlow: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_ONLY })
     const body = request.body as { key?: unknown; label?: unknown; startNodeId?: unknown; nodes?: unknown }
     if (typeof body?.key !== 'string' || typeof body?.label !== 'string') {
       throw new ValidationError('Campos `key` e `label` são obrigatórios', VALIDATION_ERROR)
@@ -195,7 +196,7 @@ export class ConversationSettingsController {
   // O save é otimista por versão: dois atendentes editando o mesmo fluxo não sobrescrevem um ao
   // outro em silêncio — o segundo recebe 409 e a UI pede para recarregar.
   handleSaveFlow: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_ONLY })
     const key = request.params[0]
     if (!key) throw new ValidationError('Chave do fluxo ausente', VALIDATION_ERROR)
 
@@ -222,7 +223,7 @@ export class ConversationSettingsController {
   }
 
   handleDeleteFlow: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_ONLY })
     const key = request.params[0]
     if (!key) throw new ValidationError('Chave do fluxo ausente', VALIDATION_ERROR)
 
@@ -232,7 +233,7 @@ export class ConversationSettingsController {
 
   // Quantas conversas estão paradas em cada nó agora — é o que pinta o contador no editor.
   handleLiveFlowPositions: RouteHandler = async (request, response) => {
-    requireAdminToken(request)
+    await requireSession({ request, roles: ADMIN_ONLY })
     const positions = await requireFlows(this.dependencies.metaWhatsApp).livePositions.execute({
       companyId: COMPANY_ID,
     })

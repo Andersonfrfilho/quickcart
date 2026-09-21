@@ -11,6 +11,8 @@
 import type { OrderWithCustomer } from '@/modules/order/domain/OrderRepository.interface'
 
 export type ListOrdersParams = {
+  /** Recorte por dono — a tela do cliente só enxerga os próprios pedidos. */
+  readonly customerId?: string | undefined
   readonly status?: readonly string[] | undefined
   readonly search?: string | undefined
   readonly deliveryType?: readonly string[] | undefined

@@ -113,9 +113,45 @@ export const environmentSchema = z.object({
   MAIL_FROM: z.string().optional(),
 
   // ── Tokens internos ──
-  ADMIN_API_TOKEN: z.string().min(1),
-  INTERNAL_API_TOKEN: z.string().min(1),
+  // `ADMIN_API_TOKEN` e `INTERNAL_API_TOKEN` saíram: painel e worker autenticam por sessão.
   ALLOWED_ORIGINS: z.string().default('http://localhost:5183'),
+
+  /*
+   * ── Sessão de usuário ──
+   *
+   * O segredo não tem default: um valor de fábrica assinaria tokens que qualquer instalação do
+   * produto saberia forjar, e a falta dele tem de derrubar o boot (`security.md` §2, §4).
+   *
+   * 15 minutos é o teto do access token na regra; a renovação é do refresh rotativo, com 30 dias.
+   */
+  USER_ACCESS_TOKEN_SECRET: z.string().min(32, 'USER_ACCESS_TOKEN_SECRET precisa de ao menos 32 caracteres'),
+  USER_ACCESS_TOKEN_EXPIRES_IN_SECONDS: z.coerce.number().int().positive().max(900).default(900),
+  USER_REFRESH_TOKEN_EXPIRES_IN_SECONDS: z.coerce.number().int().positive().default(60 * 60 * 24 * 30),
+  /*
+   * `lax` por padrão porque é o seguro: ele sozinho barra CSRF. `none` só quando a tela viver em
+   * outro site REGISTRÁVEL (eTLD+1) — dois subdomínios de `up.railway.app` são cross-site entre si,
+   * porque `railway.app` está na Public Suffix List. Com `none`, a defesa passa a ser só o CORS,
+   * então `ALLOWED_ORIGINS` deixa de ser conforto e vira a tranca.
+   */
+  USER_REFRESH_COOKIE_SAME_SITE: z.enum(['lax', 'none']).default('lax'),
+  /*
+   * Primeiro administrador. Existe para a instalação ter por onde entrar: sem nenhum usuário no
+   * banco, a tela de login não tem resposta possível e não há rota para criar o primeiro.
+   *
+   * Os dois juntos ou nenhum — e a senha nunca tem default, porque um default aqui seria a
+   * credencial de administrador conhecida de toda instalação do produto.
+   */
+  BOOTSTRAP_ADMIN_EMAIL: z.string().email().optional(),
+  BOOTSTRAP_ADMIN_PASSWORD: z.string().min(12).optional(),
+  BOOTSTRAP_ADMIN_NAME: z.string().default('Administrador'),
+
+  /** Conta de serviço do worker — mesmas regras do bootstrap de admin. */
+  BOOTSTRAP_SERVICE_EMAIL: z.string().email().optional(),
+  BOOTSTRAP_SERVICE_PASSWORD: z.string().min(12).optional(),
+
+  /** Sem template não há reset a oferecer, e o pacote deixa de publicar as rotas. */
+  USER_PASSWORD_RESET_URL_TEMPLATE: z.string().optional(),
+  USER_RESET_TOKEN_EXPIRES_IN_SECONDS: z.coerce.number().int().positive().default(60 * 60),
 
   // ── Observabilidade ──
   SENTRY_DSN: z.string().optional(),
