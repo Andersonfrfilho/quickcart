@@ -25,6 +25,14 @@ export const products = pgTable('products', {
   stockQuantity: integer('stock_quantity').default(0).notNull(),
   isAvailable: boolean('is_available').default(true).notNull(),
   imageUrl: text('image_url'),
+  /**
+   * Onde o produto fica na loja ("Corredor 3", "Hortifruti", "Câmara fria").
+   *
+   * Texto livre e opcional porque cada loja nomeia o próprio espaço, e a maioria não mapeia nada:
+   * quem separa lê isto para achar o item, então o valor precisa ser o que está escrito na placa
+   * pendurada no corredor — não um código de endereçamento que ninguém decora.
+   */
+  aisle: varchar('aisle', { length: 60 }),
   aliases: text('aliases').array().default([]).notNull(),
   barcode: varchar('barcode', { length: 14 }).unique(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

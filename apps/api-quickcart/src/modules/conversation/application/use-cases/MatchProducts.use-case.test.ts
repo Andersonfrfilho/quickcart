@@ -54,6 +54,10 @@ class FakeProductRepository implements ProductRepositoryInterface {
     throw new Error('not implemented in fake')
   }
 
+  async findSubstituteCandidate(): Promise<ProductSearchResult | undefined> {
+    return undefined
+  }
+
   async searchByTerm(term: string, limit: number): Promise<ProductSearchResult[]> {
     this.searchCalls.push({ term, limit })
     return this.searchResults

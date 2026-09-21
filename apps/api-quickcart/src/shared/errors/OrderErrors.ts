@@ -19,6 +19,8 @@ import {
   ORDER_CART_EMPTY,
   ORDER_NO_PREVIOUS_ORDER,
   ORDER_INVALID_STATUS_TRANSITION,
+  ORDER_CUSTOMER_APPROVAL_REQUIRED,
+  ORDER_ITEM_NOT_SUBSTITUTABLE,
 } from '@/shared/errors/codes'
 
 const ORDER_DOMAIN = 'order'
@@ -57,6 +59,35 @@ export class OrderPhoneMismatchError extends OrderError {
 export class OrderEmptyCartError extends OrderError {
   constructor(cartId: string) {
     super('O carrinho está vazio.', 400, ORDER_CART_EMPTY, { cartId })
+  }
+}
+
+/**
+ * "Avisar e seguir" num pedido onde não sobrou nada para seguir.
+ *
+ * 409 e não 400: o corpo é válido, o que impede é o ESTADO do pedido — todos os itens caíram, e seguir
+ * sem perguntar entregaria uma sacola vazia. Aqui a decisão é do cliente, não da loja.
+ */
+export class OrderCustomerApprovalRequiredError extends OrderError {
+  constructor(orderId: string) {
+    super(
+      'Nenhum item restou no pedido: o cliente precisa decidir entre montar outra lista ou cancelar.',
+      409,
+      ORDER_CUSTOMER_APPROVAL_REQUIRED,
+      { orderId },
+    )
+  }
+}
+
+/**
+ * A troca pedida não cabe: o item não está em falta, não é deste pedido, ou já foi trocado.
+ *
+ * 409 e não 404: os três casos são "a resposta chegou tarde", não "não existe" — e a diferença importa
+ * para quem lê o log tentando entender um toque duplo (ADR 0003).
+ */
+export class OrderItemNotSubstitutableError extends OrderError {
+  constructor(params: { readonly orderId: string; readonly orderItemId: string }) {
+    super('Este item não pode ser trocado: a falta já foi resolvida.', 409, ORDER_ITEM_NOT_SUBSTITUTABLE, params)
   }
 }
 

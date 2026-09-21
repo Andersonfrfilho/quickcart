@@ -18,8 +18,15 @@ export const ORDER_STATUS = {
   PREPARING: 'preparing',
   /** Itens já separados, esperando entregador ou cliente. Ver api-quickcart/Order.constant.ts. */
   SEPARATED: 'separated',
+  /** Separação parada esperando o cliente decidir sobre item em falta. Desvio, não degrau da esteira. */
+  AWAITING_CUSTOMER_DECISION: 'awaiting_customer_decision',
   OUT_FOR_DELIVERY: 'out_for_delivery',
+  /** Degraus do trajeto até a porta. Ver api-quickcart/Order.constant.ts. */
+  IN_TRANSIT: 'in_transit',
+  ARRIVED_AT_CUSTOMER: 'arrived_at_customer',
   READY_FOR_PICKUP: 'ready_for_pickup',
+  /** A entrega não aconteceu; o motivo mora no pedido, e é ele que diz se cabe outra tentativa. */
+  DELIVERY_FAILED: 'delivery_failed',
   COMPLETED: 'completed',
   CANCELLED: 'cancelled',
 } as const

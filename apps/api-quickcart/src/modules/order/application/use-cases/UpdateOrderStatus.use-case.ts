@@ -7,13 +7,13 @@
  *
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  *
- * Cancelamento é o único destino que precisa devolver estoque — por isso passa pelo caminho
- * transacional `cancelAndRestoreStock` em vez do `updateStatus` genérico.
+ * Cancelamento é o único destino que precisa mexer em estoque — por isso passa pelo caminho
+ * transacional `cancel` em vez do `updateStatus` genérico.
  */
 
 import { OrderInvalidStatusTransitionError, OrderNotFoundError } from '@/shared/errors/OrderErrors'
 import { allowedNextStatuses, canTransitionTo } from '@/modules/order/domain/orderStatusFlow'
-import { ORDER_STATUS } from '@/modules/order/shared/Order.constant'
+import { ORDER_STATUS, shouldRestoreStockOnCancel } from '@/modules/order/shared/Order.constant'
 import type { OrderRepositoryInterface } from '@/modules/order/domain/OrderRepository.interface'
 import type { OrderStatusNotifier } from '@/modules/notification/domain/OrderStatusNotifier.interface'
 import type { UpdateOrderStatusParams, UpdateOrderStatusResult } from '../types/UpdateOrderStatus.types'
@@ -26,6 +26,23 @@ type UpdateOrderStatusUseCaseDependencies = {
 }
 
 const useCaseLog = logger.child('UpdateOrderStatus')
+
+/**
+ * O que o motivo da ocorrência deve virar nesta gravação.
+ *
+ * `undefined` = não mexe. `null` = apaga, e é o que acontece ao sair da ocorrência: um pedido que
+ * voltou para a rua carregando "cliente ausente" mostraria na tela o motivo de uma viagem que já
+ * acabou. Gravar junto com o status evita o instante em que os dois se contradizem.
+ */
+function deliveryFailureReasonFor(params: {
+  readonly currentStatus: string
+  readonly nextStatus: string
+  readonly reason: string | undefined
+}): string | null | undefined {
+  if (params.nextStatus === ORDER_STATUS.DELIVERY_FAILED) return params.reason ?? null
+  if (params.currentStatus === ORDER_STATUS.DELIVERY_FAILED) return null
+  return undefined
+}
 
 export class UpdateOrderStatusUseCase {
   constructor(private readonly dependencies: UpdateOrderStatusUseCaseDependencies) {}
@@ -41,7 +58,11 @@ export class UpdateOrderStatusUseCase {
      * duplo clique moviam pedido concluído de volta para "aguardando" — e cada transição manda mensagem ao
      * cliente, então o estrago saía da tela e chegava no WhatsApp de quem comprou.
      */
-    const flow = { status: current.status, deliveryType: current.deliveryType }
+    const flow = {
+      status: current.status,
+      deliveryType: current.deliveryType,
+      deliveryFailureReason: current.deliveryFailureReason,
+    }
     if (!canTransitionTo({ ...flow, nextStatus: params.status })) {
       throw new OrderInvalidStatusTransitionError({
         currentStatus: current.status,
@@ -52,9 +73,29 @@ export class UpdateOrderStatusUseCase {
 
     const order =
       params.status === ORDER_STATUS.CANCELLED
-        ? await this.dependencies.orderRepository.cancelAndRestoreStock(params.orderId)
+        ? await this.dependencies.orderRepository.cancel({
+            orderId: params.orderId,
+            /**
+             * Extraviado é o caso em que a sacola não voltou para a prateleira. Repor ali criaria
+             * estoque de um produto que ninguém tem para separar, e o próximo cliente compraria o
+             * que não existe.
+             */
+            restoreStock: shouldRestoreStockOnCancel({
+              status: current.status,
+              deliveryFailureReason: current.deliveryFailureReason,
+            }),
+          })
         : // Condicionado ao status que acabou de ser validado: se alguém mudou nesse intervalo, nada casa.
-          await this.dependencies.orderRepository.updateStatus(params.orderId, params.status, current.status)
+          await this.dependencies.orderRepository.updateStatus({
+            orderId: params.orderId,
+            status: params.status,
+            expectedCurrentStatus: current.status,
+            deliveryFailureReason: deliveryFailureReasonFor({
+              currentStatus: current.status,
+              nextStatus: params.status,
+              reason: params.deliveryFailureReason,
+            }),
+          })
 
     if (!order) {
       /**
@@ -68,7 +109,11 @@ export class UpdateOrderStatusUseCase {
       throw new OrderInvalidStatusTransitionError({
         currentStatus: latest.status,
         nextStatus: params.status,
-        allowedNextStatuses: allowedNextStatuses({ status: latest.status, deliveryType: latest.deliveryType }),
+        allowedNextStatuses: allowedNextStatuses({
+          status: latest.status,
+          deliveryType: latest.deliveryType,
+          deliveryFailureReason: latest.deliveryFailureReason,
+        }),
       })
     }
 
@@ -91,12 +136,27 @@ export class UpdateOrderStatusUseCase {
       }
     }
 
-    await this.dependencies.orderStatusNotifier.notifyStatusChanged({
-      orderId: order.id,
-      customerId: order.customerId,
-      shortCode: order.shortCode,
-      status: order.status,
-    })
+    /**
+     * Mesma razão do bloco acima: a transição já foi gravada, então avisar é efeito, não parte dela.
+     *
+     * Sem esta guarda, template faltando na base fazia o `Confirmar pedido` responder 500 num pedido
+     * que JÁ tinha sido confirmado — e o segundo clique do operador vinha com 409 de transição
+     * inválida, dando a impressão de que nada funcionava.
+     */
+    try {
+      await this.dependencies.orderStatusNotifier.notifyStatusChanged({
+        orderId: order.id,
+        customerId: order.customerId,
+        shortCode: order.shortCode,
+        status: order.status,
+      })
+    } catch (error: unknown) {
+      useCaseLog.warn('status_change_not_notified', {
+        orderId: params.orderId,
+        status: order.status,
+        error: serializeError(error),
+      })
+    }
 
     return { order }
   }

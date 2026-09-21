@@ -16,9 +16,18 @@
 
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql, type SQL } from 'drizzle-orm'
 import { db } from '@/infra/database/connection'
-import { orders, orderItems, products, customers, type Order, type OrderItem } from '@/infra/database/schema'
+import {
+  orders,
+  orderItems,
+  orderDeliveryAttempts,
+  products,
+  customers,
+  type Order,
+  type OrderItem,
+  type OrderDeliveryAttempt,
+} from '@/infra/database/schema'
 import { generateId } from '@/shared/id'
-import { ORDER_STATUS } from '@/modules/order/shared/Order.constant'
+import { DELIVERY_ATTEMPT_OUTCOME, ORDER_STATUS } from '@/modules/order/shared/Order.constant'
 import type {
   CreateOrderWithItemsParams,
   CreateOrderWithItemsResult,
@@ -29,6 +38,8 @@ import type {
   OrderRecord,
   OrderRepositoryInterface,
   OrderDetail,
+  OrderDeliveryAttemptRecord,
+  SubstituteItemResult,
 } from '@/modules/order/domain/OrderRepository.interface'
 
 const SORTABLE_COLUMNS = {
@@ -59,6 +70,9 @@ function toOrderRecord(order: Order): OrderRecord {
     receiptPreference: order.receiptPreference,
     fiscalDocumentId: order.fiscalDocumentId,
     notes: order.notes,
+    deliveryFailureReason: order.deliveryFailureReason,
+    customerDecisionAskedAt: order.customerDecisionAskedAt,
+    customerDecisionRemindedAt: order.customerDecisionRemindedAt,
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
   }
@@ -76,9 +90,82 @@ function toOrderItemRecord(item: OrderItem): OrderItemRecord {
     unavailableAt: item.unavailableAt,
     unavailableNotifiedAt: item.unavailableNotifiedAt,
     pickedAt: item.pickedAt,
+    substitutesOrderItemId: item.substitutesOrderItemId,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   }
+}
+
+type DatabaseTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
+
+function toOrderDeliveryAttemptRecord(attempt: OrderDeliveryAttempt): OrderDeliveryAttemptRecord {
+  return {
+    attempt: attempt.attempt,
+    startedAt: attempt.startedAt,
+    endedAt: attempt.endedAt,
+    outcome: attempt.outcome,
+    failureReason: attempt.failureReason,
+  }
+}
+
+/**
+ * Traduz a transição de status para o que aconteceu com a sacola.
+ *
+ * Só três transições movem uma viagem, e todas as outras passam batido — inclusive `cancelled`, que não é
+ * desfecho de entrega: o cancelamento acontece a partir da ocorrência, e a viagem que o precedeu já foi
+ * fechada como falha. Fechar de novo apagaria o motivo real.
+ *
+ * A tentativa aberta é encontrada por `ended_at IS NULL`, e é no máximo uma: só `out_for_delivery` abre, e
+ * abrir sem fechar a anterior exigiria sair para entrega estando na rua, o que a esteira não permite.
+ */
+async function recordDeliveryAttempt(params: {
+  readonly tx: DatabaseTransaction
+  readonly orderId: string
+  readonly nextStatus: string
+  readonly failureReason: string | null
+}): Promise<void> {
+  const { tx, orderId, nextStatus, failureReason } = params
+
+  if (nextStatus === ORDER_STATUS.OUT_FOR_DELIVERY) {
+    /*
+     * Numeração derivada do que já existe, e não de uma contagem em memória: duas abas clicando juntas
+     * leriam o mesmo número, e o índice único do banco é quem recusa a segunda.
+     */
+    const [last] = await tx
+      .select({ attempt: sql<number>`coalesce(max(${orderDeliveryAttempts.attempt}), 0)::int` })
+      .from(orderDeliveryAttempts)
+      .where(eq(orderDeliveryAttempts.orderId, orderId))
+
+    await tx.insert(orderDeliveryAttempts).values({
+      id: generateId(),
+      orderId,
+      attempt: (last?.attempt ?? 0) + 1,
+      startedAt: new Date(),
+    })
+    return
+  }
+
+  const outcome =
+    nextStatus === ORDER_STATUS.DELIVERY_FAILED
+      ? DELIVERY_ATTEMPT_OUTCOME.FAILED
+      : nextStatus === ORDER_STATUS.COMPLETED
+        ? DELIVERY_ATTEMPT_OUTCOME.DELIVERED
+        : undefined
+
+  if (!outcome) return
+
+  /*
+   * `completed` de uma RETIRADA não tem viagem aberta para fechar, e o `where` já cobre isso: sem linha
+   * aberta, o update não atinge nada. Nada de checar `deliveryType` aqui — a ausência da viagem é o fato.
+   */
+  await tx
+    .update(orderDeliveryAttempts)
+    .set({
+      endedAt: new Date(),
+      outcome,
+      failureReason: outcome === DELIVERY_ATTEMPT_OUTCOME.FAILED ? failureReason : null,
+    })
+    .where(and(eq(orderDeliveryAttempts.orderId, orderId), isNull(orderDeliveryAttempts.endedAt)))
 }
 
 export class DrizzleOrderRepository implements OrderRepositoryInterface {
@@ -257,11 +344,39 @@ export class DrizzleOrderRepository implements OrderRepositoryInterface {
 
     if (!row) return undefined
 
-    const items = await db.select().from(orderItems).where(eq(orderItems.orderId, id))
+    /*
+     * `leftJoin` e não `innerJoin`: a linha do pedido é snapshot e sobrevive ao produto sumir do
+     * catálogo — um inner faria o item DESAPARECER da lista de separação, que é o pior desfecho
+     * possível para quem está montando a sacola.
+     */
+    const items = await db
+      .select({
+        item: orderItems,
+        productImageUrl: products.imageUrl,
+        productBrand: products.brand,
+        productUnitSize: products.unitSize,
+        productAisle: products.aisle,
+      })
+      .from(orderItems)
+      .leftJoin(products, eq(products.id, orderItems.productId))
+      .where(eq(orderItems.orderId, id))
+
+    const attempts = await db
+      .select()
+      .from(orderDeliveryAttempts)
+      .where(eq(orderDeliveryAttempts.orderId, id))
+      .orderBy(asc(orderDeliveryAttempts.attempt))
 
     return {
+      deliveryAttempts: attempts.map(toOrderDeliveryAttemptRecord),
       order: { ...toOrderRecord(row.order), customerName: row.customerName, customerPhone: row.customerPhone },
-      items: items.map(toOrderItemRecord),
+      items: items.map((row) => ({
+        ...toOrderItemRecord(row.item),
+        productImageUrl: row.productImageUrl,
+        productBrand: row.productBrand,
+        productUnitSize: row.productUnitSize,
+        productAisle: row.productAisle,
+      })),
     }
   }
 
@@ -279,6 +394,26 @@ export class DrizzleOrderRepository implements OrderRepositoryInterface {
       .returning()
 
     return notifiedNow.map(toOrderItemRecord)
+  }
+
+  async markItemUnavailableNotified(params: {
+    orderId: string
+    itemId: string
+  }): Promise<OrderItemRecord | undefined> {
+    const [notified] = await db
+      .update(orderItems)
+      .set({ unavailableNotifiedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(orderItems.id, params.itemId),
+          eq(orderItems.orderId, params.orderId),
+          isNotNull(orderItems.unavailableAt),
+          isNull(orderItems.unavailableNotifiedAt),
+        ),
+      )
+      .returning()
+
+    return notified ? toOrderItemRecord(notified) : undefined
   }
 
   async setItemPicked(params: {
@@ -352,33 +487,188 @@ export class DrizzleOrderRepository implements OrderRepositoryInterface {
     return this.findDetailById(params.orderId)
   }
 
-  async updateStatus(id: string, status: string, expectedCurrentStatus?: string): Promise<OrderRecord | undefined> {
-    const where = expectedCurrentStatus
-      ? and(eq(orders.id, id), eq(orders.status, expectedCurrentStatus))
-      : eq(orders.id, id)
+  async substituteItem(params: {
+    orderId: string
+    orderItemId: string
+    productId: string
+  }): Promise<SubstituteItemResult> {
+    const outcome = await db.transaction(async (tx): Promise<'ok' | 'out_of_stock' | 'not_substitutable'> => {
+      /*
+       * Só item EM FALTA e DESTE pedido é trocável. O id do botão vem do aparelho do cliente e vale o que
+       * vale um dado de fora: sem estas duas condições no `WHERE`, um id copiado trocaria item alheio.
+       */
+      const [original] = await tx
+        .select()
+        .from(orderItems)
+        .where(
+          and(
+            eq(orderItems.id, params.orderItemId),
+            eq(orderItems.orderId, params.orderId),
+            isNotNull(orderItems.unavailableAt),
+          ),
+        )
+        .limit(1)
 
-    const [order] = await db.update(orders).set({ status, updatedAt: new Date() }).where(where).returning()
+      if (!original) return 'not_substitutable'
+
+      // Toque duplo e cobrança respondida depois chegam aqui; sem esta leitura, os dois cobrariam a troca.
+      const [alreadySwapped] = await tx
+        .select({ id: orderItems.id })
+        .from(orderItems)
+        .where(eq(orderItems.substitutesOrderItemId, original.id))
+        .limit(1)
+
+      if (alreadySwapped) return 'not_substitutable'
+
+      const quantity = Number(original.quantity)
+
+      const [substitute] = await tx
+        .update(products)
+        .set({ stockQuantity: sql`${products.stockQuantity} - ${quantity}`, updatedAt: new Date() })
+        .where(
+          and(
+            eq(products.id, params.productId),
+            eq(products.isAvailable, true),
+            sql`${products.stockQuantity} - ${quantity} >= 0`,
+          ),
+        )
+        .returning()
+
+      if (!substitute) return 'out_of_stock'
+
+      await tx.insert(orderItems).values({
+        id: generateId(),
+        orderId: params.orderId,
+        productId: substitute.id,
+        productName: substitute.name,
+        unitPriceInCents: substitute.priceInCents,
+        quantity: original.quantity,
+        // Arredondado aqui, e não no banco: centavo é inteiro, e `0,5x` de um preço ímpar não é.
+        totalInCents: Math.round(substitute.priceInCents * quantity),
+        substitutesOrderItemId: original.id,
+      })
+
+      // O mesmo `filter` de `setItemUnavailable`: a origem em falta segue fora da conta, a substituta entra.
+      const [totals] = await tx
+        .select({
+          total: sql<number>`coalesce(sum(${orderItems.totalInCents}) filter (where ${orderItems.unavailableAt} is null), 0)::int`,
+        })
+        .from(orderItems)
+        .where(eq(orderItems.orderId, params.orderId))
+
+      await tx
+        .update(orders)
+        .set({ totalInCents: totals?.total ?? 0, updatedAt: new Date() })
+        .where(eq(orders.id, params.orderId))
+
+      return 'ok'
+    })
+
+    if (outcome !== 'ok') return { ok: false, reason: outcome }
+
+    const detail = await this.findDetailById(params.orderId)
+    // Pedido some entre a troca e a releitura só se alguém o apagou; sem detalhe, não há o que confirmar.
+    if (!detail) return { ok: false, reason: 'not_substitutable' }
+
+    return { ok: true, detail }
+  }
+
+  async updateStatus(params: {
+    orderId: string
+    status: string
+    expectedCurrentStatus?: string | undefined
+    deliveryFailureReason?: string | null | undefined
+  }): Promise<OrderRecord | undefined> {
+    const where = params.expectedCurrentStatus
+      ? and(eq(orders.id, params.orderId), eq(orders.status, params.expectedCurrentStatus))
+      : eq(orders.id, params.orderId)
+
+    // `undefined` não é "limpar": omitir a chave deixa o motivo como está, e é o que a maioria das
+    // transições quer. Quem precisa apagar manda `null` explícito.
+    const reason = params.deliveryFailureReason === undefined ? {} : { deliveryFailureReason: params.deliveryFailureReason }
+
+    /*
+     * Status e viagem na MESMA transação.
+     *
+     * O histórico da entrega existe para responder o que aconteceu com a sacola; um pedido gravado como
+     * "saiu para entrega" sem a viagem correspondente (ou o inverso) é exatamente a resposta errada, e
+     * seria permanente — esta tabela não é reconciliada depois.
+     */
+    return await db.transaction(async (tx) => {
+      const [order] = await tx
+        .update(orders)
+        .set({ status: params.status, ...reason, updatedAt: new Date() })
+        .where(where)
+        .returning()
+
+      // Sem linha atualizada, a transição não aconteceu (alguém mudou o status no intervalo): nada a narrar.
+      if (!order) return undefined
+
+      await recordDeliveryAttempt({
+        tx,
+        orderId: params.orderId,
+        nextStatus: params.status,
+        failureReason: params.deliveryFailureReason ?? null,
+      })
+
+      return toOrderRecord(order)
+    })
+  }
+
+  async startCustomerDecision(params: {
+    orderId: string
+    allowedCurrentStatuses: readonly string[]
+  }): Promise<OrderRecord | undefined> {
+    const [order] = await db
+      .update(orders)
+      .set({
+        status: ORDER_STATUS.AWAITING_CUSTOMER_DECISION,
+        customerDecisionAskedAt: new Date(),
+        customerDecisionRemindedAt: null,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(orders.id, params.orderId), inArray(orders.status, [...params.allowedCurrentStatuses])))
+      .returning()
+
     return order ? toOrderRecord(order) : undefined
   }
 
-  async cancelAndRestoreStock(id: string): Promise<OrderRecord | undefined> {
+  async markCustomerDecisionReminded(orderId: string): Promise<OrderRecord | undefined> {
+    const [order] = await db
+      .update(orders)
+      .set({ customerDecisionRemindedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(orders.id, orderId),
+          eq(orders.status, ORDER_STATUS.AWAITING_CUSTOMER_DECISION),
+          isNull(orders.customerDecisionRemindedAt),
+        ),
+      )
+      .returning()
+
+    return order ? toOrderRecord(order) : undefined
+  }
+
+  async cancel(params: { orderId: string; restoreStock: boolean }): Promise<OrderRecord | undefined> {
     return await db.transaction(async (tx) => {
-      const [order] = await tx.select().from(orders).where(eq(orders.id, id)).limit(1)
+      const [order] = await tx.select().from(orders).where(eq(orders.id, params.orderId)).limit(1)
       if (!order) return undefined
       if (order.status === ORDER_STATUS.CANCELLED) return toOrderRecord(order)
 
-      const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, id))
-      for (const item of items) {
-        await tx
-          .update(products)
-          .set({ stockQuantity: sql`${products.stockQuantity} + ${Number(item.quantity)}`, updatedAt: new Date() })
-          .where(eq(products.id, item.productId))
+      if (params.restoreStock) {
+        const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, params.orderId))
+        for (const item of items) {
+          await tx
+            .update(products)
+            .set({ stockQuantity: sql`${products.stockQuantity} + ${Number(item.quantity)}`, updatedAt: new Date() })
+            .where(eq(products.id, item.productId))
+        }
       }
 
       const [updated] = await tx
         .update(orders)
         .set({ status: ORDER_STATUS.CANCELLED, updatedAt: new Date() })
-        .where(eq(orders.id, id))
+        .where(eq(orders.id, params.orderId))
         .returning()
 
       return toOrderRecord(updated!)

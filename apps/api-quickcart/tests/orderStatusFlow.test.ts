@@ -16,7 +16,7 @@
 
 import { describe, expect, it } from 'bun:test'
 import { allowedNextStatuses, canTransitionTo } from '@/modules/order/domain/orderStatusFlow'
-import { ORDER_STATUS } from '@/modules/order/shared/Order.constant'
+import { DELIVERY_FAILURE_REASON, ORDER_STATUS } from '@/modules/order/shared/Order.constant'
 
 const delivery = { deliveryType: 'delivery' }
 const pickup = { deliveryType: 'pickup' }
@@ -41,6 +41,59 @@ describe('allowedNextStatuses', () => {
       ORDER_STATUS.READY_FOR_PICKUP,
       ORDER_STATUS.CANCELLED,
     ])
+  })
+
+  it('anda o trajeto da entrega sem obrigar a passar por cada parada', () => {
+    // Quem chegou saiu, e quem entregou chegou: o entregador que não teve tempo de tocar em "a caminho"
+    // não pode ficar impedido de registrar a entrega.
+    expect(allowedNextStatuses({ status: ORDER_STATUS.OUT_FOR_DELIVERY, ...delivery })).toEqual([
+      ORDER_STATUS.IN_TRANSIT,
+      ORDER_STATUS.ARRIVED_AT_CUSTOMER,
+      ORDER_STATUS.COMPLETED,
+      ORDER_STATUS.DELIVERY_FAILED,
+    ])
+    expect(allowedNextStatuses({ status: ORDER_STATUS.ARRIVED_AT_CUSTOMER, ...delivery })).toEqual([
+      ORDER_STATUS.COMPLETED,
+      ORDER_STATUS.DELIVERY_FAILED,
+    ])
+  })
+
+  it('deixa a ocorrência tentar de novo só quando o motivo permite', () => {
+    expect(
+      allowedNextStatuses({
+        status: ORDER_STATUS.DELIVERY_FAILED,
+        ...delivery,
+        deliveryFailureReason: DELIVERY_FAILURE_REASON.CUSTOMER_ABSENT,
+      }),
+    ).toEqual([ORDER_STATUS.OUT_FOR_DELIVERY, ORDER_STATUS.CANCELLED])
+
+    // Recusado e extraviado são fim de tentativa: só resta cancelar, e é aí que o estoque se decide.
+    expect(
+      allowedNextStatuses({
+        status: ORDER_STATUS.DELIVERY_FAILED,
+        ...delivery,
+        deliveryFailureReason: DELIVERY_FAILURE_REASON.REFUSED,
+      }),
+    ).toEqual([ORDER_STATUS.CANCELLED])
+    expect(
+      allowedNextStatuses({
+        status: ORDER_STATUS.DELIVERY_FAILED,
+        ...delivery,
+        deliveryFailureReason: DELIVERY_FAILURE_REASON.LOST,
+      }),
+    ).toEqual([ORDER_STATUS.CANCELLED])
+  })
+
+  it('trata ocorrência sem motivo como finalizante', () => {
+    // Dado velho ou incompleto não devolve um pedido à rua sem ninguém saber por que ele voltou.
+    expect(allowedNextStatuses({ status: ORDER_STATUS.DELIVERY_FAILED, ...delivery })).toEqual([
+      ORDER_STATUS.CANCELLED,
+    ])
+  })
+
+  it('não oferece ocorrência na retirada', () => {
+    // Não existe entrega frustrada em pedido que o cliente vem buscar no balcão.
+    expect(allowedNextStatuses({ status: ORDER_STATUS.READY_FOR_PICKUP, ...pickup })).toEqual([ORDER_STATUS.COMPLETED])
   })
 
   it('trata concluído e cancelado como fim de linha', () => {

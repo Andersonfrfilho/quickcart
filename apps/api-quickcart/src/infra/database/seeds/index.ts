@@ -20,7 +20,7 @@ import { CreateCategoryUseCase } from '@/modules/catalog/application/use-cases/C
 import { CreateProductUseCase } from '@/modules/catalog/application/use-cases/CreateProduct.use-case'
 import { CategoryNameDuplicateError } from '@/shared/errors/CatalogErrors'
 import { SEED_CATEGORIES } from './CatalogSeedCategories'
-import { SEED_PRODUCTS } from './CatalogSeedProducts'
+import { SEED_AISLE_BY_CATEGORY, SEED_PRODUCTS } from './CatalogSeedProducts'
 import { seedConversations } from './ConversationSeedRunner'
 import { seedOrders } from './OrderSeedRunner'
 import { container } from '@/infra/container'
@@ -81,6 +81,9 @@ async function seedCatalog(): Promise<void> {
       stockQuantity: seedProduct.stockQuantity,
       isAvailable: true,
       aliases: seedProduct.aliases,
+      // Categoria sem placa mapeada entra sem corredor de propósito — é o caso que a tela de separação
+      // precisa saber desenhar.
+      aisle: SEED_AISLE_BY_CATEGORY[seedProduct.categoryKey],
     })
     productsCreated++
   }

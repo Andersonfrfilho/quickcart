@@ -22,6 +22,7 @@ export type CreateProductRecordParams = {
   readonly stockQuantity: number
   readonly isAvailable: boolean
   readonly imageUrl?: string | undefined
+  readonly aisle?: string | undefined
   readonly aliases: readonly string[]
   readonly barcode?: string | undefined
 }
@@ -36,6 +37,7 @@ export type UpdateProductRecordParams = {
   readonly priceInCents?: number | undefined
   readonly isAvailable?: boolean | undefined
   readonly imageUrl?: string | null | undefined
+  readonly aisle?: string | null | undefined
   readonly aliases?: readonly string[] | undefined
   readonly barcode?: string | null | undefined
 }
@@ -63,6 +65,18 @@ export type ProductSearchResult = {
   readonly score: number
 }
 
+/**
+ * O parecido que a loja pode oferecer no lugar do que faltou.
+ *
+ * `unit` e `unitSize` iguais fazem parte da busca, não do resultado: leite 1L por leite 2L não é
+ * substituição, é outra compra — e o `similarity()` não sabe disso, porque os nomes são quase idênticos.
+ */
+export type SubstituteCandidateParams = {
+  readonly productId: string
+  /** Quanto precisa estar em estoque AGORA. Oferecer o que não dá para separar é perder o turno à toa. */
+  readonly requiredQuantity: number
+}
+
 export interface ProductRepositoryInterface {
   create(params: CreateProductRecordParams): Promise<Product>
   update(id: string, params: UpdateProductRecordParams): Promise<Product>
@@ -71,4 +85,6 @@ export interface ProductRepositoryInterface {
   adjustStock(id: string, delta: number): Promise<Product | undefined>
   list(params: ListProductsRepositoryParams): Promise<ListProductsRepositoryResult>
   searchByTerm(term: string, limit: number): Promise<ProductSearchResult[]>
+  /** `undefined` = não há parecido, e isso é resposta legítima: sem candidato não se pergunta nada. */
+  findSubstituteCandidate(params: SubstituteCandidateParams): Promise<ProductSearchResult | undefined>
 }

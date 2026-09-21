@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@adatechnology/audio-transcription-provider": "0.1.0-rc.1",
-    "@adatechnology/email-provider": "0.1.0-rc.1",
+    "@adatechnology/email-provider": "0.1.0-rc.3",
     "@adatechnology/fiscal-provider": "^0.2.0",
     "@adatechnology/meta-whatsapp-contracts": "0.3.0",
     "@adatechnology/meta-whatsapp-module": "0.3.0",

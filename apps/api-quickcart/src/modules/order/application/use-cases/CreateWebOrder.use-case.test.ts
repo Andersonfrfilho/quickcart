@@ -34,6 +34,7 @@ import type {
   OrderItemRecord,
   OrderRecord,
   OrderRepositoryInterface,
+  SubstituteItemResult,
 } from '@/modules/order/domain/OrderRepository.interface'
 import type { JobQueue } from '@/modules/order/domain/JobQueue.interface'
 import type { Customer, Product } from '@/infra/database/schema'
@@ -137,6 +138,10 @@ class FakeProductRepository implements ProductRepositoryInterface {
     return { items: [], total: 0 }
   }
 
+  async findSubstituteCandidate(): Promise<ProductSearchResult | undefined> {
+    return undefined
+  }
+
   async searchByTerm(_term: string, _limit: number): Promise<ProductSearchResult[]> {
     return []
   }
@@ -177,6 +182,9 @@ class FakeOrderRepository implements OrderRepositoryInterface {
       receiptPreference: params.receiptPreference,
       fiscalDocumentId: null,
       notes: params.notes ?? null,
+      deliveryFailureReason: null,
+      customerDecisionAskedAt: null,
+      customerDecisionRemindedAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -193,6 +201,7 @@ class FakeOrderRepository implements OrderRepositoryInterface {
       unavailableAt: null,
       unavailableNotifiedAt: null,
         pickedAt: null,
+        substitutesOrderItemId: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }))
@@ -222,7 +231,7 @@ class FakeOrderRepository implements OrderRepositoryInterface {
   async findDetailById(id: string) {
     const order = this.orders.get(id)
     // O fake não guarda cliente: os testes deste caso de uso não passam pelo detalhe.
-    return order ? { order: { ...order, customerName: null, customerPhone: '' }, items: [] } : undefined
+    return order ? { order: { ...order, customerName: null, customerPhone: '' }, items: [], deliveryAttempts: [] } : undefined
   }
 
   async setItemUnavailable(params: { orderId: string; itemId: string; unavailable: boolean }) {
@@ -238,6 +247,18 @@ class FakeOrderRepository implements OrderRepositoryInterface {
     throw new Error('not implemented')
   }
 
+  async markItemUnavailableNotified(_params: {
+    readonly orderId: string
+    readonly itemId: string
+  }): Promise<OrderItemRecord | undefined> {
+    // O fake não guarda item: os testes deste caso de uso não passam por troca de item em falta.
+    return undefined
+  }
+
+  async substituteItem(): Promise<SubstituteItemResult> {
+    return { ok: false, reason: 'not_substitutable' } as const
+  }
+
   async markUnavailableItemsNotified(_orderId: string) {
     // O fake não guarda item: os testes deste caso de uso não passam por aviso de falta.
     return []
@@ -251,26 +272,36 @@ class FakeOrderRepository implements OrderRepositoryInterface {
     return { items: [], total: 0 }
   }
 
-  async updateStatus(id: string, status: string): Promise<OrderRecord | undefined> {
-    const order = this.orders.get(id)
+  async updateStatus(params: { orderId: string; status: string }): Promise<OrderRecord | undefined> {
+    const order = this.orders.get(params.orderId)
     if (!order) return undefined
-    const updated = { ...order, status, updatedAt: new Date() }
-    this.orders.set(id, updated)
+    const updated = { ...order, status: params.status, updatedAt: new Date() }
+    this.orders.set(params.orderId, updated)
     return updated
   }
 
-  async cancelAndRestoreStock(id: string): Promise<OrderRecord | undefined> {
-    const order = this.orders.get(id)
+  async startCustomerDecision(): Promise<undefined> {
+    throw new Error('not implemented')
+  }
+
+  async markCustomerDecisionReminded(): Promise<undefined> {
+    throw new Error('not implemented')
+  }
+
+  async cancel(params: { orderId: string; restoreStock: boolean }): Promise<OrderRecord | undefined> {
+    const order = this.orders.get(params.orderId)
     if (!order) return undefined
     if (order.status === 'cancelled') return order
 
-    for (const item of this.itemsByOrder.get(id) ?? []) {
-      const product = this.products.get(item.productId)
-      if (product) product.stockQuantity += item.quantity
+    if (params.restoreStock) {
+      for (const item of this.itemsByOrder.get(params.orderId) ?? []) {
+        const product = this.products.get(item.productId)
+        if (product) product.stockQuantity += item.quantity
+      }
     }
 
     const updated = { ...order, status: 'cancelled', updatedAt: new Date() }
-    this.orders.set(id, updated)
+    this.orders.set(params.orderId, updated)
     return updated
   }
 }
@@ -297,6 +328,7 @@ function buildProduct(overrides: Partial<Product> = {}): Product {
     stockQuantity: 10,
     isAvailable: true,
     imageUrl: null,
+    aisle: null,
     aliases: [],
     barcode: null,
     createdAt: new Date(),

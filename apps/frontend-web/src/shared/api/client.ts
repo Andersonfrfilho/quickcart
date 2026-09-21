@@ -234,13 +234,38 @@ export type NotifyUnavailableItemsResponse = {
   readonly meta: { readonly notifiedCount: number }
 }
 
-export async function adminNotifyUnavailableItems(orderId: string,
-): Promise<NotifyUnavailableItemsResponse> {
-  return apiClient.post(`/v1/admin/orders/${orderId}/unavailable-items/notify`, undefined, {
+/**
+ * `requiresCustomerApproval` explícito, sem valor padrão dos dois lados.
+ *
+ * Perguntar para o pedido e informar seguindo são decisões diferentes da loja, e a API recusa o corpo sem
+ * a escolha — assim nenhum caminho vira o "acidental" quando alguém esquecer de passar o parâmetro.
+ */
+export async function adminNotifyUnavailableItems(params: {
+  readonly orderId: string
+  readonly requiresCustomerApproval: boolean
+}): Promise<NotifyUnavailableItemsResponse> {
+  return apiClient.post(`/v1/admin/orders/${params.orderId}/unavailable-items/notify`, {
+    requiresCustomerApproval: params.requiresCustomerApproval,
   })
 }
 
-export async function adminUpdateOrderStatus(id: string, status: string): Promise<ApiItemResponse<Order>> {
-  return apiClient.patch(`/v1/admin/orders/${id}/status`, { status }, {
-  })
+/**
+ * O motivo vai junto do status, na MESMA chamada.
+ *
+ * A rota recusa `delivery_failed` sem motivo e recusa motivo com qualquer outro status — registrar a
+ * ocorrência primeiro e o porquê depois deixaria o pedido num estado que ninguém sabe explicar. Por
+ * isso a chave só entra no corpo quando existe: mandar `deliveryFailureReason: undefined` num status
+ * comum é o mesmo que mandar a chave, e a validação rejeitaria.
+ */
+export async function adminUpdateOrderStatus(params: {
+  readonly orderId: string
+  readonly status: string
+  readonly deliveryFailureReason?: string | undefined
+}): Promise<ApiItemResponse<Order>> {
+  const body = params.deliveryFailureReason
+    ? { status: params.status, deliveryFailureReason: params.deliveryFailureReason }
+    : { status: params.status }
+
+  return apiClient.patch(`/v1/admin/orders/${params.orderId}/status`, body)
 }
+

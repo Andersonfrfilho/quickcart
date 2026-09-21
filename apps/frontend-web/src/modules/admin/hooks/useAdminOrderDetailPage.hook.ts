@@ -62,8 +62,12 @@ export function useAdminOrderDetailPage() {
     setPickedMutation.mutate({ orderId, picked: false })
   }
 
-  function updateStatus(status: string) {
-    updateStatusMutation.mutate({ id: orderId, status })
+  function updateStatus(params: { readonly status: string; readonly deliveryFailureReason?: string }) {
+    updateStatusMutation.mutate({
+      id: orderId,
+      status: params.status,
+      deliveryFailureReason: params.deliveryFailureReason,
+    })
   }
 
   function setUnavailable({ itemId, unavailable }: { itemId: string; unavailable: boolean }) {
@@ -79,7 +83,8 @@ export function useAdminOrderDetailPage() {
 
   return {
     isReady,
-    notifyUnavailable: () => notifyUnavailableMutation.mutate(orderId),
+    notifyUnavailable: (requiresCustomerApproval: boolean) =>
+      notifyUnavailableMutation.mutate({ orderId, requiresCustomerApproval }),
     isNotifyingUnavailable: notifyUnavailableMutation.isPending,
     /**
      * Abre a conversa daquele cliente na inbox.

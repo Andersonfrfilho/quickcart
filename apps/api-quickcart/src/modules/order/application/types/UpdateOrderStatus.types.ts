@@ -9,11 +9,18 @@
  */
 
 import type { OrderRecord } from '@/modules/order/domain/OrderRepository.interface'
-import type { OrderStatus } from '@/modules/order/shared/Order.constant'
+import type { DeliveryFailureReason, OrderStatus } from '@/modules/order/shared/Order.constant'
 
 export type UpdateOrderStatusParams = {
   readonly orderId: string
   readonly status: OrderStatus
+  /**
+   * Obrigatório ao registrar ocorrência, proibido no resto — quem garante isso é o schema da rota.
+   *
+   * Ocorrência sem motivo seria um pedido parado sem ninguém saber se espera outra tentativa ou o
+   * cancelamento, e é o motivo (não o status) que decide isso.
+   */
+  readonly deliveryFailureReason?: DeliveryFailureReason | undefined
 }
 
 export type UpdateOrderStatusResult = {

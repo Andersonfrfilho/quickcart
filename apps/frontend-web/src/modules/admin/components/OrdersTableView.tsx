@@ -10,7 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui'
-import { DELIVERY_LABELS, ORDER_ACTION_ICONS, ORDER_ACTION_LABELS } from '@/modules/admin/shared/orderLabels'
+import { DELIVERY_LABELS, ORDER_ACTION_ICONS, orderActionLabel } from '@/modules/admin/shared/orderLabels'
 import { orderStatusBadgeClass, orderStatusLabel } from '@/modules/admin/shared/orderStatusStyle'
 import {
   ORDER_URGENCY,
@@ -19,7 +19,15 @@ import {
   resolveOrderUrgency,
   type OrderUrgency,
 } from '@/modules/admin/shared/orderUrgency'
-import type { Order, OrderSortableField, SortDirection } from '@/shared/api/api.types'
+import { ORDER_STATUS, type Order, type OrderSortableField, type SortDirection } from '@/shared/api/api.types'
+
+/**
+ * Passos que a lista NÃO desenha: cada um precisa de mais do que um clique numa linha de 40px.
+ *
+ * Cancelar é irreversível e manda mensagem; registrar ocorrência exige escolher o motivo, e sem ele a
+ * rota recusa. Os dois moram na tela do pedido, onde há espaço para perguntar antes de gravar.
+ */
+const ROW_HIDDEN_STATUSES: readonly string[] = [ORDER_STATUS.CANCELLED, ORDER_STATUS.DELIVERY_FAILED]
 
 /**
  * A tabela de pedidos, sem saber de onde vêm os dados.
@@ -206,7 +214,7 @@ export function OrdersTableView({
                   <div className="flex flex-wrap gap-1">
                     {/*
                       A esteira vem do servidor, inclusive o filtro por tipo de entrega. Aqui só o passo
-                      que ANDA com o pedido: cancelar mora na tela do pedido.
+                      que ANDA com o pedido: cancelar e registrar ocorrência moram na tela do pedido.
 
                       Dois motivos. O botão vermelho ao lado do de avançar convidava a errar de alvo numa
                       lista de linhas de 40px, e cancelamento é irreversível e manda mensagem ao cliente —
@@ -215,7 +223,7 @@ export function OrdersTableView({
                       linhas e inflando a altura da linha toda.
                     */}
                     {order.allowedNextStatuses
-                      .filter((next) => next !== 'cancelled')
+                      .filter((next) => !ROW_HIDDEN_STATUSES.includes(next))
                       .map((next) => (
                         <Button
                           key={next}
@@ -228,7 +236,7 @@ export function OrdersTableView({
                           <span aria-hidden="true" className="mr-1.5">
                             {ORDER_ACTION_ICONS[next] ?? '➡️'}
                           </span>
-                          {ORDER_ACTION_LABELS[next] ?? orderStatusLabel(next)}
+                          {orderActionLabel({ next, from: order.status })}
                         </Button>
                       ))}
                   </div>

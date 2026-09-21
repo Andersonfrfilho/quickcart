@@ -61,6 +61,10 @@ class FakeProductRepository implements ProductRepositoryInterface {
     return { items: [], total: 0 }
   }
 
+  async findSubstituteCandidate(): Promise<ProductSearchResult | undefined> {
+    return undefined
+  }
+
   async searchByTerm(_term: string, _limit: number): Promise<ProductSearchResult[]> {
     return []
   }
@@ -154,6 +158,7 @@ function buildProduct(overrides: Partial<Product> = {}): Product {
     stockQuantity: 10,
     isAvailable: true,
     imageUrl: null,
+    aisle: null,
     aliases: [],
     barcode: null,
     createdAt: new Date(),

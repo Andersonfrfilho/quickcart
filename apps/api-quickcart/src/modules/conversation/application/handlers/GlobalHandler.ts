@@ -29,6 +29,14 @@ import { looksLikeShoppingList } from '@/modules/conversation/application/looksL
 import { sendCartSummary } from '@/modules/conversation/application/handlers/support/CartSummary'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import { GLOBAL_TRIGGER, MENU_BUTTON_ID, MESSAGES } from '@/modules/conversation/shared/Messages.constant'
+import {
+  ORDER_DECISION,
+  parseOrderDecisionButtonId,
+  type OrderDecision,
+} from '@/modules/conversation/shared/orderDecisionButton'
+import type { ResolveCustomerDecisionUseCase } from '@/modules/order/application/use-cases/ResolveCustomerDecision.use-case'
+import type { ResolveItemSubstitutionUseCase } from '@/modules/order/application/use-cases/ResolveItemSubstitution.use-case'
+import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInCents'
 import { CHANNEL } from '@/modules/shared/shared.constant'
 import { OrderNoPreviousOrderError } from '@/shared/errors/OrderErrors'
 
@@ -57,6 +65,10 @@ export type GlobalHandlerDependencies = {
   readonly cartRepository: CartRepositoryInterface
   readonly productRepository: ProductRepositoryInterface
   readonly repeatLastOrderUseCase: RepeatLastOrderUseCase
+  /** Quem aplica o toque no botão da pergunta de item em falta. */
+  readonly resolveCustomerDecisionUseCase: ResolveCustomerDecisionUseCase
+  /** Quem aplica o toque nos botões da oferta de troca — trocar ou seguir sem aquele item (ADR 0003). */
+  readonly resolveItemSubstitutionUseCase: ResolveItemSubstitutionUseCase
   /**
    * Quem monta carrinho a partir de texto. É o MESMO handler do estado `awaiting_list`.
    *
@@ -83,6 +95,42 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
       return true
     }
 
+    /**
+     * A resposta sobre item em falta vem antes de tudo, e vale em QUALQUER estado.
+     *
+     * Não virou estado de conversa de propósito: a pergunta pode ficar horas sem resposta, e nesse meio-tempo
+     * a pessoa monta outro carrinho, navega no catálogo ou some. Prender a sessão em "aguardando decisão"
+     * bloquearia todo o resto do produto por um pedido; o id dentro do botão resolve sem prender nada.
+     */
+    const decision = message.kind === 'button_reply' ? parseOrderDecisionButtonId(message.buttonId) : undefined
+    if (decision) {
+      /*
+       * A resposta sobre UM item não passa pelo `ResolveCustomerDecision`: aquele resolve o pedido inteiro,
+       * e trocar leite não é decidir o pedido — a decisão do pedido vem depois, quando não sobrar item a
+       * perguntar (ADR 0003).
+       */
+      if (decision.decision === ORDER_DECISION.SUBSTITUTE || decision.decision === ORDER_DECISION.SKIP_ITEM) {
+        await this.handleItemSubstitution({
+          customerPhone: session.customerPhone,
+          customerId: customer.id,
+          orderId: decision.orderId,
+          orderItemId: decision.orderItemId,
+          ...(decision.decision === ORDER_DECISION.SUBSTITUTE
+            ? { substituteProductId: decision.substituteProductId }
+            : {}),
+        })
+        return true
+      }
+
+      await this.handleOrderDecision({
+        customerPhone: session.customerPhone,
+        customerId: customer.id,
+        orderId: decision.orderId,
+        decision: decision.decision,
+      })
+      return true
+    }
+
     if (this.isRepeatOrderTrigger(message)) {
       await this.handleRepeatOrder(session.customerPhone, customer.id)
       return true
@@ -106,6 +154,124 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
   private shouldHandleAsShoppingList(currentState: string, body: string): boolean {
     if (!SHOPPING_LIST_INTENT_STATES.has(currentState)) return false
     return looksLikeShoppingList(body)
+  }
+
+  /**
+   * Aplica a decisão e responde. Cada saída tem um texto, inclusive as que não mudam nada.
+   *
+   * Silêncio depois de um toque é o pior desfecho possível aqui: o cliente não sabe se a loja recebeu, e
+   * a única coisa que lhe resta é tocar de novo. Por isso até `not_owner` responde — com o texto neutro de
+   * "já resolvido", que não confirma a existência de um pedido alheio.
+   */
+  private async handleOrderDecision(params: {
+    readonly customerPhone: string
+    readonly customerId: string
+    readonly orderId: string
+    readonly decision: OrderDecision
+  }): Promise<void> {
+    const result = await this.dependencies.resolveCustomerDecisionUseCase.execute({
+      orderId: params.orderId,
+      customerId: params.customerId,
+      decision: params.decision,
+    })
+
+    if (!result.applied) {
+      await this.dependencies.whatsAppSender.sendText(
+        params.customerPhone,
+        MESSAGES.ORDER_DECISION_ALREADY_RESOLVED,
+      )
+      return
+    }
+
+    const shortCode = result.order.shortCode
+
+    if (params.decision === ORDER_DECISION.CONTINUE) {
+      await this.dependencies.whatsAppSender.sendText(
+        params.customerPhone,
+        MESSAGES.ORDER_DECISION_CONTINUE_ACK.replace('{codigo}', shortCode),
+      )
+      return
+    }
+
+    if (params.decision === ORDER_DECISION.NEW_LIST) {
+      /**
+       * Cancelou E abriu a conversa para a lista nova, num passo só.
+       *
+       * Sem mover o estado, o cliente responderia à pergunta com a lista e cairia no handler do estado
+       * antigo — que não espera lista nenhuma. `awaiting_list` é onde "arroz, feijão, 2 leites" vira carrinho.
+       */
+      await this.dependencies.conversationSessionRepository.updateStateByPhone({
+        customerPhone: params.customerPhone,
+        currentState: CONVERSATION_STATE.AWAITING_LIST,
+        context: {},
+      })
+      await this.dependencies.whatsAppSender.sendText(
+        params.customerPhone,
+        MESSAGES.ORDER_DECISION_NEW_LIST_ACK.replace('{codigo}', shortCode),
+      )
+      return
+    }
+
+    await this.dependencies.whatsAppSender.sendText(
+      params.customerPhone,
+      MESSAGES.ORDER_DECISION_CANCELLED_ACK.replace('{codigo}', shortCode),
+    )
+  }
+
+  /**
+   * Responde ao toque na oferta de troca. Sempre com uma frase, mesmo quando nada mudou.
+   *
+   * A próxima pergunta (o item seguinte, ou a do pedido inteiro) sai de dentro do use case, DEPOIS desta
+   * confirmação: a ordem das duas mensagens é a ordem em que a conversa faz sentido — primeiro o que
+   * aconteceu com o que ele acabou de responder, só então a pergunta nova.
+   */
+  private async handleItemSubstitution(params: {
+    readonly customerPhone: string
+    readonly customerId: string
+    readonly orderId: string
+    readonly orderItemId: string
+    readonly substituteProductId?: string | undefined
+  }): Promise<void> {
+    const result = await this.dependencies.resolveItemSubstitutionUseCase.execute({
+      orderId: params.orderId,
+      customerId: params.customerId,
+      orderItemId: params.orderItemId,
+      ...(params.substituteProductId ? { substituteProductId: params.substituteProductId } : {}),
+    })
+
+    if (!result.applied) {
+      await this.dependencies.whatsAppSender.sendText(
+        params.customerPhone,
+        MESSAGES.ORDER_DECISION_ALREADY_RESOLVED,
+      )
+      return
+    }
+
+    const askedItem = result.detail.items.find((item) => item.id === params.orderItemId)
+    const itemName = askedItem?.productName ?? ''
+
+    if (result.outcome === 'substituted') {
+      await this.dependencies.whatsAppSender.sendText(
+        params.customerPhone,
+        MESSAGES.ORDER_ITEM_SUBSTITUTED_ACK.replace('{substituto}', result.substituteName)
+          .replace('{codigo}', result.detail.order.shortCode)
+          .replace('{total}', formatPriceInCents(result.detail.order.totalInCents)),
+      )
+      return
+    }
+
+    if (result.outcome === 'substitute_gone') {
+      await this.dependencies.whatsAppSender.sendText(
+        params.customerPhone,
+        MESSAGES.ORDER_ITEM_SUBSTITUTE_GONE.replace('{item}', itemName),
+      )
+      return
+    }
+
+    await this.dependencies.whatsAppSender.sendText(
+      params.customerPhone,
+      MESSAGES.ORDER_ITEM_SKIPPED_ACK.replace('{item}', itemName),
+    )
   }
 
   private async handleRepeatOrder(customerPhone: string, customerId: string): Promise<void> {

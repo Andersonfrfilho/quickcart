@@ -20,4 +20,5 @@ export function registerInternalRoutes(params: RegisterInternalRoutesParams): vo
   const { router, internalController } = params
 
   router.post('/v1/internal/conversation/resume', internalController.handleResumeConversation)
+  router.post('/v1/internal/orders/:orderId/decision-reminder', internalController.handleRemindCustomerDecision)
 }

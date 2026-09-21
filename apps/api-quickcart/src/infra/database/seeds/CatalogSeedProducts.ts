@@ -22,6 +22,26 @@ export type SeedProduct = {
   readonly aliases: readonly string[]
 }
 
+/**
+ * Onde cada seção fica na loja de exemplo.
+ *
+ * Por categoria e não por produto porque é assim que um mercado se organiza — o café e o arroz estão no
+ * mesmo corredor —, e porque repetir a placa em cem linhas de seed convidaria a divergência. `pet` fica
+ * de fora de propósito: loja real não mapeia tudo, e a tela de separação precisa ser vista com a lista
+ * mista, que é o caso que acontece.
+ */
+export const SEED_AISLE_BY_CATEGORY: Readonly<Record<string, string>> = {
+  mercearia: 'Corredor 1',
+  hortifruti: 'Hortifruti',
+  acougue: 'Açougue',
+  padaria: 'Padaria',
+  laticinios: 'Corredor 4 · refrigerados',
+  bebidas: 'Corredor 5',
+  limpeza: 'Corredor 6',
+  higiene: 'Corredor 7',
+  congelados: 'Câmara fria',
+}
+
 export const SEED_PRODUCTS: readonly SeedProduct[] = [
   // Mercearia
   { categoryKey: 'mercearia', name: 'Arroz Branco Tipo 1 5kg', brand: 'Tio João', unit: 'kg', unitSize: '5kg', priceInCents: 2790, stockQuantity: 40, aliases: ['arroz', 'arroz branco', 'arroz tio joao'] },

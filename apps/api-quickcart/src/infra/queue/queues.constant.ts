@@ -17,6 +17,8 @@ export const QUEUE_NAMES = {
   NOTIFICATION_DELIVERY: 'notification-delivery',
   // Mídia recebida do cliente aguardando cópia da Meta para o storage do host.
   DOCUMENTS: 'documents',
+  /** A cobrança única da decisão do cliente sobre item em falta. Job atrasado, um por pergunta. */
+  ORDER_DECISION: 'order-decision',
 } as const
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES]
@@ -29,6 +31,9 @@ export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES]
  * Repetido no worker (que processa) por serem processos independentes, sem pacote compartilhado
  * entre eles: os dois lados precisam concordar nestas strings.
  */
+/** Único job da fila `order-decision`. Também é o prefixo do `jobId`, que carrega o pedido. */
+export const ORDER_DECISION_REMINDER_JOB = 'remind-customer-decision'
+
 export const DOCUMENTS_JOBS = {
   INGEST_INBOUND_MEDIA: 'ingest-inbound-media',
   PURGE_EXPIRED: 'purge-expired-documents',

@@ -18,7 +18,7 @@ import type {
   UpdateContactInfoParams,
   UpsertCustomerByPhoneParams,
 } from '@/modules/webhook/domain/CustomerRepository.interface'
-import type { OrderItemRecord, OrderRecord, OrderRepositoryInterface } from '@/modules/order/domain/OrderRepository.interface'
+import type { OrderItemRecord, OrderRecord, OrderRepositoryInterface , SubstituteItemResult } from '@/modules/order/domain/OrderRepository.interface'
 import type { Customer } from '@/infra/database/schema'
 import { GetOrderByShortCodeUseCase } from './GetOrderByShortCode.use-case'
 
@@ -93,7 +93,7 @@ class FakeOrderRepository implements OrderRepositoryInterface {
   async findDetailById(id: string) {
     const order = this.orders.get(id)
     // O fake não guarda cliente: os testes deste caso de uso não passam pelo detalhe.
-    return order ? { order: { ...order, customerName: null, customerPhone: '' }, items: [] } : undefined
+    return order ? { order: { ...order, customerName: null, customerPhone: '' }, items: [], deliveryAttempts: [] } : undefined
   }
 
   async setItemUnavailable(params: { orderId: string; itemId: string; unavailable: boolean }) {
@@ -107,6 +107,18 @@ class FakeOrderRepository implements OrderRepositoryInterface {
 
   async setAllItemsPicked(): Promise<undefined> {
     throw new Error('not implemented')
+  }
+
+  async markItemUnavailableNotified(_params: {
+    readonly orderId: string
+    readonly itemId: string
+  }): Promise<OrderItemRecord | undefined> {
+    // O fake não guarda item: os testes deste caso de uso não passam por troca de item em falta.
+    return undefined
+  }
+
+  async substituteItem(): Promise<SubstituteItemResult> {
+    return { ok: false, reason: 'not_substitutable' } as const
   }
 
   async markUnavailableItemsNotified(_orderId: string) {
@@ -126,7 +138,15 @@ class FakeOrderRepository implements OrderRepositoryInterface {
     return undefined
   }
 
-  async cancelAndRestoreStock(): Promise<OrderRecord | undefined> {
+  async startCustomerDecision(): Promise<undefined> {
+    throw new Error('not implemented')
+  }
+
+  async markCustomerDecisionReminded(): Promise<undefined> {
+    throw new Error('not implemented')
+  }
+
+  async cancel(): Promise<OrderRecord | undefined> {
     return undefined
   }
 }
@@ -147,6 +167,9 @@ function buildOrder(overrides: Partial<OrderRecord> = {}): OrderRecord {
     receiptPreference: 'email',
     fiscalDocumentId: null,
     notes: null,
+    deliveryFailureReason: null,
+    customerDecisionAskedAt: null,
+    customerDecisionRemindedAt: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,

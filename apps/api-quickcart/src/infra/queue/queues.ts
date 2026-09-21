@@ -61,6 +61,23 @@ export const notificationDeliveryQueue = new Queue(QUEUE_NAMES.NOTIFICATION_DELI
 // Cópia de mídia da Meta para o storage. A URL de download da Meta expira, então tentar de novo
 // tarde demais não recupera nada — daí backoff curto e poucas tentativas, em vez do escalonamento
 // longo do recibo. O use case é idempotente por sourceMediaId, então reentrega não duplica objeto.
+/**
+ * A cobrança da decisão. Poucas tentativas e backoff longo: nada aqui é urgente.
+ *
+ * O job só existe para acordar horas depois — se o Redis estiver fora no instante exato, tentar de novo
+ * em minutos chega perfeitamente a tempo. O `removeOnComplete` é curto porque o que interessa depois é o
+ * carimbo no pedido, não o histórico da fila.
+ */
+export const orderDecisionQueue = new Queue(QUEUE_NAMES.ORDER_DECISION, {
+  connection: queueConnection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 60_000 },
+    removeOnComplete: { age: 24 * 3600, count: 500 },
+    removeOnFail: { age: 7 * 24 * 3600, count: 500 },
+  },
+})
+
 export const documentsQueue = new Queue(QUEUE_NAMES.DOCUMENTS, {
   connection: queueConnection,
   defaultJobOptions: {
