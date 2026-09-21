@@ -9,7 +9,7 @@ uma com commit isolado. Evidência de cada task em [`evidence.md`](./evidence.md
 
 | Fato | Onde |
 |---|---|
-| Última migration | `apps/api-quickcart/drizzle/migrations/0014_customer_user_link.sql` — journal manual (`meta/_journal.json`), `when` em epoch ms **real** e crescente |
+| Última migration | `0019_order_item_substitution.sql` depois do PR #21 (a substituição renumerou `0015`–`0019`). Journal manual (`meta/_journal.json`), `when` em epoch ms **real** e **maior que o da 0019** — um `when` menor faz o drizzle pular a migration em silêncio num banco que já aplicou a 0019, como o staging |
 | Formas de pagamento | `src/modules/order/shared/Order.constant.ts:39-43` — `pix`, `card_on_delivery`, `cash` |
 | Colunas do pedido | `src/infra/database/schema/orders.ts:22-49` — `total_in_cents`, `payment_method`, `address` jsonb |
 | Estados da conversa | `src/modules/conversation/shared/ConversationState.constant.ts:16-35` |
@@ -53,7 +53,7 @@ migrado — ver nota) · frontend tocado: `cd apps/frontend-web && bun run typec
 > 🤖 Modelo: `sonnet`
 
 ### T1.1 — Troco no dinheiro
-- **Migration:** `0015_order_cash_change.sql` — `ALTER TABLE orders ADD COLUMN IF NOT EXISTS
+- **Migration:** `0020_order_cash_change.sql` — `ALTER TABLE orders ADD COLUMN IF NOT EXISTS
   cash_change_for_in_cents integer;` (nulo = não precisa). Entrada no journal com `when` = epoch ms
   real, maior que a última. Schema Drizzle: `cashChangeForInCents: integer('cash_change_for_in_cents')`.
 - **Estados novos:** `AWAITING_CASH_CHANGE` (pergunta sim/não) e `AWAITING_CASH_CHANGE_AMOUNT`
@@ -103,7 +103,7 @@ migrado — ver nota) · frontend tocado: `cd apps/frontend-web && bun run typec
 ### T2.1 🧠 — Taxa de entrega fora do total fiscal
 - **Env:** `DELIVERY_FEE_CENTS: z.coerce.number().int().nonnegative().default(0)` em
   `environment.ts` da api. Documentar em `envs/env.dev` e `.env.example`.
-- **Migration:** `0016_order_delivery_fee.sql` — `ALTER TABLE orders ADD COLUMN IF NOT EXISTS
+- **Migration:** `0021_order_delivery_fee.sql` — `ALTER TABLE orders ADD COLUMN IF NOT EXISTS
   delivery_fee_in_cents integer NOT NULL DEFAULT 0;`. Aditiva; pedidos antigos ficam com 0.
 - **Função única:** `amountDueInCents(order) = total_in_cents + delivery_fee_in_cents` em
   `modules/order/shared/`. **Nenhum outro lugar soma os dois.**
