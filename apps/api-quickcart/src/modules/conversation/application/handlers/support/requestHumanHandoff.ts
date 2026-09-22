@@ -47,7 +47,7 @@ const handoffLog = logger.child('HumanHandoff')
 export type RequestHumanHandoffDependencies = {
   readonly conversationSessionRepository: Pick<ConversationSessionRepositoryInterface, 'findByPhone' | 'requestHuman'>
   readonly whatsAppSender: Pick<WhatsAppSender, 'sendText'>
-  readonly cacheProvider: Pick<CacheProvider, 'setIfNotExists'>
+  readonly cacheProvider: Pick<CacheProvider, 'setIfNotExists' | 'del'>
 }
 
 function buildCooldownKey(customerPhone: string): string {
@@ -90,6 +90,27 @@ export async function requestHumanHandoff(
     return
   }
 
-  await dependencies.conversationSessionRepository.requestHuman(customerPhone)
+  try {
+    await dependencies.conversationSessionRepository.requestHuman(customerPhone)
+  } catch (error) {
+    /*
+     * O intervalo já foi gravado, mas ninguém foi chamado. Sem apagar a chave, o cliente que tentar de
+     * novo ouve "já avisei a equipe" por 10 minutos — com a equipe sem saber de nada.
+     */
+    await releaseCooldown(dependencies.cacheProvider, customerPhone)
+    throw error
+  }
   await dependencies.whatsAppSender.sendText(customerPhone, MESSAGES.AGENT_REQUESTED)
+}
+
+async function releaseCooldown(
+  cacheProvider: RequestHumanHandoffDependencies['cacheProvider'],
+  customerPhone: string,
+): Promise<void> {
+  try {
+    await cacheProvider.del(buildCooldownKey(customerPhone))
+  } catch (error) {
+    // Não mascara o erro original: se nem isso deu, a chave expira sozinha no TTL.
+    handoffLog.warn(HUMAN_HANDOFF_COOLDOWN_STORE_FAILED_LOG_EVENT, { error: serializeError(error) })
+  }
 }

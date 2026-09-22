@@ -48,6 +48,10 @@ function buildInMemoryCooldown(): CooldownStub & { readonly keys: string[] } {
       keys.push(key)
       return true
     },
+    async del(key: string) {
+      const index = keys.indexOf(key)
+      if (index >= 0) keys.splice(index, 1)
+    },
   }
 }
 
@@ -138,6 +142,7 @@ describe('requestHumanHandoff', () => {
         ttls.push(ttlSeconds)
         return true
       },
+      async del() {},
     })
 
     await requestHumanHandoff(dependencies, PHONE)
@@ -148,6 +153,9 @@ describe('requestHumanHandoff', () => {
   it('Redis fora do ar: fail-open, o pedido segue como antes', async () => {
     const { dependencies, texts, requestHumanCalls } = buildDependencies(buildSession({ mode: 'bot' }), {
       async setIfNotExists() {
+        throw new Error('redis down')
+      },
+      async del() {
         throw new Error('redis down')
       },
     })
@@ -167,5 +175,44 @@ describe('requestHumanHandoff', () => {
 
     expect(cooldown.keys).toEqual([])
     expect(texts).toEqual([MESSAGES.AGENT_HUMAN_IN_PROGRESS])
+  })
+})
+
+describe('requestHumanHandoff — falha ao registrar o pedido', () => {
+  it('libera o intervalo: a próxima tentativa chama a equipe, e não ouve "já avisei"', async () => {
+    const cooldown = buildInMemoryCooldown()
+    let failNext = true
+    const texts: string[] = []
+    const requestHumanCalls: string[] = []
+    const dependencies: RequestHumanHandoffDependencies = {
+      conversationSessionRepository: {
+        async findByPhone() {
+          return buildSession({ mode: 'bot' })
+        },
+        async requestHuman(customerPhone: string) {
+          if (failNext) {
+            failNext = false
+            throw new Error('banco fora do ar')
+          }
+          requestHumanCalls.push(customerPhone)
+        },
+      },
+      whatsAppSender: {
+        async sendText(_phone: string, text: string) {
+          texts.push(text)
+        },
+      },
+      cacheProvider: cooldown,
+    }
+
+    // A falha propaga — quem chamou precisa saber que o pedido não foi registrado.
+    await expect(requestHumanHandoff(dependencies, PHONE)).rejects.toThrow('banco fora do ar')
+
+    expect(cooldown.keys).toEqual([])
+
+    await requestHumanHandoff(dependencies, PHONE)
+
+    expect(requestHumanCalls).toEqual([PHONE])
+    expect(texts).toEqual([MESSAGES.AGENT_REQUESTED])
   })
 })
