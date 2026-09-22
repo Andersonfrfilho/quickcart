@@ -26,10 +26,17 @@ export async function buildPricedOrderItems(
   productRepository: ProductRepositoryInterface,
   requestedItems: ReadonlyArray<BuildPricedOrderItemsRequestedItem>,
 ): Promise<CreateOrderItemInput[]> {
+  /*
+   * UMA consulta para todos os itens. A cotação do checkout web é pública e recalcula a cada mudança
+   * no carrinho: com uma consulta por item, 100 itens anônimos virariam 100 idas ao banco em série.
+   */
+  const uniqueIds = [...new Set(requestedItems.map((item) => item.productId))]
+  const productsById = new Map((await productRepository.findByIds(uniqueIds)).map((product) => [product.id, product]))
+
   const items: CreateOrderItemInput[] = []
 
   for (const requestedItem of requestedItems) {
-    const product = await productRepository.findById(requestedItem.productId)
+    const product = productsById.get(requestedItem.productId)
     if (!product) throw new ProductNotFoundError(requestedItem.productId)
     if (!product.isAvailable) throw new CartProductUnavailableError(requestedItem.productId)
 

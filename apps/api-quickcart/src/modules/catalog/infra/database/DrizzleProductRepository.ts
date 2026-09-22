@@ -95,6 +95,11 @@ export class DrizzleProductRepository implements ProductRepositoryInterface {
     return product
   }
 
+  async findByIds(ids: readonly string[]): Promise<Product[]> {
+    if (ids.length === 0) return []
+    return db.select().from(products).where(inArray(products.id, [...ids]))
+  }
+
   async findByBarcode(barcode: string): Promise<Product | undefined> {
     const [product] = await db.select().from(products).where(eq(products.barcode, barcode)).limit(1)
     return product

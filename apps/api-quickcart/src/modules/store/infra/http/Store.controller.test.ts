@@ -46,9 +46,9 @@ function buildController(overrides: { readonly priceInCents?: number; readonly i
     listMyOrdersUseCase: {} as never,
     deliveryFeeInCents: 800,
     productRepository: {
-      async findById() {
-        if (overrides.notFound) return undefined
-        return { id: PRODUCT_ID, name: 'Arroz 5kg', priceInCents: overrides.priceInCents ?? 2490, isAvailable: overrides.isAvailable ?? true }
+      async findByIds() {
+        if (overrides.notFound) return []
+        return [{ id: PRODUCT_ID, name: 'Arroz 5kg', priceInCents: overrides.priceInCents ?? 2490, isAvailable: overrides.isAvailable ?? true }]
       },
     } as never,
   })

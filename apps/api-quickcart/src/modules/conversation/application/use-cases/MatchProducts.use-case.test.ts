@@ -38,6 +38,15 @@ class FakeProductRepository implements ProductRepositoryInterface {
     throw new Error('not implemented in fake')
   }
 
+  async findByIds(ids: readonly string[]): Promise<Product[]> {
+
+    const found = await Promise.all(ids.map((id) => this.findById()))
+
+    return found.filter((product): product is Product => product !== undefined)
+
+  }
+
+
   async findById(): Promise<Product | undefined> {
     throw new Error('not implemented in fake')
   }
