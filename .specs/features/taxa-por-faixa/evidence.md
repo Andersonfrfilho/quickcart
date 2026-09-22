@@ -52,3 +52,22 @@
 - Sem teste de integração dedicado para T1.3: o use case já é coberto por unit test com fake, e a tabela real já tem cobertura de `replaceAll`/`listOrdered` na T1.2 — um terceiro teste batendo no Postgres só para repetir a mesma lógica seria redundante.
 
 **Números:** typecheck limpo. `bun run test`: 591 pass / 0 fail (89 arquivos) — base 588 + 3 testes novos.
+
+## T1.4 — Cache negativo e ritmo do provedor
+
+**Arquivos** (em `apps/api-quickcart/`):
+- `src/infra/database/schema/geocode-failures.ts` — tabela `geocode_failures` (`cep` PK, `failed_at`); `drizzle/migrations/0023_geocode_failures.sql` + journal `idx 23`, `when: 1790082918150` (maior que o da 0022; conferido pelo mesmo script Python da T1.2).
+- `src/modules/shared/address/GeocodeFailureRepository.interface.ts` + `src/modules/shared/address/infra/DrizzleGeocodeFailureRepository.ts` — `findByCep`/`save` (upsert)/`remove`.
+- `src/modules/shared/address/ResolveCepCoordinate.use-case.ts` — reescrito: memória do processo (`Map` de instância, checada antes do cache em banco — cobre "coordenada da loja em memória" do design.md, e vale para qualquer CEP); `geocodeFailureRepository` e `now` agora são dependências **opcionais** (retrocompatível com quem já instanciava sem elas); antes do provedor, consulta a falha e recusa se `now - failedAt < 24h` (`GEOCODE_FAILURE_TTL_MS`, exportada); falha nova grava, sucesso remove.
+- `src/infra/nominatim/NominatimGeocodingProvider.ts` — `now`/`sleep` viraram dependências injetáveis (default `Date.now`/`Bun.sleep`); o semáforo de 1 req/s já existia por instância (`lastCallAt`), e a instância já é única por processo em `container/index.ts` — só faltava dar para testar sem esperar 1,1s de verdade.
+- `src/infra/container/index.ts` — injeta `DrizzleGeocodeFailureRepository` no `resolveCepCoordinateUseCase` existente.
+- `tests/ResolveCepCoordinate.test.ts` — 4 casos novos: falha < 24h não chama o provedor; falha > 24h chama de novo; falha nova é gravada; sucesso remove a falha registrada.
+- `tests/NominatimGeocodingProvider.rateLimit.test.ts` — 2 casos com `now`/`sleep` injetados: duas chamadas concorrentes serializam (a segunda espera); chamada muito depois da anterior não espera.
+
+**Decisões:**
+- Sem semáforo adicional em `ResolveCepCoordinate`: o rate limit já vivia no `NominatimGeocodingProvider` (`lastCallAt` de instância) e a instância já nasce única no container — bastou torná-lo testável, não duplicar a trava num segundo lugar (a spec permite "no GeocodingProvider **ou** no ResolveCepCoordinate").
+- `hasRecentFailure`/`recordFailure`/`clearFailure` degradam sem lançar quando `geocodeFailureRepository` está ausente ou falha ao gravar/remover — mesma disciplina de "nunca lança" do resto da classe (o cache negativo é uma otimização, não pode derrubar a cotação).
+- Armadilha no teste de ritmo: o relógio de teste precisou começar em `1000`, não `0` — `lastCallAt === 0` é o sinal interno de "nunca chamou", e um relógio começando em zero faria a SEGUNDA chamada also parecer a primeira.
+- `maskCep` já cobria os logs existentes; os `warn` novos (`failure_not_cached`, `failure_not_cleared`) seguem o mesmo padrão — nenhum CEP em texto claro em log.
+
+**Números:** migration aplicada no banco de teste (`\d geocode_failures` confere PK). Typecheck limpo. `bun run test`: 597 pass / 0 fail (90 arquivos) — base 591 + 6 testes novos (4 cache negativo + 2 ritmo; `QuoteDeliveryFee` e `ResolveOrderDeliveryEstimate` seguem verdes sem alteração de comportamento).

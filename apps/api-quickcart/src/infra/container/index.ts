@@ -115,6 +115,7 @@ import { GetAdminOrderDetailUseCase } from '@/modules/order/application/use-case
 import { ResolveOrderDeliveryEstimateUseCase } from '@/modules/order/application/use-cases/ResolveOrderDeliveryEstimate.use-case'
 import { ResolveCepCoordinateUseCase } from '@/modules/shared/address/ResolveCepCoordinate.use-case'
 import { DrizzleGeocodedAddressRepository } from '@/modules/shared/address/infra/DrizzleGeocodedAddressRepository'
+import { DrizzleGeocodeFailureRepository } from '@/modules/shared/address/infra/DrizzleGeocodeFailureRepository'
 import { DrizzleDeliveryFeeTierRepository } from '@/modules/order/infra/database/DrizzleDeliveryFeeTierRepository'
 import { EnsureDefaultDeliveryFeeTiersUseCase } from '@/modules/order/application/use-cases/EnsureDefaultDeliveryFeeTiers.use-case'
 import { SetOrderItemUnavailableUseCase } from '@/modules/order/application/use-cases/SetOrderItemUnavailable.use-case'
@@ -262,6 +263,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
   const resolveCepCoordinateUseCase = new ResolveCepCoordinateUseCase({
     geocodedAddressRepository: new DrizzleGeocodedAddressRepository(),
     geocodingProvider: new NominatimGeocodingProvider(),
+    geocodeFailureRepository: new DrizzleGeocodeFailureRepository(),
   })
   const resolveOrderDeliveryEstimateUseCase = new ResolveOrderDeliveryEstimateUseCase({
     resolveCepCoordinateUseCase,

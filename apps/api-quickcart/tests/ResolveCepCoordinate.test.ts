@@ -23,7 +23,11 @@ import type {
   GeocodeResult,
   GeocodingProviderInterface,
 } from '@/modules/shared/address/GeocodingProvider.interface'
-import { ResolveCepCoordinateUseCase } from '@/modules/shared/address/ResolveCepCoordinate.use-case'
+import { GEOCODE_FAILURE_TTL_MS, ResolveCepCoordinateUseCase } from '@/modules/shared/address/ResolveCepCoordinate.use-case'
+import type {
+  GeocodeFailureRecord,
+  GeocodeFailureRepositoryInterface,
+} from '@/modules/shared/address/GeocodeFailureRepository.interface'
 
 class FakeGeocodedAddressRepository implements GeocodedAddressRepositoryInterface {
   readonly rows = new Map<string, GeocodedAddressRecord>()
@@ -51,6 +55,24 @@ class SpyGeocodingProvider implements GeocodingProviderInterface {
   async geocodeByCep(): Promise<GeocodeResult | undefined> {
     this.callCount += 1
     return this.result
+  }
+}
+
+class FakeGeocodeFailureRepository implements GeocodeFailureRepositoryInterface {
+  readonly rows = new Map<string, GeocodeFailureRecord>()
+  removeCalls: string[] = []
+
+  async findByCep(cep: string): Promise<GeocodeFailureRecord | undefined> {
+    return this.rows.get(cep.replace(/\D/g, ''))
+  }
+
+  async save(params: { readonly cep: string; readonly failedAt: Date }): Promise<void> {
+    this.rows.set(params.cep.replace(/\D/g, ''), { cep: params.cep, failedAt: params.failedAt })
+  }
+
+  async remove(cep: string): Promise<void> {
+    this.removeCalls.push(cep)
+    this.rows.delete(cep.replace(/\D/g, ''))
   }
 }
 
@@ -124,5 +146,77 @@ describe('ResolveCepCoordinateUseCase', () => {
 
     expect(result?.latitude).toBe(COORDINATE.latitude)
     expect(result?.fromCache).toBe(false)
+  })
+
+  it('CEP com falha recente (< 24h): não chama o provedor de novo', async () => {
+    const geocodeFailureRepository = new FakeGeocodeFailureRepository()
+    let now = new Date('2026-09-22T12:00:00.000Z')
+    await geocodeFailureRepository.save({ cep: '01310100', failedAt: now })
+
+    const geocodingProvider = new SpyGeocodingProvider(COORDINATE)
+    const useCase = new ResolveCepCoordinateUseCase({
+      geocodedAddressRepository: new FakeGeocodedAddressRepository(),
+      geocodingProvider,
+      geocodeFailureRepository,
+      now: () => now,
+    })
+
+    now = new Date(now.getTime() + GEOCODE_FAILURE_TTL_MS - 1000) // 23h59min depois
+    const result = await useCase.execute({ cep: '01310-100' })
+
+    expect(result).toBeUndefined()
+    expect(geocodingProvider.callCount).toBe(0)
+  })
+
+  it('CEP com falha há mais de 24h: chama o provedor de novo', async () => {
+    const geocodeFailureRepository = new FakeGeocodeFailureRepository()
+    let now = new Date('2026-09-22T12:00:00.000Z')
+    await geocodeFailureRepository.save({ cep: '01310100', failedAt: now })
+
+    const geocodingProvider = new SpyGeocodingProvider(COORDINATE)
+    const useCase = new ResolveCepCoordinateUseCase({
+      geocodedAddressRepository: new FakeGeocodedAddressRepository(),
+      geocodingProvider,
+      geocodeFailureRepository,
+      now: () => now,
+    })
+
+    now = new Date(now.getTime() + GEOCODE_FAILURE_TTL_MS + 1000) // 24h01min depois
+    const result = await useCase.execute({ cep: '01310-100' })
+
+    expect(geocodingProvider.callCount).toBe(1)
+    expect(result?.latitude).toBe(COORDINATE.latitude)
+  })
+
+  it('grava a falha quando o provedor não resolve, e remove ao resolver depois', async () => {
+    const geocodeFailureRepository = new FakeGeocodeFailureRepository()
+    const geocodingProvider = new SpyGeocodingProvider(undefined)
+    const useCase = new ResolveCepCoordinateUseCase({
+      geocodedAddressRepository: new FakeGeocodedAddressRepository(),
+      geocodingProvider,
+      geocodeFailureRepository,
+    })
+
+    const failed = await useCase.execute({ cep: '01310-100' })
+    expect(failed).toBeUndefined()
+    expect(geocodeFailureRepository.rows.has('01310100')).toBe(true)
+  })
+
+  it('sucesso posterior remove a falha registrada', async () => {
+    const geocodeFailureRepository = new FakeGeocodeFailureRepository()
+    await geocodeFailureRepository.save({ cep: '01310100', failedAt: new Date('2020-01-01') })
+
+    const useCase = new ResolveCepCoordinateUseCase({
+      geocodedAddressRepository: new FakeGeocodedAddressRepository(),
+      geocodingProvider: new SpyGeocodingProvider(COORDINATE),
+      geocodeFailureRepository,
+      now: () => new Date('2026-09-22T12:00:00.000Z'), // muito depois da janela de 24h, já cairia
+    })
+
+    const result = await useCase.execute({ cep: '01310-100' })
+
+    expect(result?.latitude).toBe(COORDINATE.latitude)
+    expect(geocodeFailureRepository.removeCalls).toEqual(['01310100'])
+    expect(geocodeFailureRepository.rows.has('01310100')).toBe(false)
   })
 })

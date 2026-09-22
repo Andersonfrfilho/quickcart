@@ -75,8 +75,21 @@ function resolvePrecision(address: NominatimAddress | undefined): GeocodePrecisi
   return GEOCODE_PRECISION.NONE
 }
 
+type NominatimGeocodingProviderDependencies = {
+  /** Injetáveis para teste, sem esperar 1,1s de verdade por chamada; produção usa os reais. */
+  readonly now?: () => number
+  readonly sleep?: (ms: number) => Promise<void>
+}
+
 export class NominatimGeocodingProvider implements GeocodingProviderInterface {
   private lastCallAt = 0
+  private readonly now: () => number
+  private readonly sleep: (ms: number) => Promise<void>
+
+  constructor(dependencies: NominatimGeocodingProviderDependencies = {}) {
+    this.now = dependencies.now ?? (() => Date.now())
+    this.sleep = dependencies.sleep ?? ((ms: number) => Bun.sleep(ms))
+  }
 
   async geocodeByCep(cep: string): Promise<GeocodeResult | undefined> {
     const digitsOnly = cep.replace(/\D/g, '')
@@ -119,10 +132,10 @@ export class NominatimGeocodingProvider implements GeocodingProviderInterface {
    * 1 req/s — o que exigiria dois CEPs novos no mesmo segundo, em dois processos.
    */
   private async waitForRateLimit(): Promise<void> {
-    const elapsed = Date.now() - this.lastCallAt
+    const elapsed = this.now() - this.lastCallAt
     if (this.lastCallAt > 0 && elapsed < MIN_INTERVAL_BETWEEN_CALLS_MS) {
-      await Bun.sleep(MIN_INTERVAL_BETWEEN_CALLS_MS - elapsed)
+      await this.sleep(MIN_INTERVAL_BETWEEN_CALLS_MS - elapsed)
     }
-    this.lastCallAt = Date.now()
+    this.lastCallAt = this.now()
   }
 }
