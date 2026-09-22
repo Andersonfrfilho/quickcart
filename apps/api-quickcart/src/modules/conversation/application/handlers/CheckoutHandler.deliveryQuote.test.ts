@@ -356,6 +356,24 @@ describe('CheckoutHandler — entrega pela localização do WhatsApp', () => {
     expect(quoteCalls).toEqual([])
   })
 
+  it('localização em AWAITING_ADDRESS_NUMBER (no lugar do número) é aceita como no passo do endereço', async () => {
+    const { handler, stateUpdates, texts, quoteCalls } = buildHarness(QUOTED_BY_LOCATION)
+
+    await handler.handle({
+      session: buildSession(CONVERSATION_STATE.AWAITING_ADDRESS_NUMBER, CEP_DRAFT_CONTEXT),
+      customer: CUSTOMER,
+      message: LOCATION_MESSAGE,
+    })
+
+    expect(quoteCalls).toEqual([
+      { deliveryType: DELIVERY_TYPE.DELIVERY, location: { kind: CUSTOMER_LOCATION_KIND.COORDINATES, latitude: LATITUDE, longitude: LONGITUDE } },
+    ])
+    expect(stateUpdates[0]?.currentState).toBe(CONVERSATION_STATE.AWAITING_ADDRESS_NUMBER)
+    expect(stateUpdates[0]?.context).toMatchObject({ checkoutLocationDraft: { latitude: LATITUDE, longitude: LONGITUDE } })
+    expect(stateUpdates[0]?.context).not.toHaveProperty('checkoutAddressDraft')
+    expect(texts).toEqual([QUOTED_MESSAGE, MESSAGES.CHECKOUT_ASK_LOCATION_ADDRESS_NUMBER])
+  })
+
   it('out_of_range pela localização: decisão, sem guardar a coordenada no contexto', async () => {
     const { handler, stateUpdates, buttonMessages } = buildHarness(OUT_OF_RANGE)
 

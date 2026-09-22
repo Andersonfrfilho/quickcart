@@ -625,3 +625,12 @@ Commit único com as mudanças acima. Mensagem em português com o porquê, conf
 - Testes: público/lista/detalhe/mutação sem lat/lng; meus pedidos; contexto; ViaCEP sobrescreve; CEP desconhecido;
   entrega sem endereço.
 - Gates: typecheck limpo; api 681 / 0 fail; frontend 48 / 0 fail.
+
+### E) Pequenos
+- `infra/config/warnWhenStoreCepMissing.ts` chamado no boot (`src/index.ts`): `warn`
+  `store_cep_missing_delivery_disabled` `{ deliveryAvailable: false }` — sem PII.
+- `CheckoutHandler` em `AWAITING_ADDRESS_NUMBER`: mensagem `location` segue o mesmo `acceptLocation` do
+  `AWAITING_ADDRESS` (e descarta o rascunho de CEP).
+- `ResolveOrderDeliveryEstimate.test.ts`: `toBeDefined` trocados por valores (1,96 km, 15–30 min).
+- Não alterado (decisão do usuário a registrar): `GEOCODE_PRECISION.NONE` → maior faixa.
+- Gates: typecheck limpo; api 684 / 0 fail; frontend 48 / 0 fail.

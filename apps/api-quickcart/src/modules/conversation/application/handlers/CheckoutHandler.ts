@@ -429,6 +429,16 @@ export class CheckoutHandler implements ConversationHandlerInterface {
     const draft = checkoutContext.checkoutAddressDraft
     const locationDraft = checkoutContext.checkoutLocationDraft
 
+    // Cliente que manda a localização em vez do número está trocando o endereço: mesmo caminho do passo anterior.
+    if (message.kind === 'location') {
+      await this.acceptLocation({
+        session,
+        checkoutContext,
+        coordinates: { latitude: message.latitude, longitude: message.longitude },
+      })
+      return
+    }
+
     if (message.kind !== 'text' || message.body.trim().length === 0 || (!draft && !locationDraft)) {
       await this.dependencies.whatsAppSender.sendText(
         session.customerPhone,
