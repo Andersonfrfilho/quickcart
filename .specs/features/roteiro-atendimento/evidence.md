@@ -499,3 +499,15 @@ nada muda no fiscal. Nenhum env commitado liga a taxa.
 - Nenhum desvio de comportamento do resumo (formato bate com a spec §3.4 literalmente).
 - `GET /v1/store/checkout-config` removido em vez de mantido — decisão registrada acima, dentro do
   que a task pediu para avaliar.
+
+### T2.2 — ajuste na revisão: N+1 na cotação pública
+
+`buildPricedOrderItems` fazia um `findById` por item, em série. O padrão já existia no
+`CreateWebOrder`, mas a T2.2 o expôs em `POST /v1/store/checkout-quote`, rota **pública** que o
+checkout web recota a cada mudança no carrinho — 100 itens anônimos viravam 100 consultas por
+requisição. Agora é um `findByIds` (uma consulta, `inArray`). A cotação ganhou teto de 999 por linha.
+
+- Teste novo afirma `findById: 0, findByIds: 1` para 50 itens; verificado contra o código antigo: reprova.
+- Um dublê do controller era `as never` e não acusou o método novo no typecheck — só a suíte pegou.
+  Tipar dublês com `as never` esconde exatamente esse tipo de quebra.
+- Suíte da api: 369 verdes (361 + 8 novos).
