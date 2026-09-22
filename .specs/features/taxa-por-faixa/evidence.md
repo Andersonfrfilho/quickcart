@@ -344,3 +344,104 @@ da T3.1), como orientado.
 **Números:** typecheck limpo nos dois apps. `bun run test`: api-quickcart 641 pass / 0 fail (93
 arquivos) — base 638 (pós-T3.2) + 3 testes novos; frontend-web 27 pass / 0 fail (5 arquivos) — base 24
 + 3 testes novos.
+
+## T4.1 — Rota e tela
+
+**Arquivos** (`apps/api-quickcart/src/`):
+- `modules/store/infra/http/schemas/CheckoutQuote.schema.ts` — `cep` (8 dígitos) acrescentado ao
+  corpo; `.superRefine` exige `cep` quando `deliveryType === 'delivery'` (ausente → `ValidationError`,
+  422, igual ao padrão de `CreateWebOrder.schema.ts`).
+- `modules/store/infra/http/Store.controller.ts` — dependência `deliveryFeeInCents` (env) trocada por
+  `quoteDeliveryFeeUseCase: Pick<QuoteDeliveryFeeUseCase, 'execute'>`; `handleGetCheckoutQuote` cota
+  pelo CEP (`{ kind: 'cep', cep }`, ou sem `location` na retirada) e monta `deliveryQuote` +
+  `isDeliveryAvailable` a partir do `QuoteDeliveryFeeResult` — só `kind`, `distanceKm` (arredondada a
+  0,1 km com `roundToOneDecimalKm`), `maxDistanceKm` e `tier`; nunca coordenada nem CEP.
+  `resolveDeliveryFeeInCents` removido do import.
+- `modules/order/shared/amountDue.ts` — `resolveDeliveryFeeInCents` removido (único consumidor era o
+  `Store.controller.ts`); `amountDueInCents` intocada. `amountDue.test.ts` perdeu o describe da função
+  removida.
+- `modules/order/infra/http/schemas/CreateWebOrder.schema.ts` — **lacuna da T2.1 fechada**: o schema
+  não tinha `expectedDeliveryFeeInCents` (o use case já lia o campo, mas o zod descartava por não
+  estar declarado — a comparação de 409 nunca disparava vindo de um corpo HTTP real). Campo acrescentado,
+  opcional, `z.coerce.number().int().nonnegative()`.
+- `infra/container/index.ts` — `container.order` ganhou `quoteDeliveryFeeUseCase: orderModule.quoteDeliveryFeeUseCase`
+  (já existia no módulo, só não estava exposto para o `server.ts` montar o `StoreController`).
+- `infra/http/server.ts` — `StoreController` passa a receber `quoteDeliveryFeeUseCase:
+  container.order.quoteDeliveryFeeUseCase` em vez de `deliveryFeeInCents: environment.DELIVERY_FEE_CENTS`.
+  `environment.DELIVERY_FEE_CENTS` deixou de ser lida em `server.ts` e em `Store.controller.ts`; a
+  variável em si (`environment.ts`) sai só na Fase 6, como combinado.
+- Testes: `CheckoutQuote.schema.test.ts` (+3: exige CEP na entrega, aceita retirada sem CEP, recusa CEP
+  mal formatado); `Store.controller.test.ts` reescrito com `quoteDeliveryFeeUseCase` fake — cobre
+  `quoted`, `approximate_max_tier` (sem distância), `out_of_range` (distância + limite, taxa zero,
+  indisponível), `unavailable` (taxa zero, indisponível), "resposta nunca traz coordenada nem CEP"
+  (`JSON.stringify` do payload não contém o CEP enviado nem "latitude"/"longitude"), e "entrega sem
+  CEP é recusada com ValidationError (422)"; `CreateWebOrder.schema.test.ts` (+1: aceita
+  `expectedDeliveryFeeInCents` opcional).
+
+**Arquivos** (`apps/frontend-web/src/`):
+- `shared/api/api.types.ts` — `CheckoutQuoteInput` ganha `cep?: string | undefined`
+  (`exactOptionalPropertyTypes: true` exige o `| undefined` explícito); `CheckoutQuote` ganha
+  `deliveryQuote: CheckoutDeliveryQuote` (união por `kind`, espelhando `DELIVERY_QUOTE_KIND` do
+  backend) e `isDeliveryAvailable: boolean`.
+- `shared/api/client.ts` — o interceptor de resposta jogava fora o `code` do erro (`new
+  Error(message)` só com a mensagem) — **sem isso, `getApiErrorCode()` não tinha nada para ler**.
+  Nova classe `ApiError extends Error` carrega `code`; `getApiErrorCode(error)` lê `error.code`
+  quando é uma `ApiError`. `CreateOrderInput` ganha `expectedDeliveryFeeInCents?: number`.
+- `modules/order/infra/http/schemas/CreateWebOrder.schema.ts`: nenhuma mudança do lado do frontend
+  (mencionado para deixar claro que o corpo é o mesmo tipo `CreateOrderInput` de sempre).
+- `modules/store/shared/queries/useCheckoutQuote.query.ts` — chave `['checkout-quote', deliveryType,
+  cepDigits, items]`; `resolveCheckoutQuoteRequest` (função pura extraída, sem `renderHook` neste
+  projeto) decide `enabled` (entrega só dispara com exatamente 8 dígitos de CEP; retirada sempre
+  dispara com carrinho não vazio) e manda só os dígitos do CEP no corpo (a tela pode ter máscara).
+- `modules/store/shared/checkoutDelivery.constant.ts` (novo) — `resolveDeliveryQuoteMessage` (sem CEP
+  completo → "Informe o CEP para calcular a taxa"; `out_of_range` → mensagem de fora do raio
+  sugerindo retirada; `unavailable` → mensagem genérica) e `resolveCreateOrderErrorMessage` (traduz o
+  `code` de `getApiErrorCode()`: `DELIVERY_FEE_CHANGED` → avisa que a taxa mudou e sinaliza
+  `shouldRefetchQuote: true`; `DELIVERY_OUT_OF_RANGE` → mensagem de fora do raio; outro código → cai
+  na mensagem original do erro).
+- `modules/store/hooks/useCheckoutPage.hook.ts` — `checkoutQuoteQuery` passa a receber `cep`;
+  `deliveryQuoteMessage` (memoizado) chama `resolveDeliveryQuoteMessage`; `handleSubmit` manda
+  `expectedDeliveryFeeInCents: quote.deliveryFeeInCents` quando a cotação já chegou, e no `catch` usa
+  `resolveCreateOrderErrorMessage` — `shouldRefetchQuote` dispara `checkoutQuoteQuery.refetch()`.
+- `modules/store/pages/Checkout.page.tsx` — a linha da taxa só aparece com `isDeliveryAvailable`, com
+  `deliveryTierLabel` mostrando "até N km · X km" (`quoted`) ou "até N km (estimativa pela cidade)"
+  (`approximate_max_tier`); sem isso, `deliveryQuoteMessage` explica o motivo; o total mostra "—"
+  enquanto a entrega não está disponível; o botão de confirmar fica desabilitado com entrega
+  indisponível ou cotação ainda não chegada.
+- Testes novos: `useCheckoutQuote.query.test.ts` (5 casos: retirada dispara sem CEP; entrega sem CEP
+  não dispara; CEP incompleto não dispara; CEP com máscara dispara e manda só dígitos; carrinho vazio
+  não dispara mesmo com CEP) e `checkoutDelivery.constant.test.ts` (8 casos: as quatro combinações de
+  `resolveDeliveryQuoteMessage` e as três de `resolveCreateOrderErrorMessage`, incluindo o código
+  desconhecido caindo na mensagem original).
+
+**Decisões:**
+- `getApiErrorCode()` não existia em lugar nenhum do monorepo antes desta task, apesar de citado como
+  convenção (`code-standart.md` §7 do usuário). Criado em `client.ts`, ao lado do `apiClient` — é o
+  único lugar que already intercepta toda resposta de erro, então é o único lugar que pode preservar
+  o `code` sem duplicar a leitura de `error.response.data.error` em cada chamador.
+- `createWebOrderBodySchema` não tinha `expectedDeliveryFeeInCents`: a T2.1 já usava o campo no use
+  case e no tipo, mas nunca o declarou no schema do corpo — como o zod descarta chave não declarada,
+  o valor nunca chegava vindo de uma requisição HTTP real (só nos testes de use case, que chamam o
+  use case direto). Sem esse campo no schema, a Fase 4 não tinha como completar "a tela manda a taxa
+  esperada" — corrigido aqui porque é exatamente o contrato que esta task fecha.
+- `roundToOneDecimalKm` fica só no `Store.controller.ts` (não extraído para `shared/`): é
+  `Math.round(x*10)/10`, uma linha, e o card da conversa (`OrderInProgressCard.tsx`, T3.3) já tem a
+  própria versão inline (`formatKm`) para o mesmo arredondamento — um terceiro lugar duplicando não
+  paga o custo de uma abstração para uma linha.
+- `deliveryFeeInCents` na resposta continua 0 (não omitido) em `out_of_range`/`unavailable`: o campo
+  já existia no contrato antes desta task e `isDeliveryAvailable: false` é o sinal de que ele não deve
+  ser cobrado — trocar para `undefined`/omitir quebraria quem já lê `CheckoutQuote.deliveryFeeInCents`
+  como `number`.
+- Botão de confirmar desabilitado quando `deliveryType === 'delivery'` e a cotação ainda não chegou ou
+  não está disponível: evita o cliente confirmar um pedido que o servidor vai recusar de qualquer
+  jeito (a validação real continua no `CreateWebOrder`, isto é só UX).
+- Nenhuma mudança em `OrderRoutes.ts`/`StoreRoutes.ts`: a rota `POST /v1/store/checkout-quote` já
+  existia e seu rate limit (`checkoutQuoteRateLimiter`) não muda.
+
+**Números:** typecheck limpo nos dois apps (`exactOptionalPropertyTypes: true` exigiu `cep?: string |
+undefined` explícito em `CheckoutQuoteInput`). `bun run test`: api-quickcart 648 pass / 0 fail (93
+arquivos) — base 641 + 3 (`CheckoutQuote.schema.test.ts`) + 5 (`Store.controller.test.ts`: aproximado,
+fora do raio, indisponível, nunca coordenada, sem CEP → 422) + 1 (`CreateWebOrder.schema.test.ts`) − 2
+(`amountDue.test.ts` perdeu os dois casos de `resolveDeliveryFeeInCents`, removida) = +7; frontend-web
+40 pass / 0 fail (7 arquivos) — base 27 + 5 (`useCheckoutQuote.query.test.ts`) + 8
+(`checkoutDelivery.constant.test.ts`) = +13.

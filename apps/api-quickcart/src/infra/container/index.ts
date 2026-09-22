@@ -912,6 +912,8 @@ export const container = {
     repeatLastOrderUseCase: orderModule.repeatLastOrderUseCase,
     listOrdersUseCase: orderModule.listOrdersUseCase,
     orderController: orderModule.orderController,
+    /** Único cálculo de taxa (spec §3.3) — a cotação pública do `StoreController` recota por aqui. */
+    quoteDeliveryFeeUseCase: orderModule.quoteDeliveryFeeUseCase,
   },
   webhook: webhookModule,
   /*

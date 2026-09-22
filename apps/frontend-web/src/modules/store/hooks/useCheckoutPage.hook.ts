@@ -5,6 +5,8 @@ import { useCartStore } from '@/modules/store/shared/cartStore'
 import { useCreateOrderMutation } from '@/modules/store/shared/mutations/useCreateOrder.mutation'
 import { lookupAddressByCep } from '@/modules/store/shared/viaCepLookup'
 import { useCheckoutQuoteQuery } from '@/modules/store/shared/queries/useCheckoutQuote.query'
+import { resolveCreateOrderErrorMessage, resolveDeliveryQuoteMessage } from '@/modules/store/shared/checkoutDelivery.constant'
+import { getApiErrorCode } from '@/shared/api/client'
 import type { DeliveryType, PaymentMethod, ReceiptPreference } from '@/shared/api/api.types'
 
 const SIGN_IN_PATH = '/entrar'
@@ -63,8 +65,14 @@ export function useCheckoutPage() {
   const checkoutQuoteQuery = useCheckoutQuoteQuery({
     items: items.map((item) => ({ productId: item.productId, quantity: item.quantity })),
     deliveryType,
+    cep,
   })
   const quote = checkoutQuoteQuery.data?.data
+
+  const deliveryQuoteMessage = React.useMemo(
+    () => resolveDeliveryQuoteMessage({ deliveryType, cep, quote }),
+    [deliveryType, cep, quote],
+  )
 
   const [paymentMethod, setPaymentMethod] = React.useState<PaymentMethod>('pix')
   const [receiptPreference, setReceiptPreference] = React.useState<ReceiptPreference>('whatsapp')
@@ -112,6 +120,7 @@ export function useCheckoutPage() {
             : {}),
           paymentMethod,
           receiptPreference,
+          ...(quote !== undefined ? { expectedDeliveryFeeInCents: quote.deliveryFeeInCents } : {}),
         },
         idempotencyKey: crypto.randomUUID(),
       })
@@ -119,7 +128,12 @@ export function useCheckoutPage() {
       clearCart()
       navigate('/order-confirmed')
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Erro ao criar pedido'
+      const fallbackMessage = err instanceof Error ? err.message : 'Erro ao criar pedido'
+      const { message, shouldRefetchQuote } = resolveCreateOrderErrorMessage({ code: getApiErrorCode(err), fallbackMessage })
+
+      // A taxa mudou desde a cotação que a tela mostrou: recota, em vez de deixar o cliente
+      // reenviar o mesmo valor velho de novo (spec §3.5).
+      if (shouldRefetchQuote) void checkoutQuoteQuery.refetch()
       setError(message)
     }
   }
@@ -128,6 +142,7 @@ export function useCheckoutPage() {
     items,
     totalInCents,
     quote,
+    deliveryQuoteMessage,
     name,
     setName,
     email,

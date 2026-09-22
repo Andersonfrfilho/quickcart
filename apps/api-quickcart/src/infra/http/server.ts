@@ -172,7 +172,7 @@ export function createRouter({ userModule }: CreateRouterParams): Router {
       customerRepository: container.storeRepositories.customerRepository,
     }),
     productRepository: container.storeRepositories.productRepository,
-    deliveryFeeInCents: environment.DELIVERY_FEE_CENTS,
+    quoteDeliveryFeeUseCase: container.order.quoteDeliveryFeeUseCase,
   })
 
   const checkoutQuoteRateLimiter = new FixedWindowRateLimiter({

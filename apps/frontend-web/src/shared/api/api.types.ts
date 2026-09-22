@@ -150,15 +150,30 @@ export type CheckoutQuoteItem = {
   readonly unitPriceInCents: number
   readonly lineTotalInCents: number
 }
+/** Espelha `DELIVERY_QUOTE_KIND` do backend — nunca coordenada nem CEP (spec §3.5, T4.1). */
+export type DeliveryQuoteTier = {
+  readonly maxDistanceKm: number
+  readonly feeInCents: number
+}
+export type CheckoutDeliveryQuote =
+  | { readonly kind: 'pickup' }
+  | { readonly kind: 'quoted'; readonly distanceKm: number; readonly tier: DeliveryQuoteTier }
+  | { readonly kind: 'approximate_max_tier'; readonly tier: DeliveryQuoteTier }
+  | { readonly kind: 'out_of_range'; readonly distanceKm: number; readonly maxDistanceKm: number }
+  | { readonly kind: 'unavailable' }
 export type CheckoutQuote = {
   readonly subtotalInCents: number
   readonly deliveryFeeInCents: number
   readonly amountDueInCents: number
   readonly items: readonly CheckoutQuoteItem[]
+  readonly deliveryQuote: CheckoutDeliveryQuote
+  readonly isDeliveryAvailable: boolean
 }
 export type CheckoutQuoteInput = {
   readonly items: ReadonlyArray<{ readonly productId: string; readonly quantity: number }>
   readonly deliveryType: DeliveryType
+  /** 8 dígitos, obrigatório quando `deliveryType` é `delivery` (spec §3.5). */
+  readonly cep?: string | undefined
 }
 export type PaymentMethod = 'pix' | 'card_on_delivery' | 'cash'
 export type ReceiptPreference = 'whatsapp' | 'email' | 'both'

@@ -3,6 +3,19 @@ import { useRouter } from '@/app/router'
 import { useCheckoutPage } from '@/modules/store/hooks/useCheckoutPage.hook'
 import { Card, Button, Input } from '@/components/ui'
 import { DELIVERY_FEE_LABEL, FREE_DELIVERY_FEE_LABEL } from '@/shared/order/deliveryFee.constant'
+import type { CheckoutDeliveryQuote } from '@/shared/api/api.types'
+
+/** "até 8 km · 2,4 km" (quoted) ou "até 8 km (estimativa pela cidade)" (D3) — nunca coordenada. */
+function deliveryTierLabel(deliveryQuote: CheckoutDeliveryQuote): string | null {
+  if (deliveryQuote.kind === 'quoted') {
+    const distance = String(Math.round(deliveryQuote.distanceKm * 10) / 10).replace('.', ',')
+    return `até ${deliveryQuote.tier.maxDistanceKm} km · ${distance} km`
+  }
+  if (deliveryQuote.kind === 'approximate_max_tier') {
+    return `até ${deliveryQuote.tier.maxDistanceKm} km (estimativa pela cidade)`
+  }
+  return null
+}
 
 export function CheckoutPage() {
   const { navigate } = useRouter()
@@ -10,6 +23,7 @@ export function CheckoutPage() {
     items,
     totalInCents,
     quote,
+    deliveryQuoteMessage,
     name,
     setName,
     email,
@@ -75,9 +89,14 @@ export function CheckoutPage() {
           </span>
         </div>
         {/* Ausente na retirada: a cotação resolve a taxa por tipo de entrega, igual ao pedido. */}
-        {deliveryType === 'delivery' && quote !== undefined && (
+        {deliveryType === 'delivery' && quote !== undefined && quote.isDeliveryAvailable && (
           <div className="flex justify-between text-sm pt-1">
-            <span>{DELIVERY_FEE_LABEL}</span>
+            <span>
+              {DELIVERY_FEE_LABEL}
+              {deliveryTierLabel(quote.deliveryQuote) && (
+                <span className="text-muted-foreground"> ({deliveryTierLabel(quote.deliveryQuote)})</span>
+              )}
+            </span>
             <span>
               {quote.deliveryFeeInCents > 0
                 ? (quote.deliveryFeeInCents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -85,10 +104,14 @@ export function CheckoutPage() {
             </span>
           </div>
         )}
+        {/* Sem CEP, fora do raio ou sem coordenada: nenhuma taxa inventada, só a explicação. */}
+        {deliveryType === 'delivery' && deliveryQuoteMessage && (
+          <p className="text-xs text-muted-foreground pt-1">{deliveryQuoteMessage}</p>
+        )}
         <div className="flex justify-between font-semibold text-lg mt-3 pt-3 border-t">
           <span>Total</span>
           <span className="text-primary">
-            {quote !== undefined
+            {quote !== undefined && (deliveryType !== 'delivery' || quote.isDeliveryAvailable)
               ? (quote.amountDueInCents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
               : '—'}
           </span>
@@ -204,7 +227,12 @@ export function CheckoutPage() {
 
         {error && <p className="text-sm text-destructive">{error}</p>}
 
-        <Button type="submit" disabled={loading} className="w-full" size="lg">
+        <Button
+          type="submit"
+          disabled={loading || (deliveryType === 'delivery' && (quote === undefined || !quote.isDeliveryAvailable))}
+          className="w-full"
+          size="lg"
+        >
           {loading ? 'Processando...' : 'Confirmar pedido'}
         </Button>
       </form>

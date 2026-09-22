@@ -15,9 +15,13 @@ import { requireSession } from '@/infra/http/middlewares/requireSession'
 import { CUSTOMER_ONLY } from '@/modules/user/shared/User.constant'
 import type { RegisterCustomerUseCase } from '@/modules/store/application/use-cases/RegisterCustomer.use-case'
 import type { ListMyOrdersUseCase } from '@/modules/store/application/use-cases/ListMyOrders.use-case'
-import { amountDueInCents, resolveDeliveryFeeInCents } from '@/modules/order/shared/amountDue'
+import { amountDueInCents } from '@/modules/order/shared/amountDue'
 import { buildPricedOrderItems } from '@/modules/order/shared/buildPricedOrderItems'
 import type { ProductRepositoryInterface } from '@/modules/catalog/domain/ProductRepository.interface'
+import type { QuoteDeliveryFeeUseCase } from '@/modules/order/application/use-cases/QuoteDeliveryFee.use-case'
+import type { QuoteDeliveryFeeResult } from '@/modules/order/application/types/QuoteDeliveryFee.types'
+import type { DeliveryFeeTier } from '@/modules/order/domain/DeliveryFeeTierRepository.interface'
+import { CUSTOMER_LOCATION_KIND, DELIVERY_QUOTE_KIND } from '@/modules/order/shared/DeliveryFeeQuote.constant'
 import { ProductNotFoundError } from '@/shared/errors/CatalogErrors'
 import { CartProductUnavailableError } from '@/shared/errors/CartErrors'
 
@@ -28,8 +32,30 @@ type StoreControllerDependencies = {
   readonly registerCustomerUseCase: RegisterCustomerUseCase
   readonly listMyOrdersUseCase: ListMyOrdersUseCase
   readonly productRepository: ProductRepositoryInterface
-  /** `DELIVERY_FEE_CENTS`, usada pela cotação para resolver a taxa por tipo de entrega. */
+  /**
+   * Único cálculo de taxa de entrega (spec §3.3) — nunca uma taxa fixa de env. A rota pública
+   * recota pelo CEP a cada chamada, igual ao `CreateWebOrder`.
+   */
+  readonly quoteDeliveryFeeUseCase: Pick<QuoteDeliveryFeeUseCase, 'execute'>
+}
+
+/** "Até `maxDistanceKm` km, cobra `feeInCents`" — nunca coordenada nem CEP na resposta. */
+type CheckoutDeliveryQuoteView =
+  | { readonly kind: typeof DELIVERY_QUOTE_KIND.PICKUP }
+  | { readonly kind: typeof DELIVERY_QUOTE_KIND.QUOTED; readonly distanceKm: number; readonly tier: DeliveryFeeTier }
+  | { readonly kind: typeof DELIVERY_QUOTE_KIND.APPROXIMATE_MAX_TIER; readonly tier: DeliveryFeeTier }
+  | { readonly kind: typeof DELIVERY_QUOTE_KIND.OUT_OF_RANGE; readonly distanceKm: number; readonly maxDistanceKm: number }
+  | { readonly kind: typeof DELIVERY_QUOTE_KIND.UNAVAILABLE }
+
+type CheckoutDeliveryQuote = {
   readonly deliveryFeeInCents: number
+  readonly deliveryQuote: CheckoutDeliveryQuoteView
+  readonly isDeliveryAvailable: boolean
+}
+
+/** 2,449 km → 2,4 — a tela nunca precisa (nem deve) do metro exato. */
+function roundToOneDecimalKm(distanceKm: number): number {
+  return Math.round(distanceKm * 10) / 10
 }
 
 export class StoreController {
@@ -70,10 +96,10 @@ export class StoreController {
 
     const pricedItems = await this.priceQuoteItems(input.items)
     const subtotalInCents = pricedItems.reduce((sum, item) => sum + item.totalInCents, 0)
-    const deliveryFeeInCents = resolveDeliveryFeeInCents({
-      deliveryType: input.deliveryType,
-      configuredFeeInCents: this.dependencies.deliveryFeeInCents,
-    })
+
+    const location = input.cep ? { kind: CUSTOMER_LOCATION_KIND.CEP, cep: input.cep } : undefined
+    const quote = await this.dependencies.quoteDeliveryFeeUseCase.execute({ deliveryType: input.deliveryType, location })
+    const { deliveryFeeInCents, deliveryQuote, isDeliveryAvailable } = this.buildDeliveryQuote(quote)
 
     response.json(200, {
       data: {
@@ -85,8 +111,45 @@ export class StoreController {
           unitPriceInCents: item.unitPriceInCents,
           lineTotalInCents: item.totalInCents,
         })),
+        deliveryQuote,
+        isDeliveryAvailable,
       },
     })
+  }
+
+  /**
+   * Traduz o `QuoteDeliveryFeeResult` para o contrato público — nunca a coordenada nem o CEP que a
+   * gerou (spec §3.5), e a distância sempre arredondada a 0,1 km.
+   */
+  private buildDeliveryQuote(quote: QuoteDeliveryFeeResult): CheckoutDeliveryQuote {
+    switch (quote.kind) {
+      case DELIVERY_QUOTE_KIND.PICKUP:
+        return { deliveryFeeInCents: 0, deliveryQuote: { kind: quote.kind }, isDeliveryAvailable: true }
+      case DELIVERY_QUOTE_KIND.QUOTED:
+        return {
+          deliveryFeeInCents: quote.feeInCents,
+          deliveryQuote: { kind: quote.kind, distanceKm: roundToOneDecimalKm(quote.distanceKm), tier: quote.tier },
+          isDeliveryAvailable: true,
+        }
+      case DELIVERY_QUOTE_KIND.APPROXIMATE_MAX_TIER:
+        return {
+          deliveryFeeInCents: quote.feeInCents,
+          deliveryQuote: { kind: quote.kind, tier: quote.tier },
+          isDeliveryAvailable: true,
+        }
+      case DELIVERY_QUOTE_KIND.OUT_OF_RANGE:
+        return {
+          deliveryFeeInCents: 0,
+          deliveryQuote: {
+            kind: quote.kind,
+            distanceKm: roundToOneDecimalKm(quote.distanceKm),
+            maxDistanceKm: quote.maxDistanceKm,
+          },
+          isDeliveryAvailable: false,
+        }
+      case DELIVERY_QUOTE_KIND.UNAVAILABLE:
+        return { deliveryFeeInCents: 0, deliveryQuote: { kind: quote.kind }, isDeliveryAvailable: false }
+    }
   }
 
   /*

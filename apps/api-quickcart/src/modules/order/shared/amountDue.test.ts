@@ -10,18 +10,7 @@
 
 import { describe, expect, it } from 'bun:test'
 
-import { amountDueInCents, resolveDeliveryFeeInCents } from '@/modules/order/shared/amountDue'
-import { DELIVERY_TYPE } from '@/modules/order/shared/Order.constant'
-
-describe('resolveDeliveryFeeInCents', () => {
-  it('cobra a taxa configurada na entrega', () => {
-    expect(resolveDeliveryFeeInCents({ deliveryType: DELIVERY_TYPE.DELIVERY, configuredFeeInCents: 800 })).toBe(800)
-  })
-
-  it('retirada é sempre 0, mesmo com taxa configurada', () => {
-    expect(resolveDeliveryFeeInCents({ deliveryType: DELIVERY_TYPE.PICKUP, configuredFeeInCents: 800 })).toBe(0)
-  })
-})
+import { amountDueInCents } from '@/modules/order/shared/amountDue'
 
 describe('amountDueInCents', () => {
   it('soma itens e taxa', () => {

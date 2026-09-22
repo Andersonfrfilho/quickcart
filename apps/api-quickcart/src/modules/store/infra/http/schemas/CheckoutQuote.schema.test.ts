@@ -16,8 +16,24 @@ import { checkoutQuoteBodySchema } from './CheckoutQuote.schema'
 const ID = '11111111-1111-4111-8111-111111111111'
 
 describe('corpo da cotação do checkout (rota pública)', () => {
-  it('aceita um pedido comum', () => {
-    expect(checkoutQuoteBodySchema.safeParse({ items: [{ productId: ID, quantity: 3 }], deliveryType: 'delivery' }).success).toBe(true)
+  it('aceita um pedido de entrega com CEP', () => {
+    expect(
+      checkoutQuoteBodySchema.safeParse({ items: [{ productId: ID, quantity: 3 }], deliveryType: 'delivery', cep: '01001000' }).success,
+    ).toBe(true)
+  })
+
+  it('aceita retirada sem CEP', () => {
+    expect(checkoutQuoteBodySchema.safeParse({ items: [{ productId: ID, quantity: 3 }], deliveryType: 'pickup' }).success).toBe(true)
+  })
+
+  it('recusa entrega sem CEP (spec §3.5)', () => {
+    const result = checkoutQuoteBodySchema.safeParse({ items: [{ productId: ID, quantity: 3 }], deliveryType: 'delivery' })
+    expect(result.success).toBe(false)
+  })
+
+  it('recusa CEP com formato inválido', () => {
+    const corpo = { items: [{ productId: ID, quantity: 3 }], deliveryType: 'delivery', cep: '01001-000' }
+    expect(checkoutQuoteBodySchema.safeParse(corpo).success).toBe(false)
   })
 
   it('recusa quantidade acima do teto por linha', () => {
