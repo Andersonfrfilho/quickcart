@@ -115,6 +115,8 @@ import { GetAdminOrderDetailUseCase } from '@/modules/order/application/use-case
 import { ResolveOrderDeliveryEstimateUseCase } from '@/modules/order/application/use-cases/ResolveOrderDeliveryEstimate.use-case'
 import { ResolveCepCoordinateUseCase } from '@/modules/shared/address/ResolveCepCoordinate.use-case'
 import { DrizzleGeocodedAddressRepository } from '@/modules/shared/address/infra/DrizzleGeocodedAddressRepository'
+import { DrizzleDeliveryFeeTierRepository } from '@/modules/order/infra/database/DrizzleDeliveryFeeTierRepository'
+import { EnsureDefaultDeliveryFeeTiersUseCase } from '@/modules/order/application/use-cases/EnsureDefaultDeliveryFeeTiers.use-case'
 import { SetOrderItemUnavailableUseCase } from '@/modules/order/application/use-cases/SetOrderItemUnavailable.use-case'
 import { SetOrderItemPickedUseCase } from '@/modules/order/application/use-cases/SetOrderItemPicked.use-case'
 import { AskUnavailableItemsUseCase } from '@/modules/order/application/use-cases/AskUnavailableItems.use-case'
@@ -865,6 +867,16 @@ export async function seedOrderStatusTemplates(): Promise<void> {
 
   await webhookModule.notification.useCases.seedDefaultTemplates.execute({ companyId, templates: missing })
   logger.child('TemplateSeed').info('order_status_templates_seeded', { count: missing.length })
+}
+
+const deliveryFeeTierRepository = new DrizzleDeliveryFeeTierRepository()
+
+/**
+ * Chamada pelo boot DEPOIS das migrations (T1.3, spec §3.1, D4). Idempotente: só grava quando a
+ * tabela nasce vazia — uma faixa que o painel já editou nunca é sobrescrita.
+ */
+export async function seedDefaultDeliveryFeeTiers(): Promise<void> {
+  await new EnsureDefaultDeliveryFeeTiersUseCase({ deliveryFeeTierRepository }).execute()
 }
 
 export const container = {

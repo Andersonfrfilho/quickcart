@@ -37,3 +37,18 @@
 - `replaceAll([])` esvazia a tabela (fail-closed da spec §3.1: sem faixa configurada, não há entrega) — testado explicitamente.
 
 **Números:** migration aplicada no banco de teste (`\d delivery_fee_tiers` confere CHECKs e UNIQUE). Typecheck limpo. `bun run test`: 588 pass / 0 fail (88 arquivos) — base 572 + 16 testes novos (10 validação + 6 integração).
+
+## T1.3 — Seed de boot
+
+**Arquivos** (em `apps/api-quickcart/`):
+- `src/modules/order/shared/DefaultDeliveryFeeTiers.constant.ts` — `DEFAULT_DELIVERY_FEE_TIERS` (3 km/500, 8 km/1000, D4).
+- `src/modules/order/application/use-cases/EnsureDefaultDeliveryFeeTiers.use-case.ts` — `EnsureDefaultDeliveryFeeTiersUseCase`: `listOrdered()` vazio → `replaceAll(DEFAULT_DELIVERY_FEE_TIERS)`; qualquer faixa existente → não mexe.
+- `src/infra/container/index.ts` — instancia `DrizzleDeliveryFeeTierRepository` e exporta `seedDefaultDeliveryFeeTiers()`, no mesmo padrão de `seedMainFlow`/`seedOrderStatusTemplates`.
+- `src/index.ts` — chama `seedDefaultDeliveryFeeTiers()` no boot, depois de `runMigrations()` e das outras seeds, antes do Redis.
+- `tests/EnsureDefaultDeliveryFeeTiers.test.ts` — 3 casos com `FakeTierRepository`: vazia cria as duas faixas; existente não sobrescreve; rodar 2x não duplica (`replaceAll` chamado só 1 vez).
+
+**Decisões:**
+- Seguido o padrão de função exportada solta (não classe de módulo) porque é assim que `seedMainFlow`/`seedOrderStatusTemplates` já funcionam no `container/index.ts` — o use case em si é uma classe testável isoladamente, e a função do container só monta a instância com o repositório real.
+- Sem teste de integração dedicado para T1.3: o use case já é coberto por unit test com fake, e a tabela real já tem cobertura de `replaceAll`/`listOrdered` na T1.2 — um terceiro teste batendo no Postgres só para repetir a mesma lógica seria redundante.
+
+**Números:** typecheck limpo. `bun run test`: 591 pass / 0 fail (89 arquivos) — base 588 + 3 testes novos.
