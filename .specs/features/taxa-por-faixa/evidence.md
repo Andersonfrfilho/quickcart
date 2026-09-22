@@ -649,5 +649,33 @@ Correção:
   migrado, antes de qualquer boot) e trata `DeliveryOutOfRangeError`/`DeliveryUnavailableError` como
   cliente de exemplo pulado, com `warn`, em vez de matar a seed. Pedido fora da última faixa deixou
   de ser possível por decisão da spec.
+- Removido `SeedAddressProviders.ts`: rascunho duplicado do mesmo dublê, sem nenhum import — ficou
+  commitado por engano junto com `SeedOfflineAddressProviders.ts`, que é o que `OrderSeedRunner.ts`
+  de fato usa.
+
+### T6.2 — seed sem rede (verificação independente)
+
+Reconferido nesta sessão, com evidência fresca:
+
+- Causa confirmada por leitura de código: `CreateWebOrderUseCase.resolveDeliveryAddress` sempre
+  chama `addressLookupProvider.lookupByCep` (ViaCEP) e `quoteDelivery` sempre chama
+  `QuoteDeliveryFeeUseCase`, que por sua vez chama `ResolveCepCoordinateUseCase` → provedor de
+  geocodificação (Nominatim) — para TODO pedido de entrega, mesmo com endereço estruturado completo
+  vindo do chamador. `make seed ENV=test` roda `db:seed` isolado (só `bun run
+  src/infra/database/seeds/index.ts`), sem subir `src/index.ts` — então `seedDefaultDeliveryFeeTiers`
+  (chamado só no boot do servidor) nunca rodava antes do CI existir, e nenhum dos dois provedores
+  reais tem saída de rede no runner do GitHub Actions.
+- Prova de que a seed não depende de rede: `apps/api-quickcart/tests/no_network_seed.no-network.test.ts`
+  substitui `global.fetch` por um stub hostil que lança ao ser chamado. Os provedores da seed
+  (`SeedOfflineAddressLookupProvider`, `SeedOfflineGeocodingProvider`) resolvem endereço e coordenada
+  sem tocar `fetch` (`fetchCalled` continua `false`); como controle, os provedores REAIS
+  (`ViaCepAddressLookupProvider`, `NominatimGeocodingProvider`) chamados na sequência acionam o stub
+  hostil (`fetchCalled` vira `true`) e devolvem "não encontrado" (nenhum dos dois lança — engolem o
+  próprio erro), confirmando que o teste de fato distingue provedor real de dublê.
+- `make seed ENV=test` rodado de novo, do zero (`make migrate ENV=test` seguido de `make seed
+  ENV=test`): sai com código 0.
+- `bun run typecheck` limpo nos três pacotes (api, worker, frontend).
+- `make test`: api 685 pass / 0 fail (684 da suíte + 1 do teste novo acima), worker 21 pass / 0 fail.
+- `bun run --cwd apps/frontend-web test`: 48 pass / 0 fail.
 
 Verificado: `make seed ENV=test` sai 0; typecheck limpo; api 684 pass / 0 fail.
