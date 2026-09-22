@@ -13,8 +13,15 @@
 
 import { OrderInvalidStatusTransitionError, OrderNotFoundError } from '@/shared/errors/OrderErrors'
 import { allowedNextStatuses, canTransitionTo } from '@/modules/order/domain/orderStatusFlow'
-import { ORDER_STATUS, shouldRestoreStockOnCancel } from '@/modules/order/shared/Order.constant'
+import {
+  ORDER_STATUS,
+  RECEIPT_ISSUING_STATUSES,
+  RECEIPT_JOB_NAME,
+  buildReceiptJobId,
+  shouldRestoreStockOnCancel,
+} from '@/modules/order/shared/Order.constant'
 import type { OrderRepositoryInterface } from '@/modules/order/domain/OrderRepository.interface'
+import type { JobQueue } from '@/modules/order/domain/JobQueue.interface'
 import type { OrderStatusNotifier } from '@/modules/notification/domain/OrderStatusNotifier.interface'
 import type { UpdateOrderStatusParams, UpdateOrderStatusResult } from '../types/UpdateOrderStatus.types'
 import { logger } from '@/shared/logger'
@@ -23,6 +30,7 @@ import { serializeError } from '@/shared/serializeError'
 type UpdateOrderStatusUseCaseDependencies = {
   readonly orderRepository: OrderRepositoryInterface
   readonly orderStatusNotifier: OrderStatusNotifier
+  readonly receiptQueue: JobQueue
 }
 
 const useCaseLog = logger.child('UpdateOrderStatus')
@@ -134,6 +142,18 @@ export class UpdateOrderStatusUseCase {
       } catch (error: unknown) {
         useCaseLog.warn('items_not_marked_picked', { orderId: params.orderId, error: serializeError(error) })
       }
+    }
+
+    /**
+     * O recibo sai quando a sacola sai da loja, com o total que não muda mais. Sem try/catch: a fila fora
+     * do ar precisa aparecer, senão o pedido vai embora sem nota e ninguém fica sabendo.
+     */
+    if (RECEIPT_ISSUING_STATUSES.has(order.status)) {
+      await this.dependencies.receiptQueue.add(
+        RECEIPT_JOB_NAME,
+        { orderId: order.id },
+        { jobId: buildReceiptJobId(order.id) },
+      )
     }
 
     /**

@@ -28,16 +28,10 @@ import { DrizzleCustomerRepository } from '@/modules/webhook/infra/database/Driz
 import { DrizzleOrderRepository } from '@/modules/order/infra/database/DrizzleOrderRepository'
 import { CreateWebOrderUseCase } from '@/modules/order/application/use-cases/CreateWebOrder.use-case'
 import { DELIVERY_TYPE } from '@/modules/order/shared/Order.constant'
-import type { JobQueue } from '@/modules/order/domain/JobQueue.interface'
 
 const DELIVERY_FEE_IN_CENTS = 800
 const TEST_PHONE_PREFIX = '55117'
 
-class NoopJobQueue implements JobQueue {
-  async add(): Promise<unknown> {
-    return undefined
-  }
-}
 
 const categoryRepository = new DrizzleCategoryRepository()
 const productRepository = new DrizzleProductRepository()
@@ -48,7 +42,6 @@ const useCase = new CreateWebOrderUseCase({
   productRepository,
   customerRepository: new DrizzleCustomerRepository(),
   cacheProvider: new RedisProvider(),
-  receiptQueue: new NoopJobQueue(),
   configuredDeliveryFeeInCents: DELIVERY_FEE_IN_CENTS,
 })
 

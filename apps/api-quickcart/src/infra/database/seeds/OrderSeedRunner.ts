@@ -25,20 +25,12 @@ import { DrizzleOrderRepository } from '@/modules/order/infra/database/DrizzleOr
 import { DrizzleProductRepository } from '@/modules/catalog/infra/database/DrizzleProductRepository'
 import { DrizzleCustomerRepository } from '@/modules/webhook/infra/database/DrizzleCustomerRepository'
 import type { CacheProvider } from '@/shared/providers/CacheProvider.interface'
-import type { JobQueue } from '@/modules/order/domain/JobQueue.interface'
 import { generateId } from '@/shared/id'
 import { environment } from '@/infra/config/environment'
 import { logger } from '@/shared/logger'
 import { SEED_ORDER_CUSTOMERS } from './OrderSeedCustomers'
 
 const log = logger.child('OrderSeed')
-
-/** Fila que não enfileira: seed não manda recibo para cliente que não existe. */
-const noOpReceiptQueue: JobQueue = {
-  async add() {
-    return undefined
-  },
-}
 
 class InMemoryCacheProvider implements CacheProvider {
   private readonly entries = new Map<string, string>()
@@ -76,7 +68,6 @@ export async function seedOrders(): Promise<void> {
     productRepository,
     customerRepository,
     cacheProvider: new InMemoryCacheProvider(),
-    receiptQueue: noOpReceiptQueue,
     configuredDeliveryFeeInCents: environment.DELIVERY_FEE_CENTS,
   })
 

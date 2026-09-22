@@ -50,6 +50,12 @@ export class ProcessReceiptJobUseCase {
       return
     }
 
+    // A chave no Redis pode se perder; a nota gravada no pedido não. Segunda NFC-e do mesmo pedido é documento fiscal duplicado.
+    if (orderData.fiscalDocumentId) {
+      receiptLog.info(LOG_EVENTS.RECEIPT_JOB_PROCESSED, { jobId, orderId, alreadyIssued: true })
+      return
+    }
+
     const result = await this.dependencies.receiptProvider.generate({
       shortCode: orderData.shortCode,
       customerName: orderData.customerName,

@@ -81,7 +81,21 @@ Rota sem sessão: a loja web cota Subtotal, Taxa e Total antes de o cliente loga
   Mode `human` mantém o aviso de atendimento em curso. Redis fora do ar: fail-open com `warn`.
   Teste: `src/modules/conversation/application/handlers/support/requestHumanHandoff.test.ts`.
 
+## 2026-09-22 — Recibo/NFC-e emitido com total antigo (corrigido)
+
+O recibo era enfileirado na criação do pedido. Depois dela o pedido ainda muda: item em falta e
+substituição reprecificam `total_in_cents`, e cancelamento anula a venda. A NFC-e saía com o total
+antigo — documento fiscal errado — e pedido cancelado antes de separar ficava com nota emitida.
+
+Correção: o recibo é enfileirado só quando o pedido sai da loja (`out_for_delivery` ou
+`ready_for_pickup`), no `UpdateOrderStatusUseCase`, com `jobId` estável por pedido. O worker também
+não emite de novo quando o pedido já tem `fiscal_document_id`.
+
 ## Pendentes
+
+- **Cancelamento de NFC-e na SEFAZ quando pedido já emitido é cancelado** (registrado em 2026-09-22).
+  Entrega que sai, falha (`delivery_failed`) e é cancelada fica com a NFC-e autorizada e sem evento de
+  cancelamento. Fora da correção do recibo na saída da loja.
 
 - **Autorização por conversa atribuída (BOLA).** Atendente autenticado ainda alcança conversa que não
   está atribuída a ele; falta checar posse por objeto nas rotas de conversa (security.md §2).

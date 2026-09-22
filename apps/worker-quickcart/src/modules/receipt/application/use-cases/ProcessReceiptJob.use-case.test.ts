@@ -134,3 +134,16 @@ describe('ProcessReceiptJobUseCase', () => {
     expect(markFiscalDocumentId).toHaveBeenCalledTimes(0)
   })
 })
+
+describe('ProcessReceiptJobUseCase — nota já emitida', () => {
+  test('não emite de novo quando o pedido já tem fiscalDocumentId', async () => {
+    const orderData = { ...ORDER_DATA, fiscalDocumentId: '35260912345678000190650010000000011000000019' }
+    const { useCase, receiptProvider, sendMedia, markFiscalDocumentId } = buildUseCase(orderData)
+
+    await useCase.execute({ jobId: 'job-9', orderId: 'order-1' })
+
+    expect(receiptProvider).toHaveBeenCalledTimes(0)
+    expect(sendMedia).toHaveBeenCalledTimes(0)
+    expect(markFiscalDocumentId).toHaveBeenCalledTimes(0)
+  })
+})

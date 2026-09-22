@@ -9,7 +9,8 @@ Produto Ada Technology para supermercados: o cliente envia sua **lista de compra
 áudio no WhatsApp** e o bot monta o carrinho automaticamente. Itens com match único são
 adicionados direto; itens ambíguos geram uma **lista interativa Meta** para o cliente escolher.
 O pedido fecha com entrega/retirada, forma de pagamento e **recibo/nota fiscal por WhatsApp
-e/ou e-mail**. Há também uma **loja Web/PWA** (busca com autocomplete, carrinho, checkout) que
+e/ou e-mail**, emitido quando o pedido sai da loja (`out_for_delivery` ou `ready_for_pickup`),
+com o total já final. Há também uma **loja Web/PWA** (busca com autocomplete, carrinho, checkout) que
 grava no mesmo banco.
 
 Requisito nº 1 do produto: **velocidade de atendimento**.

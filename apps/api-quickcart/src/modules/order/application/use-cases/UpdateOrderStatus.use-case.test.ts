@@ -16,6 +16,7 @@ import { describe, expect, test } from 'bun:test'
 import { OrderInvalidStatusTransitionError, OrderNotFoundError } from '@/shared/errors/OrderErrors'
 import { DELIVERY_FAILURE_REASON, ORDER_STATUS } from '@/modules/order/shared/Order.constant'
 import type { OrderItemRecord, OrderRecord, OrderRepositoryInterface , SubstituteItemResult } from '@/modules/order/domain/OrderRepository.interface'
+import type { JobQueue, JobQueueAddOptions } from '@/modules/order/domain/JobQueue.interface'
 import type {
   NotifyStatusChangedParams,
   OrderStatusNotifier,
@@ -153,6 +154,21 @@ class FakeOrderStatusNotifier implements OrderStatusNotifier {
   }
 }
 
+/** Espelha o BullMQ no que importa aqui: segundo `add` com o mesmo `jobId` não cria outro job. */
+class FakeReceiptQueue implements JobQueue {
+  readonly addCalls: { name: string; data: Record<string, unknown>; jobId: string | undefined }[] = []
+  readonly jobsById = new Map<string, Record<string, unknown>>()
+  onAdd: (() => void) | undefined = undefined
+
+  async add(name: string, data: Record<string, unknown>, options?: JobQueueAddOptions): Promise<unknown> {
+    this.onAdd?.()
+    this.addCalls.push({ name, data, jobId: options?.jobId })
+    const key = options?.jobId ?? `auto-${this.addCalls.length}`
+    if (!this.jobsById.has(key)) this.jobsById.set(key, data)
+    return undefined
+  }
+}
+
 function buildOrder(overrides: Partial<OrderRecord> = {}): OrderRecord {
   return {
     id: 'order-1',
@@ -187,7 +203,7 @@ describe('UpdateOrderStatusUseCase', () => {
     const order = buildOrder()
     orderRepository.orders.set(order.id, order)
     const orderStatusNotifier = new FakeOrderStatusNotifier()
-    const useCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier })
+    const useCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier, receiptQueue: new FakeReceiptQueue() })
 
     const result = await useCase.execute({ orderId: order.id, status: ORDER_STATUS.CONFIRMED })
 
@@ -229,7 +245,7 @@ describe('UpdateOrderStatusUseCase', () => {
       },
     ])
     const orderStatusNotifier = new FakeOrderStatusNotifier()
-    const useCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier })
+    const useCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier, receiptQueue: new FakeReceiptQueue() })
 
     const result = await useCase.execute({ orderId: order.id, status: ORDER_STATUS.CANCELLED })
 
@@ -243,7 +259,7 @@ describe('UpdateOrderStatusUseCase', () => {
     const order = buildOrder({ status: ORDER_STATUS.IN_TRANSIT })
     orderRepository.orders.set(order.id, order)
     const orderStatusNotifier = new FakeOrderStatusNotifier()
-    const useCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier })
+    const useCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier, receiptQueue: new FakeReceiptQueue() })
 
     const result = await useCase.execute({
       orderId: order.id,
@@ -266,7 +282,7 @@ describe('UpdateOrderStatusUseCase', () => {
     })
     orderRepository.orders.set(order.id, order)
     const orderStatusNotifier = new FakeOrderStatusNotifier()
-    const useCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier })
+    const useCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier, receiptQueue: new FakeReceiptQueue() })
 
     const result = await useCase.execute({ orderId: order.id, status: ORDER_STATUS.OUT_FOR_DELIVERY })
 
@@ -283,7 +299,7 @@ describe('UpdateOrderStatusUseCase', () => {
     })
     orderRepository.orders.set(order.id, order)
     const orderStatusNotifier = new FakeOrderStatusNotifier()
-    const useCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier })
+    const useCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier, receiptQueue: new FakeReceiptQueue() })
 
     const result = await useCase.execute({ orderId: order.id, status: ORDER_STATUS.CANCELLED })
 
@@ -319,7 +335,7 @@ describe('UpdateOrderStatusUseCase', () => {
       },
     ])
     const orderStatusNotifier = new FakeOrderStatusNotifier()
-    const useCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier })
+    const useCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier, receiptQueue: new FakeReceiptQueue() })
 
     await useCase.execute({ orderId: order.id, status: ORDER_STATUS.CANCELLED })
 
@@ -334,7 +350,7 @@ describe('UpdateOrderStatusUseCase', () => {
     })
     orderRepository.orders.set(order.id, order)
     const orderStatusNotifier = new FakeOrderStatusNotifier()
-    const useCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier })
+    const useCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier, receiptQueue: new FakeReceiptQueue() })
 
     await expect(
       useCase.execute({ orderId: order.id, status: ORDER_STATUS.OUT_FOR_DELIVERY }),
@@ -345,11 +361,100 @@ describe('UpdateOrderStatusUseCase', () => {
   test('lança OrderNotFoundError quando o pedido não existe', async () => {
     const orderRepository = new FakeOrderRepository(new Map())
     const orderStatusNotifier = new FakeOrderStatusNotifier()
-    const useCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier })
+    const useCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier, receiptQueue: new FakeReceiptQueue() })
 
     await expect(useCase.execute({ orderId: 'missing', status: ORDER_STATUS.CONFIRMED })).rejects.toBeInstanceOf(
       OrderNotFoundError,
     )
     expect(orderStatusNotifier.notified).toHaveLength(0)
+  })
+})
+
+describe('UpdateOrderStatusUseCase — recibo só quando o pedido sai da loja', () => {
+  function setup(overrides: Partial<OrderRecord> = {}) {
+    const orderRepository = new FakeOrderRepository(new Map())
+    const order = buildOrder(overrides)
+    orderRepository.orders.set(order.id, order)
+    const receiptQueue = new FakeReceiptQueue()
+    const useCase = new UpdateOrderStatusUseCase({
+      orderRepository,
+      orderStatusNotifier: new FakeOrderStatusNotifier(),
+      receiptQueue,
+    })
+    return { orderRepository, order, receiptQueue, useCase }
+  }
+
+  const EXPECTED_JOB = { name: 'issue-receipt', data: { orderId: 'order-1' }, jobId: 'issue-receipt-order-1' }
+
+  test('separar não enfileira recibo', async () => {
+    const { useCase, receiptQueue } = setup({ status: ORDER_STATUS.PREPARING })
+
+    await useCase.execute({ orderId: 'order-1', status: ORDER_STATUS.SEPARATED })
+
+    expect(receiptQueue.addCalls).toHaveLength(0)
+  })
+
+  test('saiu para entrega enfileira um job com jobId estável', async () => {
+    const { useCase, receiptQueue } = setup({ status: ORDER_STATUS.SEPARATED })
+
+    await useCase.execute({ orderId: 'order-1', status: ORDER_STATUS.OUT_FOR_DELIVERY })
+
+    expect(receiptQueue.addCalls).toEqual([EXPECTED_JOB])
+  })
+
+  test('retirada: pronto para retirar enfileira um job com jobId estável', async () => {
+    const { useCase, receiptQueue } = setup({ status: ORDER_STATUS.SEPARATED, deliveryType: 'pickup' })
+
+    await useCase.execute({ orderId: 'order-1', status: ORDER_STATUS.READY_FOR_PICKUP })
+
+    expect(receiptQueue.addCalls).toEqual([EXPECTED_JOB])
+  })
+
+  test('cancelado antes de sair não enfileira recibo', async () => {
+    const { useCase, receiptQueue } = setup({ status: ORDER_STATUS.PREPARING })
+
+    await useCase.execute({ orderId: 'order-1', status: ORDER_STATUS.SEPARATED })
+    await useCase.execute({ orderId: 'order-1', status: ORDER_STATUS.CANCELLED })
+
+    expect(receiptQueue.addCalls).toHaveLength(0)
+  })
+
+  test('item em falta antes de sair: o job só é enfileirado depois da reprecificação', async () => {
+    const { useCase, receiptQueue, orderRepository, order } = setup({ status: ORDER_STATUS.PREPARING, totalInCents: 5000 })
+    const totalsSeenAtEnqueue: number[] = []
+    receiptQueue.onAdd = () => {
+      totalsSeenAtEnqueue.push(orderRepository.orders.get(order.id)?.totalInCents ?? -1)
+    }
+
+    await useCase.execute({ orderId: order.id, status: ORDER_STATUS.SEPARATED })
+    // A falta reprecifica o pedido (o repositório real faz isso ao marcar o item); o desvio volta para separado.
+    const separated = orderRepository.orders.get(order.id)
+    if (!separated) throw new Error('pedido sumiu do fake')
+    orderRepository.orders.set(order.id, {
+      ...separated,
+      status: ORDER_STATUS.AWAITING_CUSTOMER_DECISION,
+      totalInCents: 3200,
+    })
+    await useCase.execute({ orderId: order.id, status: ORDER_STATUS.SEPARATED })
+    expect(receiptQueue.addCalls).toHaveLength(0)
+
+    await useCase.execute({ orderId: order.id, status: ORDER_STATUS.OUT_FOR_DELIVERY })
+
+    expect(totalsSeenAtEnqueue).toEqual([3200])
+  })
+
+  test('sair de novo depois de ocorrência não cria segundo job', async () => {
+    const { useCase, receiptQueue } = setup({ status: ORDER_STATUS.SEPARATED })
+
+    await useCase.execute({ orderId: 'order-1', status: ORDER_STATUS.OUT_FOR_DELIVERY })
+    await useCase.execute({
+      orderId: 'order-1',
+      status: ORDER_STATUS.DELIVERY_FAILED,
+      deliveryFailureReason: DELIVERY_FAILURE_REASON.CUSTOMER_ABSENT,
+    })
+    await useCase.execute({ orderId: 'order-1', status: ORDER_STATUS.OUT_FOR_DELIVERY })
+
+    expect(receiptQueue.jobsById.size).toBe(1)
+    expect(receiptQueue.addCalls.map((call) => call.jobId)).toEqual([EXPECTED_JOB.jobId, EXPECTED_JOB.jobId])
   })
 })
