@@ -11,10 +11,21 @@
  * transacional `cancel` em vez do `updateStatus` genérico.
  */
 
-import { OrderInvalidStatusTransitionError, OrderNotFoundError } from '@/shared/errors/OrderErrors'
+import {
+  OrderInvalidStatusTransitionError,
+  OrderNotFoundError,
+  OrderReceiptEnqueueFailedError,
+} from '@/shared/errors/OrderErrors'
 import { allowedNextStatuses, canTransitionTo } from '@/modules/order/domain/orderStatusFlow'
-import { ORDER_STATUS, shouldRestoreStockOnCancel } from '@/modules/order/shared/Order.constant'
+import {
+  ORDER_STATUS,
+  RECEIPT_ISSUING_STATUSES,
+  RECEIPT_JOB_NAME,
+  buildReceiptJobId,
+  shouldRestoreStockOnCancel,
+} from '@/modules/order/shared/Order.constant'
 import type { OrderRepositoryInterface } from '@/modules/order/domain/OrderRepository.interface'
+import type { JobQueue } from '@/modules/order/domain/JobQueue.interface'
 import type { OrderStatusNotifier } from '@/modules/notification/domain/OrderStatusNotifier.interface'
 import type { UpdateOrderStatusParams, UpdateOrderStatusResult } from '../types/UpdateOrderStatus.types'
 import { logger } from '@/shared/logger'
@@ -23,6 +34,7 @@ import { serializeError } from '@/shared/serializeError'
 type UpdateOrderStatusUseCaseDependencies = {
   readonly orderRepository: OrderRepositoryInterface
   readonly orderStatusNotifier: OrderStatusNotifier
+  readonly receiptQueue: JobQueue
 }
 
 const useCaseLog = logger.child('UpdateOrderStatus')
@@ -50,6 +62,16 @@ export class UpdateOrderStatusUseCase {
   async execute(params: UpdateOrderStatusParams): Promise<UpdateOrderStatusResult> {
     const current = await this.dependencies.orderRepository.findById(params.orderId)
     if (!current) throw new OrderNotFoundError(params.orderId)
+
+    /**
+     * Repetir o status em que o pedido já está, quando ele é o que emite o recibo, é o caminho de
+     * recuperação da fila fora do ar: só reenfileira. Sem gravar, sem avisar o cliente de novo. O `jobId`
+     * estável e o worker checando a nota já emitida garantem que isso nunca vira segunda NFC-e.
+     */
+    if (params.status === current.status && RECEIPT_ISSUING_STATUSES.has(current.status)) {
+      await this.enqueueReceipt(current.id)
+      return { order: current }
+    }
 
     /**
      * A esteira é validada AQUI, não na tela.
@@ -158,6 +180,24 @@ export class UpdateOrderStatusUseCase {
       })
     }
 
+    // Por último: o cliente já foi avisado, então o erro de fila não custa o aviso.
+    if (RECEIPT_ISSUING_STATUSES.has(order.status)) await this.enqueueReceipt(order.id)
+
     return { order }
+  }
+
+  /**
+   * O recibo sai quando a sacola sai da loja, com o total que não muda mais.
+   *
+   * Falhar aqui não desfaz o status, que já foi salvo — mas não pode passar calado, senão o pedido vai
+   * embora sem nota. O erro diz ao painel para marcar de novo, e repetir o mesmo status só reenfileira.
+   */
+  private async enqueueReceipt(orderId: string): Promise<void> {
+    try {
+      await this.dependencies.receiptQueue.add(RECEIPT_JOB_NAME, { orderId }, { jobId: buildReceiptJobId(orderId) })
+    } catch (error: unknown) {
+      useCaseLog.error('receipt_enqueue_failed', { orderId, error: serializeError(error) })
+      throw new OrderReceiptEnqueueFailedError(orderId)
+    }
   }
 }

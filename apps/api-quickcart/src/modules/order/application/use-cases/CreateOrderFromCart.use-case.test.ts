@@ -41,7 +41,6 @@ import type {
   OrderRepositoryInterface,
   SubstituteItemResult,
 } from '@/modules/order/domain/OrderRepository.interface'
-import type { JobQueue } from '@/modules/order/domain/JobQueue.interface'
 import type { Product } from '@/infra/database/schema'
 import { CreateOrderFromCartUseCase } from './CreateOrderFromCart.use-case'
 
@@ -330,14 +329,6 @@ class FakeOrderRepository implements OrderRepositoryInterface {
   }
 }
 
-class FakeJobQueue implements JobQueue {
-  readonly jobs: { name: string; data: Record<string, unknown> }[] = []
-
-  async add(name: string, data: Record<string, unknown>): Promise<unknown> {
-    this.jobs.push({ name, data })
-    return undefined
-  }
-}
 
 function buildProduct(overrides: Partial<Product> = {}): Product {
   return {
@@ -362,13 +353,12 @@ function buildProduct(overrides: Partial<Product> = {}): Product {
 }
 
 describe('CreateOrderFromCartUseCase', () => {
-  test('cria pedido a partir do carrinho, decrementa estoque e enfileira recibo', async () => {
+  test('cria pedido a partir do carrinho, decrementa estoque e NÃO enfileira recibo (o total ainda pode mudar)', async () => {
     const products = new Map([['product-1', buildProduct()]])
     const productRepository = new FakeProductRepository(products)
     const cartRepository = new FakeCartRepository()
     const orderRepository = new FakeOrderRepository(products)
-    const receiptQueue = new FakeJobQueue()
-    const useCase = new CreateOrderFromCartUseCase({ orderRepository, cartRepository, productRepository, receiptQueue })
+    const useCase = new CreateOrderFromCartUseCase({ orderRepository, cartRepository, productRepository })
 
     const cart = await cartRepository.create({ id: 'cart-1', customerId: 'customer-1', channel: 'whatsapp' })
     await cartRepository.addItem({ id: 'item-1', cartId: cart.id, productId: 'product-1', quantity: 3, matchType: 'auto' })
@@ -387,7 +377,6 @@ describe('CreateOrderFromCartUseCase', () => {
     expect(result.items).toHaveLength(1)
     expect(products.get('product-1')?.stockQuantity).toBe(7)
     expect((await cartRepository.findById(cart.id))?.status).toBe(CART_STATUS.ORDERED)
-    expect(receiptQueue.jobs).toEqual([{ name: 'issue-receipt', data: { orderId: result.order.id } }])
   })
 
   test('lança OrderEmptyCartError quando o carrinho está vazio', async () => {
@@ -395,8 +384,7 @@ describe('CreateOrderFromCartUseCase', () => {
     const productRepository = new FakeProductRepository(products)
     const cartRepository = new FakeCartRepository()
     const orderRepository = new FakeOrderRepository(products)
-    const receiptQueue = new FakeJobQueue()
-    const useCase = new CreateOrderFromCartUseCase({ orderRepository, cartRepository, productRepository, receiptQueue })
+    const useCase = new CreateOrderFromCartUseCase({ orderRepository, cartRepository, productRepository })
 
     const cart = await cartRepository.create({ id: 'cart-1', customerId: 'customer-1', channel: 'whatsapp' })
 
@@ -418,8 +406,7 @@ describe('CreateOrderFromCartUseCase', () => {
     const productRepository = new FakeProductRepository(products)
     const cartRepository = new FakeCartRepository()
     const orderRepository = new FakeOrderRepository(products)
-    const receiptQueue = new FakeJobQueue()
-    const useCase = new CreateOrderFromCartUseCase({ orderRepository, cartRepository, productRepository, receiptQueue })
+    const useCase = new CreateOrderFromCartUseCase({ orderRepository, cartRepository, productRepository })
 
     const cart = await cartRepository.create({ id: 'cart-1', customerId: 'customer-1', channel: 'whatsapp' })
     await cartRepository.addItem({ id: 'item-1', cartId: cart.id, productId: 'missing', quantity: 1, matchType: 'auto' })
@@ -442,8 +429,7 @@ describe('CreateOrderFromCartUseCase', () => {
     const productRepository = new FakeProductRepository(products)
     const cartRepository = new FakeCartRepository()
     const orderRepository = new FakeOrderRepository(products)
-    const receiptQueue = new FakeJobQueue()
-    const useCase = new CreateOrderFromCartUseCase({ orderRepository, cartRepository, productRepository, receiptQueue })
+    const useCase = new CreateOrderFromCartUseCase({ orderRepository, cartRepository, productRepository })
 
     const cart = await cartRepository.create({ id: 'cart-1', customerId: 'customer-1', channel: 'whatsapp' })
     await cartRepository.addItem({ id: 'item-1', cartId: cart.id, productId: 'product-1', quantity: 1, matchType: 'auto' })
@@ -466,8 +452,7 @@ describe('CreateOrderFromCartUseCase', () => {
     const productRepository = new FakeProductRepository(products)
     const cartRepository = new FakeCartRepository()
     const orderRepository = new FakeOrderRepository(products)
-    const receiptQueue = new FakeJobQueue()
-    const useCase = new CreateOrderFromCartUseCase({ orderRepository, cartRepository, productRepository, receiptQueue })
+    const useCase = new CreateOrderFromCartUseCase({ orderRepository, cartRepository, productRepository })
 
     const cart = await cartRepository.create({ id: 'cart-1', customerId: 'customer-1', channel: 'whatsapp' })
     await cartRepository.addItem({ id: 'item-1', cartId: cart.id, productId: 'product-1', quantity: 5, matchType: 'auto' })
@@ -486,7 +471,6 @@ describe('CreateOrderFromCartUseCase', () => {
 
     expect(products.get('product-1')?.stockQuantity).toBe(1)
     expect((await cartRepository.findById(cart.id))?.status).toBe(CART_STATUS.OPEN)
-    expect(receiptQueue.jobs).toHaveLength(0)
   })
 })
 
@@ -498,7 +482,6 @@ describe('CreateOrderFromCartUseCase — taxa de entrega (T2.1)', () => {
       orderRepository: new FakeOrderRepository(products),
       cartRepository,
       productRepository: new FakeProductRepository(products),
-      receiptQueue: new FakeJobQueue(),
     })
     const cart = await cartRepository.create({ id: 'cart-1', customerId: 'customer-1', channel: 'whatsapp' })
     await cartRepository.addItem({ id: 'item-1', cartId: cart.id, productId: 'product-1', quantity: 3, matchType: 'auto' })

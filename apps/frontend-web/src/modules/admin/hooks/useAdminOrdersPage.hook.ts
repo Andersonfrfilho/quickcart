@@ -5,6 +5,7 @@ import { useUrlQueryState } from '@/shared/hooks/useUrlQueryState.hook'
 import { useRouter } from '@/app/router'
 import { useAdminOrdersQuery } from '@/modules/admin/shared/queries/useAdminOrders.query'
 import { useUpdateOrderStatusMutation } from '@/modules/admin/shared/mutations/useUpdateOrderStatus.mutation'
+import { readReceiptEnqueueFailure } from '@/modules/admin/shared/receiptEnqueueFailure'
 import { ORDER_STATUS, type OrderSortableField, type SortDirection } from '@/shared/api/api.types'
 
 const ORDERS_PER_PAGE = 15
@@ -65,6 +66,14 @@ export function useAdminOrdersPage() {
   )
 
   const updateStatusMutation = useUpdateOrderStatusMutation()
+
+  /** Só existe depois que a fila do recibo falhou; repetir o mesmo status só reenfileira. */
+  const receiptRetryMessage = readReceiptEnqueueFailure(updateStatusMutation.error)
+
+  function retryReceipt() {
+    const failed = updateStatusMutation.variables
+    if (failed) updateStatusMutation.mutate({ id: failed.id, status: failed.status })
+  }
 
   /**
    * Relógio local, para espera e urgência envelhecerem sem recarregar.
@@ -215,5 +224,8 @@ export function useAdminOrdersPage() {
     toggleSelectAllOnPage,
     confirmSelected,
     isBulkRunning: updateStatusMutation.isPending,
+    receiptRetryMessage,
+    retryReceipt,
+    isRetryingReceipt: updateStatusMutation.isPending,
   }
 }

@@ -33,7 +33,6 @@ import type { ProductRepositoryInterface } from '@/modules/catalog/domain/Produc
 import type { CustomerRepositoryInterface } from '@/modules/webhook/domain/CustomerRepository.interface'
 import type { CacheProvider } from '@/shared/providers/CacheProvider.interface'
 import type { OrderRepositoryInterface, CreateOrderItemInput } from '@/modules/order/domain/OrderRepository.interface'
-import type { JobQueue } from '@/modules/order/domain/JobQueue.interface'
 import type { CreateWebOrderItemInput, CreateWebOrderParams, CreateWebOrderResult } from '../types/CreateWebOrder.types'
 
 type CreateWebOrderUseCaseDependencies = {
@@ -41,7 +40,6 @@ type CreateWebOrderUseCaseDependencies = {
   readonly productRepository: ProductRepositoryInterface
   readonly customerRepository: CustomerRepositoryInterface
   readonly cacheProvider: CacheProvider
-  readonly receiptQueue: JobQueue
   /** `DELIVERY_FEE_CENTS`. A web não tem etapa anterior que congele a taxa, então lê na criação. */
   readonly configuredDeliveryFeeInCents: number
 }
@@ -117,7 +115,6 @@ export class CreateWebOrderUseCase {
       if (!result.ok) throw new OrderInsufficientStockError(result.insufficientItems)
 
       await this.dependencies.cacheProvider.set(cacheKey, result.order.shortCode, ORDER_IDEMPOTENCY_TTL_SECONDS)
-      await this.dependencies.receiptQueue.add('issue-receipt', { orderId: result.order.id })
 
       return { order: result.order, items: result.items }
     } catch (error) {

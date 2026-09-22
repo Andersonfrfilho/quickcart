@@ -235,14 +235,12 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     orderRepository,
     cartRepository: dependencies.cartRepository,
     productRepository: dependencies.productRepository,
-    receiptQueue,
   })
   const createWebOrderUseCase = new CreateWebOrderUseCase({
     orderRepository,
     productRepository: dependencies.productRepository,
     customerRepository: dependencies.customerRepository,
     cacheProvider: dependencies.cacheProvider,
-    receiptQueue,
     configuredDeliveryFeeInCents: environment.DELIVERY_FEE_CENTS,
   })
   const getOrderByShortCodeUseCase = new GetOrderByShortCodeUseCase({
@@ -254,7 +252,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
   const orderStatusNotifier: OrderStatusNotifier = {
     notifyStatusChanged: (params) => dependencies.resolveOrderStatusNotifier().notifyStatusChanged(params),
   }
-  const updateOrderStatusUseCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier })
+  const updateOrderStatusUseCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier, receiptQueue })
   /*
    * Coordenada por CEP, cacheada em Postgres. Uma instância só do provider por processo, porque é ela
    * que guarda o instante da última chamada para respeitar o 1 req/s do Nominatim.

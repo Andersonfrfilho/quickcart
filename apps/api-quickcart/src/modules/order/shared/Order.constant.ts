@@ -180,3 +180,23 @@ export const DELIVERY_FAILURE_REASON_VALUES = Object.values(DELIVERY_FAILURE_REA
 export const DELIVERY_TYPE_VALUES = Object.values(DELIVERY_TYPE) as [DeliveryType, ...DeliveryType[]]
 export const PAYMENT_METHOD_VALUES = Object.values(PAYMENT_METHOD) as [PaymentMethod, ...PaymentMethod[]]
 export const RECEIPT_PREFERENCE_VALUES = Object.values(RECEIPT_PREFERENCE) as [ReceiptPreference, ...ReceiptPreference[]]
+
+/** Job da fila `receipt`. O worker não filtra pelo nome, mas o nome aparece no painel e no log. */
+export const RECEIPT_JOB_NAME = 'issue-receipt'
+
+/**
+ * Onde o recibo (NFC-e ou recibo simples) é emitido: quando a sacola sai da loja.
+ *
+ * Antes era na criação, e o pedido ainda mudava depois — falta de item e substituição reprecificam, e
+ * cancelamento anula. Em `separated` ainda não é final: dá para avisar falta de um pedido já separado.
+ * A partir destes dois estados nenhuma transição mexe nos itens.
+ */
+export const RECEIPT_ISSUING_STATUSES: ReadonlySet<string> = new Set([
+  ORDER_STATUS.OUT_FOR_DELIVERY,
+  ORDER_STATUS.READY_FOR_PICKUP,
+])
+
+/** Um recibo por pedido: sair de novo depois de uma ocorrência não pode emitir segunda nota. `-` porque o BullMQ recusa `:`. */
+export function buildReceiptJobId(orderId: string): string {
+  return `${RECEIPT_JOB_NAME}-${orderId}`
+}

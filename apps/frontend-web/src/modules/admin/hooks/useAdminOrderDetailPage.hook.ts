@@ -4,6 +4,7 @@ import { useRouter } from '@/app/router'
 import { useRequireStaff } from '@/modules/auth/shared/useSession.hook'
 import { STAFF_ROLES } from '@/modules/auth/shared/roles.constant'
 import { useUpdateOrderStatusMutation } from '@/modules/admin/shared/mutations/useUpdateOrderStatus.mutation'
+import { readReceiptEnqueueFailure } from '@/modules/admin/shared/receiptEnqueueFailure'
 import { useSetOrderItemUnavailableMutation } from '@/modules/admin/shared/mutations/useSetOrderItemUnavailable.mutation'
 import { useNotifyUnavailableItemsMutation } from '@/modules/admin/shared/mutations/useNotifyUnavailableItems.mutation'
 import { useSetOrderItemPickedMutation } from '@/modules/admin/shared/mutations/useSetOrderItemPicked.mutation'
@@ -24,6 +25,14 @@ export function useAdminOrderDetailPage() {
   const setUnavailableMutation = useSetOrderItemUnavailableMutation()
   const notifyUnavailableMutation = useNotifyUnavailableItemsMutation()
   const setPickedMutation = useSetOrderItemPickedMutation()
+
+  /** Só existe depois que a fila do recibo falhou; repetir o mesmo status só reenfileira. */
+  const receiptRetryMessage = readReceiptEnqueueFailure(updateStatusMutation.error)
+
+  function retryReceipt() {
+    const failed = updateStatusMutation.variables
+    if (failed) updateStatusMutation.mutate({ id: failed.id, status: failed.status })
+  }
 
   const [hidePickedItems, setHidePickedItems] = React.useState(false)
 
@@ -108,6 +117,9 @@ export function useAdminOrderDetailPage() {
     setHidePickedItems,
     updateStatus,
     isUpdatingStatus: updateStatusMutation.isPending,
+    receiptRetryMessage,
+    retryReceipt,
+    isRetryingReceipt: updateStatusMutation.isPending,
     setUnavailable,
     pendingUnavailableItemId: setUnavailableMutation.isPending
       ? setUnavailableMutation.variables?.itemId

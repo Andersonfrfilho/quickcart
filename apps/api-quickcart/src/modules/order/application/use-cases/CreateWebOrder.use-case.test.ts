@@ -36,7 +36,6 @@ import type {
   OrderRepositoryInterface,
   SubstituteItemResult,
 } from '@/modules/order/domain/OrderRepository.interface'
-import type { JobQueue } from '@/modules/order/domain/JobQueue.interface'
 import type { Customer, Product } from '@/infra/database/schema'
 import { CreateWebOrderUseCase } from './CreateWebOrder.use-case'
 
@@ -321,14 +320,6 @@ class FakeOrderRepository implements OrderRepositoryInterface {
   }
 }
 
-class FakeJobQueue implements JobQueue {
-  readonly jobs: { name: string; data: Record<string, unknown> }[] = []
-
-  async add(name: string, data: Record<string, unknown>): Promise<unknown> {
-    this.jobs.push({ name, data })
-    return undefined
-  }
-}
 
 function buildProduct(overrides: Partial<Product> = {}): Product {
   return {
@@ -357,23 +348,21 @@ function buildDependencies(products: Map<string, Product>, configuredDeliveryFee
   const productRepository = new FakeProductRepository(products)
   const customerRepository = new FakeCustomerRepository()
   const cacheProvider = new FakeCacheProvider()
-  const receiptQueue = new FakeJobQueue()
   const useCase = new CreateWebOrderUseCase({
     orderRepository,
     productRepository,
     customerRepository,
     cacheProvider,
-    receiptQueue,
     configuredDeliveryFeeInCents,
   })
 
-  return { useCase, orderRepository, productRepository, customerRepository, cacheProvider, receiptQueue }
+  return { useCase, orderRepository, productRepository, customerRepository, cacheProvider }
 }
 
 describe('CreateWebOrderUseCase', () => {
-  test('cria pedido web, faz upsert do customer, decrementa estoque e enfileira recibo', async () => {
+  test('cria pedido web, faz upsert do customer, decrementa estoque e NÃO enfileira recibo (o total ainda pode mudar)', async () => {
     const products = new Map([['product-1', buildProduct()]])
-    const { useCase, customerRepository, cacheProvider, receiptQueue } = buildDependencies(products)
+    const { useCase, customerRepository, cacheProvider } = buildDependencies(products)
 
     const result = await useCase.execute({
       idempotencyKey: 'idem-1',
@@ -388,7 +377,6 @@ describe('CreateWebOrderUseCase', () => {
     expect(customerRepository.upsertCalls).toEqual([{ phone: '5511999999999', name: 'Maria' }])
     expect(products.get('product-1')?.stockQuantity).toBe(8)
     expect(await cacheProvider.get('order:idempotency:idem-1')).toBe(result.order.shortCode)
-    expect(receiptQueue.jobs).toEqual([{ name: 'issue-receipt', data: { orderId: result.order.id } }])
   })
 
   test('replay da mesma Idempotency-Key devolve o pedido já criado sem duplicar', async () => {
