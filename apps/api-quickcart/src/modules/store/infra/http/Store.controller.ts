@@ -15,12 +15,16 @@ import { requireSession } from '@/infra/http/middlewares/requireSession'
 import { CUSTOMER_ONLY } from '@/modules/user/shared/User.constant'
 import type { RegisterCustomerUseCase } from '@/modules/store/application/use-cases/RegisterCustomer.use-case'
 import type { ListMyOrdersUseCase } from '@/modules/store/application/use-cases/ListMyOrders.use-case'
+import { amountDueInCents, resolveDeliveryFeeInCents } from '@/modules/order/shared/amountDue'
+import { DELIVERY_TYPE } from '@/modules/order/shared/Order.constant'
 
 import { registerCustomerBodySchema, listMyOrdersQuerySchema } from './schemas/RegisterCustomer.schema'
 
 type StoreControllerDependencies = {
   readonly registerCustomerUseCase: RegisterCustomerUseCase
   readonly listMyOrdersUseCase: ListMyOrdersUseCase
+  /** `DELIVERY_FEE_CENTS`, exposta ao checkout web para o cliente ver a taxa antes de confirmar. */
+  readonly deliveryFeeInCents: number
 }
 
 export class StoreController {
@@ -42,8 +46,26 @@ export class StoreController {
     const result = await this.dependencies.listMyOrdersUseCase.execute({ userId: session.userId, page, perPage })
 
     response.json(200, {
-      data: result.items,
+      // O valor cobrado sai do backend (spec §3.4): a tela não soma itens + taxa.
+      data: result.items.map((order) => ({ ...order, amountDueInCents: amountDueInCents(order) })),
       pagination: { total: result.total, page: result.page, perPage: result.perPage },
+    })
+  }
+
+  /**
+   * Público: a taxa de entrega que o checkout web mostra antes de confirmar. Vem da api, e não de um
+   * `VITE_` duplicado, para a tela nunca divergir do que `CreateWebOrder` cobra. Vai por tipo de entrega,
+   * resolvida pela mesma `resolveDeliveryFeeInCents`, para a tela só consultar — não reimplementar "retirada = 0".
+   */
+  handleGetCheckoutConfig: RouteHandler = async (_request, response) => {
+    const configuredFeeInCents = this.dependencies.deliveryFeeInCents
+    response.json(200, {
+      data: {
+        deliveryFeeInCentsByDeliveryType: {
+          [DELIVERY_TYPE.DELIVERY]: resolveDeliveryFeeInCents({ deliveryType: DELIVERY_TYPE.DELIVERY, configuredFeeInCents }),
+          [DELIVERY_TYPE.PICKUP]: resolveDeliveryFeeInCents({ deliveryType: DELIVERY_TYPE.PICKUP, configuredFeeInCents }),
+        },
+      },
     })
   }
 }

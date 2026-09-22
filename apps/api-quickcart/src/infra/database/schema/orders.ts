@@ -32,7 +32,10 @@ export const orders = pgTable('orders', {
   // 32, e não 20: `awaiting_customer_decision` tem 26 e não cabia. Aumentar varchar no Postgres é
   // mudança só de catálogo, sem reescrever a tabela — o inverso não seria.
   status: varchar('status', { length: 32 }).default('pending_confirmation').notNull(),
+  /** Só a soma dos itens — a NFC-e usa este valor como pagamento. A taxa de entrega mora em `deliveryFeeInCents`. */
   totalInCents: integer('total_in_cents').notNull(),
+  /** Taxa de entrega (spec §3.4). Retirada = 0. O valor cobrado é `amountDueInCents` (order/shared/amountDue). */
+  deliveryFeeInCents: integer('delivery_fee_in_cents').default(0).notNull(),
   deliveryType: varchar('delivery_type', { length: 10 }).notNull(),
   address: jsonb('address'),
   /**

@@ -16,6 +16,7 @@
 
 import { MESSAGES } from '@/modules/conversation/shared/Messages.constant'
 import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInCents'
+import { amountDueInCents } from '@/modules/order/shared/amountDue'
 import {
   buildOrderDecisionButtons,
   type OrderDecisionButton,
@@ -72,7 +73,7 @@ export function buildUnavailableNoticeBody(params: {
 }): string {
   return MESSAGES.ORDER_ITEMS_UNAVAILABLE_NOTICE.replace('{codigo}', params.detail.order.shortCode)
     .replace('{itens}', buildItemLines(params.unavailableItems))
-    .replace('{total}', formatPriceInCents(params.detail.order.totalInCents))
+    .replace('{total}', formatPriceInCents(amountDueInCents(params.detail.order)))
 }
 
 export function buildCustomerDecisionMessage(params: {
@@ -92,7 +93,7 @@ export function buildCustomerDecisionMessage(params: {
   const body = hasAnythingLeft
     ? MESSAGES.ORDER_ITEMS_UNAVAILABLE.replace('{codigo}', params.detail.order.shortCode)
         .replace('{itens}', itemLines)
-        .replace('{total}', formatPriceInCents(params.detail.order.totalInCents))
+        .replace('{total}', formatPriceInCents(amountDueInCents(params.detail.order)))
     : MESSAGES.ORDER_ALL_ITEMS_UNAVAILABLE.replace('{codigo}', params.detail.order.shortCode).replace(
         '{itens}',
         itemLines,

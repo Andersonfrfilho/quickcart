@@ -58,6 +58,7 @@ const useCase = new CreateWebOrderUseCase({
   customerRepository,
   cacheProvider,
   receiptQueue,
+  configuredDeliveryFeeInCents: 0,
 })
 
 const TEST_PHONE_PREFIX = '55119'

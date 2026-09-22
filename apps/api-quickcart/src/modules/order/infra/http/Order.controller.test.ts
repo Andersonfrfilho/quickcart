@@ -23,6 +23,8 @@ describe('withAllowedTransitions', () => {
       deliveryType: DELIVERY_TYPE.DELIVERY,
       paymentMethod: PAYMENT_METHOD.CARD_ON_DELIVERY,
       deliveryFailureReason: null,
+      totalInCents: 5000,
+      deliveryFeeInCents: 0,
     })
 
     expect(order.requiresCardMachine).toBe(true)
@@ -34,8 +36,25 @@ describe('withAllowedTransitions', () => {
       deliveryType: DELIVERY_TYPE.PICKUP,
       paymentMethod: PAYMENT_METHOD.CARD_ON_DELIVERY,
       deliveryFailureReason: null,
+      totalInCents: 5000,
+      deliveryFeeInCents: 0,
     })
 
     expect(order.requiresCardMachine).toBe(false)
+  })
+
+  it('expõe amountDueInCents = itens + taxa, sem mexer em totalInCents', () => {
+    const order = withAllowedTransitions({
+      status: 'pending_confirmation',
+      deliveryType: DELIVERY_TYPE.DELIVERY,
+      paymentMethod: PAYMENT_METHOD.PIX,
+      deliveryFailureReason: null,
+      totalInCents: 13250,
+      deliveryFeeInCents: 800,
+    })
+
+    expect(order.totalInCents).toBe(13250)
+    expect(order.deliveryFeeInCents).toBe(800)
+    expect(order.amountDueInCents).toBe(14050)
   })
 })

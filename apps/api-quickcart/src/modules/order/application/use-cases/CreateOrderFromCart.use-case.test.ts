@@ -184,6 +184,7 @@ class FakeOrderRepository implements OrderRepositoryInterface {
       channel: params.channel,
       status: 'pending_confirmation',
       totalInCents: params.items.reduce((sum, item) => sum + item.totalInCents, 0),
+      deliveryFeeInCents: params.deliveryFeeInCents,
       deliveryType: params.deliveryType,
       address: params.address ?? null,
       legacyAddressText: null,
@@ -366,6 +367,7 @@ describe('CreateOrderFromCartUseCase', () => {
       deliveryType: 'delivery',
       paymentMethod: 'pix',
       receiptPreference: 'whatsapp',
+      quotedDeliveryFeeInCents: 0,
     })
 
     expect(result.order.totalInCents).toBe(7500)
@@ -393,6 +395,7 @@ describe('CreateOrderFromCartUseCase', () => {
         deliveryType: 'delivery',
         paymentMethod: 'pix',
         receiptPreference: 'whatsapp',
+        quotedDeliveryFeeInCents: 0,
       }),
     ).rejects.toBeInstanceOf(OrderEmptyCartError)
   })
@@ -416,6 +419,7 @@ describe('CreateOrderFromCartUseCase', () => {
         deliveryType: 'delivery',
         paymentMethod: 'pix',
         receiptPreference: 'whatsapp',
+        quotedDeliveryFeeInCents: 0,
       }),
     ).rejects.toBeInstanceOf(ProductNotFoundError)
   })
@@ -439,6 +443,7 @@ describe('CreateOrderFromCartUseCase', () => {
         deliveryType: 'delivery',
         paymentMethod: 'pix',
         receiptPreference: 'whatsapp',
+        quotedDeliveryFeeInCents: 0,
       }),
     ).rejects.toBeInstanceOf(CartProductUnavailableError)
   })
@@ -462,11 +467,51 @@ describe('CreateOrderFromCartUseCase', () => {
         deliveryType: 'delivery',
         paymentMethod: 'pix',
         receiptPreference: 'whatsapp',
+        quotedDeliveryFeeInCents: 0,
       }),
     ).rejects.toBeInstanceOf(OrderInsufficientStockError)
 
     expect(products.get('product-1')?.stockQuantity).toBe(1)
     expect((await cartRepository.findById(cart.id))?.status).toBe(CART_STATUS.OPEN)
     expect(receiptQueue.jobs).toHaveLength(0)
+  })
+})
+
+describe('CreateOrderFromCartUseCase — taxa de entrega (T2.1)', () => {
+  async function createOrder(params: { readonly deliveryType: string; readonly quotedDeliveryFeeInCents: number }) {
+    const products = new Map([['product-1', buildProduct()]])
+    const cartRepository = new FakeCartRepository()
+    const useCase = new CreateOrderFromCartUseCase({
+      orderRepository: new FakeOrderRepository(products),
+      cartRepository,
+      productRepository: new FakeProductRepository(products),
+      receiptQueue: new FakeJobQueue(),
+    })
+    const cart = await cartRepository.create({ id: 'cart-1', customerId: 'customer-1', channel: 'whatsapp' })
+    await cartRepository.addItem({ id: 'item-1', cartId: cart.id, productId: 'product-1', quantity: 3, matchType: 'auto' })
+
+    return useCase.execute({
+      cartId: cart.id,
+      customerId: 'customer-1',
+      channel: 'whatsapp',
+      deliveryType: params.deliveryType,
+      paymentMethod: 'pix',
+      receiptPreference: 'whatsapp',
+      quotedDeliveryFeeInCents: params.quotedDeliveryFeeInCents,
+    })
+  }
+
+  test('entrega grava a taxa cotada, fora do total dos itens', async () => {
+    const result = await createOrder({ deliveryType: 'delivery', quotedDeliveryFeeInCents: 800 })
+
+    expect(result.order.deliveryFeeInCents).toBe(800)
+    expect(result.order.totalInCents).toBe(7500)
+    expect(result.items).toHaveLength(1)
+  })
+
+  test('retirada grava 0 mesmo com taxa cotada', async () => {
+    const result = await createOrder({ deliveryType: 'pickup', quotedDeliveryFeeInCents: 800 })
+
+    expect(result.order.deliveryFeeInCents).toBe(0)
   })
 })

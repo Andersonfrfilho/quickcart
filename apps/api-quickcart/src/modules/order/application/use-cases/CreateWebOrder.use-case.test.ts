@@ -175,6 +175,7 @@ class FakeOrderRepository implements OrderRepositoryInterface {
       channel: params.channel,
       status: 'pending_confirmation',
       totalInCents: params.items.reduce((sum, item) => sum + item.totalInCents, 0),
+      deliveryFeeInCents: params.deliveryFeeInCents,
       deliveryType: params.deliveryType,
       address: params.address ?? null,
       legacyAddressText: null,
@@ -338,13 +339,20 @@ function buildProduct(overrides: Partial<Product> = {}): Product {
   }
 }
 
-function buildDependencies(products: Map<string, Product>) {
+function buildDependencies(products: Map<string, Product>, configuredDeliveryFeeInCents = 0) {
   const orderRepository = new FakeOrderRepository(products)
   const productRepository = new FakeProductRepository(products)
   const customerRepository = new FakeCustomerRepository()
   const cacheProvider = new FakeCacheProvider()
   const receiptQueue = new FakeJobQueue()
-  const useCase = new CreateWebOrderUseCase({ orderRepository, productRepository, customerRepository, cacheProvider, receiptQueue })
+  const useCase = new CreateWebOrderUseCase({
+    orderRepository,
+    productRepository,
+    customerRepository,
+    cacheProvider,
+    receiptQueue,
+    configuredDeliveryFeeInCents,
+  })
 
   return { useCase, orderRepository, productRepository, customerRepository, cacheProvider, receiptQueue }
 }
@@ -405,5 +413,36 @@ describe('CreateWebOrderUseCase', () => {
         receiptPreference: 'email',
       }),
     ).rejects.toBeInstanceOf(OrderInsufficientStockError)
+  })
+})
+
+describe('CreateWebOrderUseCase — taxa de entrega (T2.1)', () => {
+  function buildParams(deliveryType: string) {
+    return {
+      idempotencyKey: `idem-${deliveryType}`,
+      customer: { name: 'Maria', phone: '5511999999999' },
+      items: [{ productId: 'product-1', quantity: 2 }],
+      deliveryType,
+      paymentMethod: 'pix',
+      receiptPreference: 'email',
+    }
+  }
+
+  test('entrega grava a taxa configurada, fora do total dos itens', async () => {
+    const { useCase } = buildDependencies(new Map([['product-1', buildProduct()]]), 800)
+
+    const result = await useCase.execute(buildParams('delivery'))
+
+    expect(result.order.deliveryFeeInCents).toBe(800)
+    expect(result.order.totalInCents).toBe(5000)
+    expect(result.items).toHaveLength(1)
+  })
+
+  test('retirada grava 0 mesmo com taxa configurada', async () => {
+    const { useCase } = buildDependencies(new Map([['product-1', buildProduct()]]), 800)
+
+    const result = await useCase.execute(buildParams('pickup'))
+
+    expect(result.order.deliveryFeeInCents).toBe(0)
   })
 })

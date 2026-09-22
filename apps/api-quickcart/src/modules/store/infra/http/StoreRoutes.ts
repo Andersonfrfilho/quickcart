@@ -14,4 +14,5 @@ import type { StoreController } from './Store.controller'
 export function registerStoreRoutes(params: { router: Router; storeController: StoreController }): void {
   params.router.post('/v1/store/register', params.storeController.handleRegister)
   params.router.get('/v1/store/orders', params.storeController.handleListMyOrders)
+  params.router.get('/v1/store/checkout-config', params.storeController.handleGetCheckoutConfig)
 }

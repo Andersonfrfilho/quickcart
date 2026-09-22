@@ -46,6 +46,12 @@ export type ConversationContext = {
   readonly wasExpired?: boolean
   readonly editingCartItemId?: string
   readonly checkoutDeliveryType?: string
+  /**
+   * Taxa de entrega cotada quando o tipo de entrega foi escolhido (retirada = 0). Troco e pedido usam ESTE
+   * valor, nunca a env relida: se `DELIVERY_FEE_CENTS` mudar no meio do checkout, o troco já validado
+   * continua valendo. Ausente (sessão anterior à T2.1) vale 0.
+   */
+  readonly checkoutDeliveryFeeInCents?: number
   readonly checkoutAddress?: unknown
   /**
    * CEP resolvido, à espera do número (e complemento) para virar `checkoutAddress` completo.

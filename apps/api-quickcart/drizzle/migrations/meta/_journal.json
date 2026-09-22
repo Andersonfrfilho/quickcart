@@ -148,6 +148,13 @@
       "when": 1790034492528,
       "tag": "0020_order_cash_change",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1790036900738,
+      "tag": "0021_order_delivery_fee",
+      "breakpoints": true
     }
   ]
 }

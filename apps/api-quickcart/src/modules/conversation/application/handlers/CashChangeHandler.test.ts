@@ -9,6 +9,7 @@
  */
 
 import { describe, expect, it } from 'bun:test'
+import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInCents'
 import type { Customer } from '@/infra/database/schema'
 import type { ConversationSession } from '@/modules/webhook/domain/Conversation.types'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
@@ -162,6 +163,41 @@ describe('CashChangeHandler', () => {
 
     expect(texts).toEqual([MESSAGES.CHECKOUT_CASH_CHANGE_INVALID])
     expect(stateUpdates).toEqual([])
+  })
+
+  describe('taxa de entrega (T2.1): troco validado contra itens + taxa cotada no contexto', () => {
+    it('recusa valor que cobre os itens (R$ 100,00) mas não itens + taxa (R$ 108,00)', async () => {
+      const { dependencies, texts, stateUpdates } = buildDependencies()
+      const handler = new CashChangeHandler(dependencies)
+
+      await handler.handle({
+        session: buildSession({
+          currentState: CONVERSATION_STATE.AWAITING_CASH_CHANGE_AMOUNT,
+          context: { checkoutDeliveryFeeInCents: 800 },
+        }),
+        customer: buildCustomer(),
+        message: { kind: 'text', from: PHONE, waMessageId: 'wa-2', body: '105' },
+      })
+
+      expect(texts).toEqual([MESSAGES.CHECKOUT_CASH_CHANGE_TOO_LOW.replace('{total}', formatPriceInCents(10800))])
+      expect(stateUpdates).toEqual([])
+    })
+
+    it('aceita valor acima de itens + taxa', async () => {
+      const { dependencies, stateUpdates } = buildDependencies()
+      const handler = new CashChangeHandler(dependencies)
+
+      await handler.handle({
+        session: buildSession({
+          currentState: CONVERSATION_STATE.AWAITING_CASH_CHANGE_AMOUNT,
+          context: { checkoutDeliveryFeeInCents: 800 },
+        }),
+        customer: buildCustomer(),
+        message: { kind: 'text', from: PHONE, waMessageId: 'wa-2', body: '110' },
+      })
+
+      expect(stateUpdates[0]?.context).toEqual({ checkoutDeliveryFeeInCents: 800, checkoutCashChangeForInCents: 11000 })
+    })
   })
 
   describe('checkout lembrado (correção T1.1/T1.2): recibo já veio no contexto', () => {

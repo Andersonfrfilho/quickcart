@@ -31,6 +31,7 @@ import type { ConversationContext } from '@/modules/conversation/shared/Conversa
 import { sendCartSummary } from '@/modules/conversation/application/handlers/support/CartSummary'
 import { enterConfirming } from '@/modules/conversation/application/handlers/support/enterConfirming'
 import { requiresCardMachine } from '@/modules/order/shared/requiresCardMachine'
+import { amountDueInCents, resolveDeliveryFeeInCents } from '@/modules/order/shared/amountDue'
 import { DELIVERY_TYPE } from '@/modules/order/shared/Order.constant'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInCents'
@@ -66,6 +67,8 @@ export type CheckoutHandlerDependencies = {
   readonly resolveOrderDeliveryEstimateUseCase: ResolveOrderDeliveryEstimateUseCase
   readonly addressLookupProvider: AddressLookupProviderInterface
   readonly storePreparationMinutes: number
+  /** `DELIVERY_FEE_CENTS`. Lida só ao escolher a entrega; dali em diante vale a cotada no contexto. */
+  readonly configuredDeliveryFeeInCents: number
 }
 
 /**
@@ -108,6 +111,10 @@ export class CheckoutHandler implements ConversationHandlerInterface {
     }
   }
 
+  private quoteDeliveryFeeInCents(deliveryType: string): number {
+    return resolveDeliveryFeeInCents({ deliveryType, configuredFeeInCents: this.dependencies.configuredDeliveryFeeInCents })
+  }
+
   private async handleAwaitingDeliveryType({ session, customer, message }: ConversationHandlerContext): Promise<void> {
     const checkoutContext = (session.context ?? {}) as ConversationContext
 
@@ -132,6 +139,7 @@ export class CheckoutHandler implements ConversationHandlerInterface {
       const rememberedContext: ConversationContext = {
         ...withoutRememberedCheckout(checkoutContext),
         checkoutDeliveryType: remembered.deliveryType,
+        checkoutDeliveryFeeInCents: this.quoteDeliveryFeeInCents(remembered.deliveryType),
         ...(remembered.address !== undefined ? { checkoutAddress: remembered.address } : {}),
         checkoutPaymentMethod: remembered.paymentMethod,
         checkoutReceiptPreference: remembered.receiptPreference,
@@ -184,7 +192,11 @@ export class CheckoutHandler implements ConversationHandlerInterface {
       await this.dependencies.conversationSessionRepository.updateStateByPhone({
         customerPhone: session.customerPhone,
         currentState: CONVERSATION_STATE.AWAITING_ADDRESS,
-        context: { ...checkoutContext, checkoutDeliveryType: message.buttonId },
+        context: {
+          ...checkoutContext,
+          checkoutDeliveryType: message.buttonId,
+          checkoutDeliveryFeeInCents: this.quoteDeliveryFeeInCents(message.buttonId),
+        },
       })
       await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_ASK_ADDRESS)
       return
@@ -194,7 +206,11 @@ export class CheckoutHandler implements ConversationHandlerInterface {
       await this.dependencies.conversationSessionRepository.updateStateByPhone({
         customerPhone: session.customerPhone,
         currentState: CONVERSATION_STATE.AWAITING_PAYMENT,
-        context: { ...checkoutContext, checkoutDeliveryType: message.buttonId },
+        context: {
+          ...checkoutContext,
+          checkoutDeliveryType: message.buttonId,
+          checkoutDeliveryFeeInCents: this.quoteDeliveryFeeInCents(message.buttonId),
+        },
       })
       await this.dependencies.whatsAppSender.sendInteractiveButtons(
         session.customerPhone,
@@ -451,6 +467,7 @@ export class CheckoutHandler implements ConversationHandlerInterface {
         paymentMethod: checkoutPaymentMethod,
         receiptPreference: checkoutReceiptPreference,
         cashChangeForInCents: checkoutContext.checkoutCashChangeForInCents,
+        quotedDeliveryFeeInCents: checkoutContext.checkoutDeliveryFeeInCents ?? 0,
       })
 
       await this.dependencies.conversationSessionRepository.updateStateByPhone({
@@ -462,6 +479,7 @@ export class CheckoutHandler implements ConversationHandlerInterface {
 
       const confirmationLines = [
         `${MESSAGES.ORDER_CONFIRMED_PREFIX} ${order.shortCode}`,
+        MESSAGES.ORDER_CONFIRMED_TOTAL_LINE.replace('{total}', formatPriceInCents(amountDueInCents(order))),
         ...(order.cashChangeForInCents !== null
           ? [MESSAGES.ORDER_CONFIRMED_CASH_CHANGE_LINE.replace('{valor}', formatPriceInCents(order.cashChangeForInCents))]
           : []),

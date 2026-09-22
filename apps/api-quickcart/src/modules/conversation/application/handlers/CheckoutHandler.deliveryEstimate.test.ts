@@ -48,6 +48,8 @@ function buildOrder(overrides: Partial<{ deliveryType: string }> = {}) {
     deliveryType: overrides.deliveryType ?? DELIVERY_TYPE.DELIVERY,
     address: { cep: '01001000' },
     cashChangeForInCents: null,
+    totalInCents: 5000,
+    deliveryFeeInCents: 0,
   }
 }
 

@@ -13,6 +13,7 @@ import { CartProductUnavailableError } from '@/shared/errors/CartErrors'
 import { OrderEmptyCartError, OrderInsufficientStockError } from '@/shared/errors/OrderErrors'
 import { CART_STATUS } from '@/modules/cart/shared/Cart.constant'
 import { generateId } from '@/shared/id'
+import { resolveDeliveryFeeInCents } from '@/modules/order/shared/amountDue'
 import type { CartRepositoryInterface } from '@/modules/cart/domain/CartRepository.interface'
 import type { ProductRepositoryInterface } from '@/modules/catalog/domain/ProductRepository.interface'
 import type { OrderRepositoryInterface, CreateOrderItemInput } from '@/modules/order/domain/OrderRepository.interface'
@@ -59,6 +60,10 @@ export class CreateOrderFromCartUseCase {
       receiptPreference: params.receiptPreference,
       notes: params.notes,
       cashChangeForInCents: params.cashChangeForInCents,
+      deliveryFeeInCents: resolveDeliveryFeeInCents({
+        deliveryType: params.deliveryType,
+        configuredFeeInCents: params.quotedDeliveryFeeInCents,
+      }),
       items,
     })
 

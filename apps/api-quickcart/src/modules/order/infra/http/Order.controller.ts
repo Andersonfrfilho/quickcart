@@ -36,6 +36,7 @@ import { ForbiddenError } from '@/shared/errors/AppError.error'
 import { SESSION_ROLE_FORBIDDEN } from '@/shared/errors/codes'
 import type { CustomerRepositoryInterface } from '@/modules/webhook/domain/CustomerRepository.interface'
 import { requiresCardMachine } from '@/modules/order/shared/requiresCardMachine'
+import { amountDueInCents } from '@/modules/order/shared/amountDue'
 
 type OrderControllerDependencies = {
   readonly createWebOrderUseCase: CreateWebOrderUseCase
@@ -59,6 +60,7 @@ type OrderControllerDependencies = {
  *
  * Pela mesma razão, `requiresCardMachine` (spec §3.2) entra aqui: é o único ponto de serialização de
  * pedido para fora da api, então nasce único também no DTO — nenhuma tela recalcula por conta própria.
+ * `amountDueInCents` (spec §3.4) idem: o valor cobrado sai daqui, e o frontend não soma itens + taxa.
  */
 export function withAllowedTransitions<
   TOrder extends {
@@ -66,8 +68,16 @@ export function withAllowedTransitions<
     readonly deliveryType: string
     readonly paymentMethod: string
     readonly deliveryFailureReason?: string | null
+    readonly totalInCents: number
+    readonly deliveryFeeInCents: number
   },
->(order: TOrder): TOrder & { readonly allowedNextStatuses: readonly string[]; readonly requiresCardMachine: boolean } {
+>(
+  order: TOrder,
+): TOrder & {
+  readonly allowedNextStatuses: readonly string[]
+  readonly requiresCardMachine: boolean
+  readonly amountDueInCents: number
+} {
   return {
     ...order,
     allowedNextStatuses: allowedNextStatuses({
@@ -77,6 +87,7 @@ export function withAllowedTransitions<
       deliveryFailureReason: order.deliveryFailureReason,
     }),
     requiresCardMachine: requiresCardMachine(order),
+    amountDueInCents: amountDueInCents(order),
   }
 }
 

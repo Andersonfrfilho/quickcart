@@ -240,6 +240,7 @@ function buildOrder(overrides: Partial<OrderRecord> = {}): OrderRecord {
     channel: 'whatsapp',
     status: 'completed',
     totalInCents: 5000,
+    deliveryFeeInCents: 0,
     deliveryType: 'delivery',
     address: null,
     legacyAddressText: null,

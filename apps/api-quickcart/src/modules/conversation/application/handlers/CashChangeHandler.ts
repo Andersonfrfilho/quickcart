@@ -21,7 +21,6 @@
  */
 
 import type { ConversationHandlerContext, ConversationHandlerInterface } from '@/modules/conversation/application/handlers/ConversationHandler.interface'
-import { calculateAmountDueInCents } from '@/modules/conversation/application/handlers/support/amountDue'
 import { calculateCartTotalInCents } from '@/modules/conversation/application/handlers/support/cartTotal'
 import { enterConfirming, type EnterConfirmingDependencies } from '@/modules/conversation/application/handlers/support/enterConfirming'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
@@ -35,6 +34,7 @@ import {
 } from '@/modules/conversation/shared/Messages.constant'
 import { parseCashAmountToCents } from '@/modules/conversation/shared/parseCashAmountToCents'
 import { CHANNEL } from '@/modules/shared/shared.constant'
+import { amountDueInCents as calculateAmountDueInCents } from '@/modules/order/shared/amountDue'
 
 /** Portas estreitas: só o que este handler usa, para o teste não precisar de repositório inteiro. */
 export type CashChangeHandlerDependencies = EnterConfirmingDependencies
@@ -111,7 +111,10 @@ export class CashChangeHandler implements ConversationHandlerInterface {
           productRepository: this.dependencies.productRepository,
         })
       : 0
-    const amountDueInCents = calculateAmountDueInCents(cartTotalInCents)
+    const amountDueInCents = calculateAmountDueInCents({
+      totalInCents: cartTotalInCents,
+      deliveryFeeInCents: checkoutContext.checkoutDeliveryFeeInCents ?? 0,
+    })
 
     if (cashChangeForInCents <= amountDueInCents) {
       await this.dependencies.whatsAppSender.sendText(

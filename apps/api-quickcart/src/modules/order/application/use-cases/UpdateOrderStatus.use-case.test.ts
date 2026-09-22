@@ -162,6 +162,7 @@ function buildOrder(overrides: Partial<OrderRecord> = {}): OrderRecord {
     channel: 'web',
     status: ORDER_STATUS.PENDING_CONFIRMATION,
     totalInCents: 5000,
+    deliveryFeeInCents: 0,
     deliveryType: 'delivery',
     address: null,
     legacyAddressText: null,

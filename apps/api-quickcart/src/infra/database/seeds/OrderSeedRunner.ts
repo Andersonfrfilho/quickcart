@@ -27,6 +27,7 @@ import { DrizzleCustomerRepository } from '@/modules/webhook/infra/database/Driz
 import type { CacheProvider } from '@/shared/providers/CacheProvider.interface'
 import type { JobQueue } from '@/modules/order/domain/JobQueue.interface'
 import { generateId } from '@/shared/id'
+import { environment } from '@/infra/config/environment'
 import { logger } from '@/shared/logger'
 import { SEED_ORDER_CUSTOMERS } from './OrderSeedCustomers'
 
@@ -76,6 +77,7 @@ export async function seedOrders(): Promise<void> {
     customerRepository,
     cacheProvider: new InMemoryCacheProvider(),
     receiptQueue: noOpReceiptQueue,
+    configuredDeliveryFeeInCents: environment.DELIVERY_FEE_CENTS,
   })
 
   const catalog = await productRepository.list({

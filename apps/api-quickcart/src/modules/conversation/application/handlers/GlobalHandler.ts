@@ -37,6 +37,7 @@ import {
 import type { ResolveCustomerDecisionUseCase } from '@/modules/order/application/use-cases/ResolveCustomerDecision.use-case'
 import type { ResolveItemSubstitutionUseCase } from '@/modules/order/application/use-cases/ResolveItemSubstitution.use-case'
 import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInCents'
+import { amountDueInCents } from '@/modules/order/shared/amountDue'
 import { CHANNEL } from '@/modules/shared/shared.constant'
 import { OrderNoPreviousOrderError } from '@/shared/errors/OrderErrors'
 
@@ -255,7 +256,7 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
         params.customerPhone,
         MESSAGES.ORDER_ITEM_SUBSTITUTED_ACK.replace('{substituto}', result.substituteName)
           .replace('{codigo}', result.detail.order.shortCode)
-          .replace('{total}', formatPriceInCents(result.detail.order.totalInCents)),
+          .replace('{total}', formatPriceInCents(amountDueInCents(result.detail.order))),
       )
       return
     }

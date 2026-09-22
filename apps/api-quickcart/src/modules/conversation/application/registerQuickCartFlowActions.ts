@@ -31,6 +31,7 @@ import type { CategoryRepositoryInterface } from '@/modules/catalog/domain/Categ
 import type { ProductRepositoryInterface } from '@/modules/catalog/domain/ProductRepository.interface'
 import { sendCartSummary } from '@/modules/conversation/application/handlers/support/CartSummary'
 import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInCents'
+import { amountDueInCents } from '@/modules/order/shared/amountDue'
 import type { OrderRepositoryInterface } from '@/modules/order/domain/OrderRepository.interface'
 import { OrderNoPreviousOrderError } from '@/shared/errors/OrderErrors'
 import { CHANNEL } from '@/modules/shared/shared.constant'
@@ -193,7 +194,7 @@ export function registerQuickCartFlowActions(params: RegisterQuickCartFlowAction
 
     const lines = orders.map((order) => {
       const when = order.createdAt.toLocaleDateString('pt-BR')
-      return `• ${when} — ${formatPriceInCents(order.totalInCents)} (${order.shortCode})`
+      return `• ${when} — ${formatPriceInCents(amountDueInCents(order))} (${order.shortCode})`
     })
     await whatsAppSender.sendText(session.whatsappNumber, `${MESSAGES.ORDER_HISTORY_HEADER}\n${lines.join('\n')}`)
     return { next: MAIN_FLOW_NODE.MENU }

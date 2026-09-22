@@ -334,6 +334,8 @@ export const MESSAGES = {
   /** Sufixo do pagamento no resumo e na confirmação, quando há troco. `{valor}` é o valor pago. */
   CASH_CHANGE_SUMMARY_SUFFIX: ' — troco para {valor}',
   ORDER_CONFIRMED_PREFIX: '✅ Pedido confirmado! Código:',
+  /** Valor cobrado: itens + taxa de entrega (`amountDueInCents`), não o `total_in_cents` da nota. */
+  ORDER_CONFIRMED_TOTAL_LINE: 'Total: {total}.',
   /** Linha de troco na confirmação final. `{valor}` é o valor com que o cliente vai pagar. */
   ORDER_CONFIRMED_CASH_CHANGE_LINE: 'Troco para {valor}.',
   /** Roteiro §12. Ausente sempre que não dá para responder com honestidade — nunca inventar. */

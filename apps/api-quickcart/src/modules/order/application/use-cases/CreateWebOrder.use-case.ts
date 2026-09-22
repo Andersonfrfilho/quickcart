@@ -21,6 +21,7 @@ import { ProductNotFoundError } from '@/shared/errors/CatalogErrors'
 import { CartProductUnavailableError } from '@/shared/errors/CartErrors'
 import { OrderInsufficientStockError, OrderIdempotencyConflictError } from '@/shared/errors/OrderErrors'
 import { generateId } from '@/shared/id'
+import { resolveDeliveryFeeInCents } from '@/modules/order/shared/amountDue'
 import { CHANNEL } from '@/modules/shared/shared.constant'
 import {
   ORDER_IDEMPOTENCY_CACHE_PREFIX,
@@ -42,6 +43,8 @@ type CreateWebOrderUseCaseDependencies = {
   readonly customerRepository: CustomerRepositoryInterface
   readonly cacheProvider: CacheProvider
   readonly receiptQueue: JobQueue
+  /** `DELIVERY_FEE_CENTS`. A web não tem etapa anterior que congele a taxa, então lê na criação. */
+  readonly configuredDeliveryFeeInCents: number
 }
 
 export class CreateWebOrderUseCase {
@@ -105,6 +108,10 @@ export class CreateWebOrderUseCase {
         paymentMethod: params.paymentMethod,
         receiptPreference: params.receiptPreference,
         notes: params.notes,
+        deliveryFeeInCents: resolveDeliveryFeeInCents({
+          deliveryType: params.deliveryType,
+          configuredFeeInCents: this.dependencies.configuredDeliveryFeeInCents,
+        }),
         items,
       })
 

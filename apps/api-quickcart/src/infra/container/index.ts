@@ -232,6 +232,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     customerRepository: dependencies.customerRepository,
     cacheProvider: dependencies.cacheProvider,
     receiptQueue,
+    configuredDeliveryFeeInCents: environment.DELIVERY_FEE_CENTS,
   })
   const getOrderByShortCodeUseCase = new GetOrderByShortCodeUseCase({
     orderRepository,
@@ -481,6 +482,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     resolveOrderDeliveryEstimateUseCase,
     addressLookupProvider,
     storePreparationMinutes: environment.STORE_PREPARATION_MINUTES,
+    configuredDeliveryFeeInCents: environment.DELIVERY_FEE_CENTS,
   })
   const cashChangeHandler = new CashChangeHandler({
     conversationSessionRepository,

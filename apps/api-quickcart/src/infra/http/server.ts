@@ -140,6 +140,7 @@ export function createRouter({ userModule }: CreateRouterParams): Router {
       orderRepository: container.storeRepositories.orderRepository,
       customerRepository: container.storeRepositories.customerRepository,
     }),
+    deliveryFeeInCents: environment.DELIVERY_FEE_CENTS,
   })
 
   registerStoreRoutes({ router, storeController })
