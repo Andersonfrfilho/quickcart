@@ -174,6 +174,11 @@ export class CartHandler implements ConversationHandlerInterface {
       return
     }
 
+    if (message.listId === EDITING_CART_ROW_ID.NEXT_PAGE) {
+      await this.sendEditingCartList(session, customer.id, (context.editingCartPage ?? 1) + 1)
+      return
+    }
+
     if (message.listId.startsWith(EDITING_CART_ROW_PREFIX.ITEM)) {
       const cartItemId = message.listId.slice(EDITING_CART_ROW_PREFIX.ITEM.length)
       const cartItem = await this.dependencies.cartRepository.findItemById(cartItemId)
@@ -227,7 +232,7 @@ export class CartHandler implements ConversationHandlerInterface {
     await this.sendEditingCartList(session, customerId)
   }
 
-  private async sendEditingCartList(session: ConversationSession, customerId: string): Promise<void> {
+  private async sendEditingCartList(session: ConversationSession, customerId: string, page: number = 1): Promise<void> {
     const cart = await this.dependencies.cartRepository.findOpenByCustomer(customerId, CHANNEL.WHATSAPP)
     if (!cart) {
       await this.dependencies.conversationSessionRepository.updateStateByPhone({
@@ -244,10 +249,10 @@ export class CartHandler implements ConversationHandlerInterface {
     await this.dependencies.conversationSessionRepository.updateStateByPhone({
       customerPhone: session.customerPhone,
       currentState: CONVERSATION_STATE.EDITING_CART,
-      context: {},
+      context: { editingCartPage: page },
     })
 
-    const section = buildEditingCartSection(rows)
+    const section = buildEditingCartSection(rows, page)
     await this.dependencies.whatsAppSender.sendInteractiveList(session.customerPhone, MESSAGES.EDITING_CART_PICK_ITEM, 'Editar item', [
       section,
     ])

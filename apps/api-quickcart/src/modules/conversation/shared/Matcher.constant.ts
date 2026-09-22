@@ -17,6 +17,14 @@ export const MATCH_AUTO_THRESHOLD = 0.55
 export const MATCH_GAP_THRESHOLD = 0.15
 export const MATCH_MIN_THRESHOLD = 0.3
 export const MATCH_MAX_CANDIDATES = 10
+/**
+ * Teto de candidatos ambíguos guardados na fila de resolução.
+ *
+ * A lista inteira vive em `pendingResolutions`, dentro do jsonb `conversation_sessions.context` —
+ * sem teto, um termo genérico ("arroz") devolveria dezenas de linhas e infla essa coluna sem limite.
+ * 50 cobre qualquer catálogo razoável em paginação de 10 sem aproximar do problema.
+ */
+export const MATCH_MAX_AMBIGUOUS_CANDIDATES = 50
 
 export const MATCH_TYPE = {
   AUTO: 'auto',

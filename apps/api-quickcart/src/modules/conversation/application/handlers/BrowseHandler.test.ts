@@ -13,8 +13,9 @@ import { describe, expect, it } from 'bun:test'
 import type { ProductSearchResult } from '@/modules/catalog/domain/ProductRepository.interface'
 import { BrowseHandler, type BrowseHandlerDependencies } from '@/modules/conversation/application/handlers/BrowseHandler'
 import type { ConversationHandlerContext } from '@/modules/conversation/application/handlers/ConversationHandler.interface'
+import type { ConversationContext } from '@/modules/conversation/shared/ConversationContext.types'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
-import { BROWSE_ROW_PREFIX, MESSAGES } from '@/modules/conversation/shared/Messages.constant'
+import { BROWSE_ROW_ID, BROWSE_ROW_PREFIX, MESSAGES } from '@/modules/conversation/shared/Messages.constant'
 import type { ParsedInboundMessage } from '@/modules/webhook/application/types/WhatsAppWebhookPayload.types'
 
 const CUSTOMER_PHONE = '5511999990000'
@@ -26,6 +27,7 @@ type Harness = {
   readonly sentTexts: string[]
   readonly sentLists: SentList[]
   readonly searchedTerms: string[]
+  readonly updatedContexts: ConversationContext[]
 }
 
 function buildSearchResult(overrides: Partial<ProductSearchResult>): ProductSearchResult {
@@ -36,9 +38,14 @@ function buildHarness(searchResults: readonly ProductSearchResult[]): Harness {
   const sentTexts: string[] = []
   const sentLists: SentList[] = []
   const searchedTerms: string[] = []
+  const updatedContexts: ConversationContext[] = []
 
   const dependencies = {
-    conversationSessionRepository: { updateStateByPhone: async () => undefined },
+    conversationSessionRepository: {
+      updateStateByPhone: async (params: { context: ConversationContext }) => {
+        updatedContexts.push(params.context)
+      },
+    },
     whatsAppSender: {
       sendText: async (_to: string, body: string) => {
         sentTexts.push(body)
@@ -62,12 +69,12 @@ function buildHarness(searchResults: readonly ProductSearchResult[]): Harness {
     addCartItemUseCase: {},
   } as unknown as BrowseHandlerDependencies
 
-  return { handler: new BrowseHandler(dependencies), sentTexts, sentLists, searchedTerms }
+  return { handler: new BrowseHandler(dependencies), sentTexts, sentLists, searchedTerms, updatedContexts }
 }
 
-function buildContext(message: ParsedInboundMessage): ConversationHandlerContext {
+function buildContext(message: ParsedInboundMessage, context: ConversationContext = {}): ConversationHandlerContext {
   return {
-    session: { customerPhone: CUSTOMER_PHONE, currentState: CONVERSATION_STATE.BROWSING_CATEGORIES, context: {} },
+    session: { customerPhone: CUSTOMER_PHONE, currentState: CONVERSATION_STATE.BROWSING_CATEGORIES, context },
     customer: { id: 'customer-1' },
     message,
   } as unknown as ConversationHandlerContext
@@ -75,6 +82,14 @@ function buildContext(message: ParsedInboundMessage): ConversationHandlerContext
 
 function buildTextMessage(body: string): ParsedInboundMessage {
   return { kind: 'text', from: CUSTOMER_PHONE, waMessageId: 'wamid-1', body }
+}
+
+function buildListReply(listId: string): ParsedInboundMessage {
+  return { kind: 'list_reply', from: CUSTOMER_PHONE, waMessageId: 'wamid-3', listId, listTitle: listId }
+}
+
+function buildManySearchResults(count: number): ProductSearchResult[] {
+  return Array.from({ length: count }, (_, index) => buildSearchResult({ id: `rice-${index}`, name: `Arroz ${index}` }))
 }
 
 describe('BrowseHandler — texto livre ao navegar', () => {
@@ -119,5 +134,28 @@ describe('BrowseHandler — texto livre ao navegar', () => {
 
     expect(harness.searchedTerms).toEqual([])
     expect(harness.sentTexts).toEqual([MESSAGES.BROWSE_UNEXPECTED_INPUT])
+  })
+
+  it('pagina a busca: primeira página tem 9 produtos + próxima página', async () => {
+    const harness = buildHarness(buildManySearchResults(12))
+
+    await harness.handler.handle(buildContext(buildTextMessage('arroz')))
+
+    expect(harness.sentLists[0]?.rowIds).toHaveLength(10)
+    expect(harness.sentLists[0]?.rowIds.at(-1)).toBe(BROWSE_ROW_ID.NEXT_SEARCH_PAGE)
+    expect(harness.updatedContexts.at(-1)).toEqual({ browsingSearchTerm: 'arroz', browsingSearchPage: 1 })
+  })
+
+  it('avança para a última página da busca ao tocar em próxima página, sem repetir a linha de navegação', async () => {
+    const harness = buildHarness(buildManySearchResults(12))
+
+    await harness.handler.handle(
+      buildContext(buildListReply(BROWSE_ROW_ID.NEXT_SEARCH_PAGE), { browsingSearchTerm: 'arroz', browsingSearchPage: 1 }),
+    )
+
+    expect(harness.searchedTerms).toEqual(['arroz'])
+    expect(harness.sentLists[0]?.rowIds).toHaveLength(3)
+    expect(harness.sentLists[0]?.rowIds).not.toContain(BROWSE_ROW_ID.NEXT_SEARCH_PAGE)
+    expect(harness.updatedContexts.at(-1)).toEqual({ browsingSearchTerm: 'arroz', browsingSearchPage: 2 })
   })
 })

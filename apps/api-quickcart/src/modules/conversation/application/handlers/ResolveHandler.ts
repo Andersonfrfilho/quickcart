@@ -21,7 +21,7 @@ import type { WhatsAppSender } from '@/modules/webhook/infra/whatsapp/WhatsAppSe
 import type { ConversationHandlerContext, ConversationHandlerInterface } from '@/modules/conversation/application/handlers/ConversationHandler.interface'
 import type { CartDraftItem, ConversationContext } from '@/modules/conversation/shared/ConversationContext.types'
 import { advanceResolutionQueue } from '@/modules/conversation/application/handlers/support/advanceResolutionQueue'
-import { cheapestCandidate } from '@/modules/conversation/application/handlers/support/InteractiveListBuilders'
+import { buildResolveSection, cheapestCandidate } from '@/modules/conversation/application/handlers/support/InteractiveListBuilders'
 import {
   UNMATCHED_DEMAND_SOURCE,
   type UnmatchedDemandRepositoryInterface,
@@ -77,6 +77,27 @@ export class ResolveHandler implements ConversationHandlerInterface {
 
     if (message.kind !== 'list_reply') {
       await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.RESOLVE_UNEXPECTED_INPUT)
+      return
+    }
+
+    if (message.listId === RESOLVE_ROW_ID.NEXT_PAGE) {
+      const nextPage = (current.page ?? 1) + 1
+      const updatedCurrent = { ...current, page: nextPage }
+      const updatedPendingResolutions = [updatedCurrent, ...pendingResolutions.slice(1)]
+
+      await this.dependencies.conversationSessionRepository.updateStateByPhone({
+        customerPhone: session.customerPhone,
+        currentState: session.currentState,
+        context: { ...context, pendingResolutions: updatedPendingResolutions },
+      })
+
+      const section = buildResolveSection(updatedCurrent)
+      await this.dependencies.whatsAppSender.sendInteractiveList(
+        session.customerPhone,
+        `${MESSAGES.RESOLVE_PROMPT_PREFIX} "${updatedCurrent.originalTerm}"`,
+        'Ver opções',
+        [section],
+      )
       return
     }
 
