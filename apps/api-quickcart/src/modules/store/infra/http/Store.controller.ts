@@ -18,6 +18,8 @@ import type { ListMyOrdersUseCase } from '@/modules/store/application/use-cases/
 import { amountDueInCents, resolveDeliveryFeeInCents } from '@/modules/order/shared/amountDue'
 import { buildPricedOrderItems } from '@/modules/order/shared/buildPricedOrderItems'
 import type { ProductRepositoryInterface } from '@/modules/catalog/domain/ProductRepository.interface'
+import { ProductNotFoundError } from '@/shared/errors/CatalogErrors'
+import { CartProductUnavailableError } from '@/shared/errors/CartErrors'
 
 import { registerCustomerBodySchema, listMyOrdersQuerySchema } from './schemas/RegisterCustomer.schema'
 import { checkoutQuoteBodySchema } from './schemas/CheckoutQuote.schema'
@@ -66,7 +68,7 @@ export class StoreController {
   handleGetCheckoutQuote: RouteHandler = async (request, response) => {
     const input = validateBody(checkoutQuoteBodySchema, request.body)
 
-    const pricedItems = await buildPricedOrderItems(this.dependencies.productRepository, input.items)
+    const pricedItems = await this.priceQuoteItems(input.items)
     const subtotalInCents = pricedItems.reduce((sum, item) => sum + item.totalInCents, 0)
     const deliveryFeeInCents = resolveDeliveryFeeInCents({
       deliveryType: input.deliveryType,
@@ -85,5 +87,19 @@ export class StoreController {
         })),
       },
     })
+  }
+
+  /*
+   * Na rota PÚBLICA, inativo responde igual a inexistente (404): um 409 "indisponível" confirmaria a
+   * um anônimo que o produto despublicado existe. `buildPricedOrderItems` segue distinguindo os dois
+   * porque o `CreateWebOrder` (cliente logado, produto que estava no carrinho) precisa do motivo.
+   */
+  private async priceQuoteItems(items: Parameters<typeof buildPricedOrderItems>[1]): ReturnType<typeof buildPricedOrderItems> {
+    try {
+      return await buildPricedOrderItems(this.dependencies.productRepository, items)
+    } catch (error) {
+      if (error instanceof CartProductUnavailableError) throw new ProductNotFoundError(String(error.details?.productId ?? ''))
+      throw error
+    }
   }
 }

@@ -90,6 +90,15 @@ describe('StoreController.handleGetCheckoutQuote', () => {
     ).rejects.toBeInstanceOf(ProductNotFoundError)
   })
 
+  it('produto inativo responde igual ao inexistente (não confirma produto despublicado)', async () => {
+    const controller = buildController({ isAvailable: false })
+    const { response } = buildResponseSpy()
+
+    await expect(
+      controller.handleGetCheckoutQuote(buildRequest({ items: [{ productId: PRODUCT_ID, quantity: 1 }], deliveryType: 'delivery' }), response),
+    ).rejects.toBeInstanceOf(ProductNotFoundError)
+  })
+
   it('corpo inválido é recusado com ValidationError', async () => {
     const controller = buildController()
     const { response } = buildResponseSpy()
