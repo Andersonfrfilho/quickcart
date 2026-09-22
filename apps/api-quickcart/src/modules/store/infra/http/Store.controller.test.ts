@@ -72,7 +72,7 @@ describe('StoreController.handleGetCheckoutQuote', () => {
       quoteResult: {
         kind: DELIVERY_QUOTE_KIND.QUOTED,
         feeInCents: 800,
-        distanceKm: 2.44,
+        distanceKm: 2.4,
         tier: { maxDistanceKm: 3, feeInCents: 800 },
         source: DELIVERY_LOCATION_SOURCE.CEP,
       },
@@ -136,7 +136,7 @@ describe('StoreController.handleGetCheckoutQuote', () => {
 
   it('fora do raio: taxa zero, indisponível, e devolve a distância e o limite', async () => {
     const controller = buildController({
-      quoteResult: { kind: DELIVERY_QUOTE_KIND.OUT_OF_RANGE, distanceKm: 12.34, maxDistanceKm: 8 },
+      quoteResult: { kind: DELIVERY_QUOTE_KIND.OUT_OF_RANGE, distanceKm: 12.3, maxDistanceKm: 8 },
     })
     const { response, calls } = buildResponseSpy()
 

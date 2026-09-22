@@ -10,6 +10,7 @@
  * Erros do domínio de carrinho/pedidos (usados a partir da Fase 5).
  */
 
+import { formatDistanceKm, roundDistanceKm } from '@/shared/formatDistanceKm'
 import { DomainError } from '@/shared/errors/DomainError'
 import {
   ORDER_NOT_FOUND,
@@ -150,10 +151,10 @@ export class OrderReceiptEnqueueFailedError extends OrderError {
 export class DeliveryOutOfRangeError extends OrderError {
   constructor(params: { readonly distanceKm: number; readonly maxDistanceKm: number }) {
     super(
-      `Endereço a ${params.distanceKm} km está fora da área de entrega (até ${params.maxDistanceKm} km).`,
+      `Endereço a ${formatDistanceKm(params.distanceKm)} km está fora da área de entrega (até ${formatDistanceKm(params.maxDistanceKm)} km).`,
       422,
       DELIVERY_OUT_OF_RANGE,
-      params,
+      { distanceKm: roundDistanceKm(params.distanceKm), maxDistanceKm: params.maxDistanceKm },
     )
   }
 }

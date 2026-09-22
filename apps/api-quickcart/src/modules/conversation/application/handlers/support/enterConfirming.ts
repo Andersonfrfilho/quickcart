@@ -21,7 +21,7 @@ import {
   RECEIPT_PREFERENCE_BUTTONS,
 } from '@/modules/conversation/shared/Messages.constant'
 import { formatAddressLine } from '@/modules/shared/address/formatAddressLine'
-import { formatDistanceKm } from '@/modules/conversation/application/handlers/support/deliveryQuoteMessages'
+import { formatDistanceKm } from '@/shared/formatDistanceKm'
 import { DELIVERY_LOCATION_SOURCE } from '@/modules/order/shared/DeliveryFeeQuote.constant'
 import { CHANNEL } from '@/modules/shared/shared.constant'
 import type { UpdateConversationSessionStateByPhoneParams } from '@/modules/webhook/domain/ConversationSessionRepository.interface'

@@ -104,6 +104,12 @@ describe('QuoteDeliveryFeeUseCase', () => {
     expect(result).toMatchObject({ kind: 'quoted', feeInCents: 500 })
   })
 
+  it('3,04 km arredonda para 3 km ANTES da faixa: cai em "até 3 km" e a distância devolvida é 3', async () => {
+    const { useCase } = buildUseCase()
+    const result = await useCase.execute({ deliveryType: 'delivery', location: coordinatesAtKm(3.04) })
+    expect(result).toMatchObject({ kind: 'quoted', feeInCents: 500, tier: TIERS[0], distanceKm: 3 })
+  })
+
   it('~6 km cai na segunda faixa', async () => {
     const { useCase } = buildUseCase()
     const result = await useCase.execute({ deliveryType: 'delivery', location: coordinatesAtKm(6) })

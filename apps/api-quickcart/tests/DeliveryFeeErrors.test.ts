@@ -34,6 +34,13 @@ describe('Erros de taxa de entrega (T1.5)', () => {
     expect(error.details).toEqual({ distanceKm: 12, maxDistanceKm: 8 })
   })
 
+  it('DeliveryOutOfRangeError: distância em pt-BR com 1 casa na mensagem e arredondada no detalhe', () => {
+    const error = new DeliveryOutOfRangeError({ distanceKm: 12.345, maxDistanceKm: 8.5 })
+
+    expect(error.message).toBe('Endereço a 12,3 km está fora da área de entrega (até 8,5 km).')
+    expect(error.details).toEqual({ distanceKm: 12.3, maxDistanceKm: 8.5 })
+  })
+
   it('DeliveryFeeChangedError: 409 e DELIVERY_FEE_CHANGED', () => {
     const error = new DeliveryFeeChangedError({ previousFeeInCents: 500, currentFeeInCents: 1000 })
 

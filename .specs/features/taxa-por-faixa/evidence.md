@@ -604,3 +604,11 @@ Commit único com as mudanças acima. Mensagem em português com o porquê, conf
 - Testes: vazia depois de PUT não é semeada; primeira subida semeia; legado com faixa só ganha marcador;
   integração do marcador no Postgres.
 - Gates: typecheck limpo; api 669 / 0 fail; frontend 48 / 0 fail.
+
+### C) Distância coerente
+- `QuoteDeliveryFee` arredonda a 0,1 km uma vez (`roundDistanceKm`, `src/shared/formatDistanceKm.ts`) antes de
+  escolher a faixa; o valor segue igual para mensagem, resposta web e snapshot. `roundToOneDecimalKm` do
+  `Store.controller` removido; `formatDistanceKm` do bot passou para o mesmo módulo.
+- `DeliveryOutOfRangeError`: "Endereço a 12,3 km … (até 8,5 km)." e `details.distanceKm` arredondado.
+- Testes: 3,04 km → faixa "até 3 km" com `distanceKm: 3`; mensagem/detalhe do erro.
+- Gates: typecheck limpo; api 671 / 0 fail; frontend 48 / 0 fail.

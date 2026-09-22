@@ -53,11 +53,6 @@ type CheckoutDeliveryQuote = {
   readonly isDeliveryAvailable: boolean
 }
 
-/** 2,449 km → 2,4 — a tela nunca precisa (nem deve) do metro exato. */
-function roundToOneDecimalKm(distanceKm: number): number {
-  return Math.round(distanceKm * 10) / 10
-}
-
 export class StoreController {
   constructor(private readonly dependencies: StoreControllerDependencies) {}
 
@@ -128,7 +123,7 @@ export class StoreController {
       case DELIVERY_QUOTE_KIND.QUOTED:
         return {
           deliveryFeeInCents: quote.feeInCents,
-          deliveryQuote: { kind: quote.kind, distanceKm: roundToOneDecimalKm(quote.distanceKm), tier: quote.tier },
+          deliveryQuote: { kind: quote.kind, distanceKm: quote.distanceKm, tier: quote.tier },
           isDeliveryAvailable: true,
         }
       case DELIVERY_QUOTE_KIND.APPROXIMATE_MAX_TIER:
@@ -142,7 +137,7 @@ export class StoreController {
           deliveryFeeInCents: 0,
           deliveryQuote: {
             kind: quote.kind,
-            distanceKm: roundToOneDecimalKm(quote.distanceKm),
+            distanceKm: quote.distanceKm,
             maxDistanceKm: quote.maxDistanceKm,
           },
           isDeliveryAvailable: false,

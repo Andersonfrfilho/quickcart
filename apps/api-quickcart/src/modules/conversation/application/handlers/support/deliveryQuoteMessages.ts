@@ -15,10 +15,7 @@ import type { QuoteDeliveryFeeResult } from '@/modules/order/application/types/Q
 import { DELIVERY_QUOTE_KIND } from '@/modules/order/shared/DeliveryFeeQuote.constant'
 import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInCents'
 import { MESSAGES } from '@/modules/conversation/shared/Messages.constant'
-
-export function formatDistanceKm(distanceKm: number): string {
-  return String(Math.round(distanceKm * 10) / 10).replace('.', ',')
-}
+import { formatDistanceKm } from '@/shared/formatDistanceKm'
 
 /** `undefined` quando a cotação não permite entregar — aí vale `buildDeliveryDeclinedMessage`. */
 export function buildDeliveryFeeQuotedMessage(result: QuoteDeliveryFeeResult): string | undefined {

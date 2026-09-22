@@ -30,6 +30,7 @@ import { DELIVERY_TYPE } from '@/modules/order/shared/Order.constant'
 import { GEOCODE_PRECISION } from '@/modules/shared/address/Address.schema'
 import { calculateRoadDistanceKm } from '@/modules/shared/address/deliveryEstimate'
 import type { Coordinate } from '@/modules/shared/address/haversine'
+import { roundDistanceKm } from '@/shared/formatDistanceKm'
 import type { ResolveCepCoordinateUseCase } from '@/modules/shared/address/ResolveCepCoordinate.use-case'
 
 /** Centroide do município (ou nada): a distância seria da cidade, não da casa — cobra a maior faixa (D3). */
@@ -83,11 +84,14 @@ export class QuoteDeliveryFeeUseCase {
       }
     }
 
-    const distanceKm = calculateRoadDistanceKm({
-      from: storeCoordinate,
-      to: customerPoint.coordinate,
-      detourFactor: this.dependencies.detourFactor,
-    })
+    // Arredonda UMA vez, antes da faixa: 3,04 km é "3 km" na mensagem, então tem de cair na faixa "até 3 km".
+    const distanceKm = roundDistanceKm(
+      calculateRoadDistanceKm({
+        from: storeCoordinate,
+        to: customerPoint.coordinate,
+        detourFactor: this.dependencies.detourFactor,
+      }),
+    )
     return this.quoteByDistance({ tiers, largestTier, distanceKm, source: customerPoint.source })
   }
 
