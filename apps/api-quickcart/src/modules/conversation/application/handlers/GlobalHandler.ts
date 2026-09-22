@@ -15,6 +15,7 @@
  * nada pra repetir.
  */
 
+import { isExitWord } from '@/modules/conversation/application/isExitWord'
 import type { CartRepositoryInterface } from '@/modules/cart/domain/CartRepository.interface'
 import type { ProductRepositoryInterface } from '@/modules/catalog/domain/ProductRepository.interface'
 import type { RepeatLastOrderUseCase } from '@/modules/order/application/use-cases/RepeatLastOrder.use-case'
@@ -28,7 +29,7 @@ import type {
 import { looksLikeShoppingList } from '@/modules/conversation/application/looksLikeShoppingList'
 import { sendCartSummary } from '@/modules/conversation/application/handlers/support/CartSummary'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
-import { GLOBAL_TRIGGER, MENU_BUTTON_ID, MESSAGES } from '@/modules/conversation/shared/Messages.constant'
+import { MENU_BUTTON_ID, MESSAGES } from '@/modules/conversation/shared/Messages.constant'
 import {
   ORDER_DECISION,
   parseOrderDecisionButtonId,
@@ -85,7 +86,7 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
   async tryHandle(context: ConversationHandlerContext): Promise<boolean> {
     const { session, customer, message } = context
 
-    if (message.kind === 'text' && this.isExitWord(message.body)) {
+    if (message.kind === 'text' && isExitWord(message.body)) {
       await this.dependencies.conversationSessionRepository.updateStateByPhone({
         customerPhone: session.customerPhone,
         currentState: CONVERSATION_STATE.GREETING,
@@ -304,11 +305,6 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
 
       throw error
     }
-  }
-
-  private isExitWord(body: string): boolean {
-    const normalized = body.trim().toLowerCase()
-    return (GLOBAL_TRIGGER.EXIT_WORDS as readonly string[]).includes(normalized)
   }
 
   private isRepeatOrderTrigger(message: ConversationHandlerContext['message']): boolean {
