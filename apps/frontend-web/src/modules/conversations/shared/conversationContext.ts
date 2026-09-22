@@ -15,12 +15,12 @@ import type { ConversationContextEntry } from '@adatechnology/conversations-ui'
 
 import { ORDER_IN_PROGRESS_CONTEXT_KEYS } from '@/modules/conversations/shared/orderInProgress.constant'
 
+// `deliveryType`/`address`/`paymentMethod` não entram aqui: o contexto real grava essas escolhas
+// com prefixo `checkout` (`checkoutDeliveryType`, `checkoutAddress`, `checkoutPaymentMethod`), e o
+// bloco "Pedido em andamento" (T3.2) já as mostra — chave sem prefixo nunca é preenchida.
 const CONTEXT_LABELS: ReadonlyArray<{ key: string; label: string; icon: string }> = [
   { key: 'customerName', label: 'Nome', icon: '👤' },
   { key: 'menuChoice', label: 'Escolha no menu', icon: '🗂️' },
-  { key: 'deliveryType', label: 'Entrega', icon: '🛵' },
-  { key: 'address', label: 'Endereço', icon: '📍' },
-  { key: 'paymentMethod', label: 'Pagamento', icon: '💳' },
   { key: 'receiptPreference', label: 'Recibo', icon: '🧾' },
 ]
 

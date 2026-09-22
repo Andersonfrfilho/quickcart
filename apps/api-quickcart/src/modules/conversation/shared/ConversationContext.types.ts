@@ -7,9 +7,10 @@
  *
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  *
- * Fase 4 não tem tabelas `carts`/`cart_items` (chegam na Fase 5) — o carrinho
- * em progresso vive dentro de `conversation_sessions.context` (jsonb) até lá,
- * conforme spec §3.3.
+ * As tabelas `carts`/`cart_items` existem e são a fonte verdadeira do carrinho aberto (lidas por
+ * `CartHandler`, `enterConfirming` e pelo checkout). `cartDraft`, aqui neste contexto, é só o
+ * rascunho da lista/navegação ANTES da revisão — `enterCartReview` o materializa em `cart_items`
+ * via `AddCartItemUseCase` (ver T3.2, `.specs/features/roteiro-atendimento/evidence.md`).
  */
 
 import type { MatchCandidate } from '@/modules/conversation/application/types/MatchProducts.types'

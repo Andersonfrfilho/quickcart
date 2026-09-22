@@ -35,4 +35,16 @@ describe('toContextEntries', () => {
     const entries = toContextEntries({ someNewFlag: 'sim' })
     expect(entries.find((entry) => entry.key === 'someNewFlag')?.value).toBe('sim')
   })
+
+  it('não gera linha vazia para deliveryType/address/paymentMethod — o motor grava com prefixo checkout', () => {
+    // O contexto real só grava essas escolhas com prefixo `checkout*` (checkoutDeliveryType,
+    // checkoutAddress, checkoutPaymentMethod); um rótulo fixo para as chaves sem prefixo sempre
+    // renderizava uma linha com valor undefined, porque essa chave nunca é preenchida pelo motor.
+    const entries = toContextEntries({ customerName: 'Maria' })
+    const keys = entries.map((entry) => entry.key)
+
+    expect(keys).not.toContain('deliveryType')
+    expect(keys).not.toContain('address')
+    expect(keys).not.toContain('paymentMethod')
+  })
 })
