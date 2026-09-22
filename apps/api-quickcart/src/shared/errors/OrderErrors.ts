@@ -21,6 +21,7 @@ import {
   ORDER_INVALID_STATUS_TRANSITION,
   ORDER_CUSTOMER_APPROVAL_REQUIRED,
   ORDER_ITEM_NOT_SUBSTITUTABLE,
+  ORDER_RECEIPT_ENQUEUE_FAILED,
 } from '@/shared/errors/codes'
 
 const ORDER_DOMAIN = 'order'
@@ -119,5 +120,19 @@ export class OrderInvalidStatusTransitionError extends OrderError {
       ORDER_INVALID_STATUS_TRANSITION,
       params,
     )
+  }
+}
+
+/**
+ * O status foi salvo, mas o recibo não entrou na fila.
+ *
+ * Erro próprio porque o operador precisa agir: marcar o mesmo status de novo só reenfileira o recibo.
+ * Um 500 genérico escondia que o pedido já tinha saído — e o segundo clique viraria 409.
+ */
+export class OrderReceiptEnqueueFailedError extends OrderError {
+  constructor(orderId: string) {
+    super('Status salvo, mas o recibo não foi enviado para emissão. Tente marcar de novo.', 503, ORDER_RECEIPT_ENQUEUE_FAILED, {
+      orderId,
+    })
   }
 }

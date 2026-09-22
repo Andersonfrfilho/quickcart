@@ -91,6 +91,10 @@ Correção: o recibo é enfileirado só quando o pedido sai da loja (`out_for_de
 `ready_for_pickup`), no `UpdateOrderStatusUseCase`, com `jobId` estável por pedido. O worker também
 não emite de novo quando o pedido já tem `fiscal_document_id`.
 
+Se a fila falhar depois de o status ser salvo, a API responde `ORDER_RECEIPT_ENQUEUE_FAILED` (503) e
+loga `receipt_enqueue_failed` só com o `orderId`. Marcar o mesmo status de novo reenfileira o recibo
+sem regravar nem avisar o cliente; o painel mostra "Reenviar para emissão" com a mensagem da API.
+
 ## Pendentes
 
 - **Cancelamento de NFC-e na SEFAZ quando pedido já emitido é cancelado** (registrado em 2026-09-22).

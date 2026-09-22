@@ -12,8 +12,13 @@
  * inexistente.
  */
 
-import { describe, expect, test } from 'bun:test'
-import { OrderInvalidStatusTransitionError, OrderNotFoundError } from '@/shared/errors/OrderErrors'
+import { describe, expect, spyOn, test } from 'bun:test'
+import {
+  OrderInvalidStatusTransitionError,
+  OrderNotFoundError,
+  OrderReceiptEnqueueFailedError,
+} from '@/shared/errors/OrderErrors'
+import { ORDER_RECEIPT_ENQUEUE_FAILED } from '@/shared/errors/codes'
 import { DELIVERY_FAILURE_REASON, ORDER_STATUS } from '@/modules/order/shared/Order.constant'
 import type { OrderItemRecord, OrderRecord, OrderRepositoryInterface , SubstituteItemResult } from '@/modules/order/domain/OrderRepository.interface'
 import type { JobQueue, JobQueueAddOptions } from '@/modules/order/domain/JobQueue.interface'
@@ -159,8 +164,13 @@ class FakeReceiptQueue implements JobQueue {
   readonly addCalls: { name: string; data: Record<string, unknown>; jobId: string | undefined }[] = []
   readonly jobsById = new Map<string, Record<string, unknown>>()
   onAdd: (() => void) | undefined = undefined
+  shouldFailNextAdd = false
 
   async add(name: string, data: Record<string, unknown>, options?: JobQueueAddOptions): Promise<unknown> {
+    if (this.shouldFailNextAdd) {
+      this.shouldFailNextAdd = false
+      throw new Error('redis fora do ar')
+    }
     this.onAdd?.()
     this.addCalls.push({ name, data, jobId: options?.jobId })
     const key = options?.jobId ?? `auto-${this.addCalls.length}`
@@ -456,5 +466,70 @@ describe('UpdateOrderStatusUseCase — recibo só quando o pedido sai da loja', 
 
     expect(receiptQueue.jobsById.size).toBe(1)
     expect(receiptQueue.addCalls.map((call) => call.jobId)).toEqual([EXPECTED_JOB.jobId, EXPECTED_JOB.jobId])
+  })
+})
+
+describe('UpdateOrderStatusUseCase — recuperação quando a fila do recibo cai', () => {
+  function setup(overrides: Partial<OrderRecord> = {}) {
+    const orderRepository = new FakeOrderRepository(new Map())
+    const order = buildOrder({ status: ORDER_STATUS.SEPARATED, ...overrides })
+    orderRepository.orders.set(order.id, order)
+    const receiptQueue = new FakeReceiptQueue()
+    const orderStatusNotifier = new FakeOrderStatusNotifier()
+    const useCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier, receiptQueue })
+    return { orderRepository, order, receiptQueue, orderStatusNotifier, useCase }
+  }
+
+  test('fila falha: status fica salvo, erro com código próprio e log sem PII', async () => {
+    const { useCase, receiptQueue, orderRepository, orderStatusNotifier, order } = setup()
+    receiptQueue.shouldFailNextAdd = true
+    const consoleError = spyOn(console, 'error').mockImplementation(() => undefined)
+
+    const failure = await useCase
+      .execute({ orderId: order.id, status: ORDER_STATUS.OUT_FOR_DELIVERY })
+      .then(() => undefined, (error: unknown) => error)
+
+    const logged = consoleError.mock.calls.map((call) => String(call[0]))
+    consoleError.mockRestore()
+    expect(failure).toBeInstanceOf(OrderReceiptEnqueueFailedError)
+    expect(failure instanceof OrderReceiptEnqueueFailedError ? failure.code : undefined).toBe(ORDER_RECEIPT_ENQUEUE_FAILED)
+    expect(orderRepository.orders.get(order.id)?.status).toBe(ORDER_STATUS.OUT_FOR_DELIVERY)
+    expect(orderStatusNotifier.notified).toHaveLength(1)
+    const receiptLog = logged.find((line) => line.includes('receipt_enqueue_failed'))
+    expect(receiptLog).toContain(order.id)
+    expect(receiptLog).not.toContain(order.customerId)
+  })
+
+  test('repetir o mesmo status depois da falha só enfileira o recibo', async () => {
+    const { useCase, receiptQueue, orderRepository, orderStatusNotifier, order } = setup()
+    receiptQueue.shouldFailNextAdd = true
+    const consoleError = spyOn(console, 'error').mockImplementation(() => undefined)
+    await useCase.execute({ orderId: order.id, status: ORDER_STATUS.OUT_FOR_DELIVERY }).catch(() => undefined)
+    consoleError.mockRestore()
+    const writesBefore = orderRepository.statusWrites.length
+
+    const result = await useCase.execute({ orderId: order.id, status: ORDER_STATUS.OUT_FOR_DELIVERY })
+
+    expect(result.order.status).toBe(ORDER_STATUS.OUT_FOR_DELIVERY)
+    expect(receiptQueue.addCalls.map((call) => call.jobId)).toEqual(['issue-receipt-order-1'])
+    expect(orderRepository.statusWrites).toHaveLength(writesBefore)
+    expect(orderStatusNotifier.notified).toHaveLength(1)
+  })
+
+  test('repetir com o recibo já na fila não cria segundo job (o worker ainda pula nota emitida)', async () => {
+    const { useCase, receiptQueue, order } = setup({ status: ORDER_STATUS.READY_FOR_PICKUP, deliveryType: 'pickup', fiscalDocumentId: 'chave-1' })
+    await useCase.execute({ orderId: order.id, status: ORDER_STATUS.READY_FOR_PICKUP })
+    await useCase.execute({ orderId: order.id, status: ORDER_STATUS.READY_FOR_PICKUP })
+
+    expect(receiptQueue.jobsById.size).toBe(1)
+  })
+
+  test('repetir um status que não emite recibo continua recusado', async () => {
+    const { useCase, receiptQueue, order } = setup()
+
+    await expect(useCase.execute({ orderId: order.id, status: ORDER_STATUS.SEPARATED })).rejects.toBeInstanceOf(
+      OrderInvalidStatusTransitionError,
+    )
+    expect(receiptQueue.addCalls).toHaveLength(0)
   })
 })
