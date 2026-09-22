@@ -933,3 +933,69 @@ Auditoria do `code-standart.md` §15 sobre `git diff origin/main...HEAD` (117 ar
 - A lista do painel (`OrdersTableView`) ordena pelo total dos itens (`totalInCents`), mas exibe
   o valor cobrado (`amountDueInCents`) — decisão aceita na T2.1: com taxa fixa por pedido, a
   ordem só diverge entre entrega e retirada de valores próximos.
+
+## T4.2 — Correções da revisão final
+
+### Segurança
+
+- **S1** — `POST /v1/store/checkout-quote`: teto de corpo de 64 KB só nesta rota (opção
+  `maxBodyBytes` no `Router.post`; `Content-Length` acima → 413 `PAYLOAD_TOO_LARGE` antes de ler;
+  chunked lido contando bytes e abortado no teto). Não global: `/v1/admin/conversations/:number/media`
+  e `/v1/preview/media` recebem arquivo pelo mesmo leitor. Rate limit por IP 60/min em janela fixa
+  no Redis (`src/infra/http/rate-limit/`: `FixedWindowRateLimiter.protect`, `RedisRateLimitStore`,
+  `resolveClientIp`, constantes em `rateLimit.constant.ts` e `Store.constant.ts`), 429 com
+  `Retry-After`. IP = último salto do `X-Forwarded-For` (o que o edge acrescenta; o início é
+  forjável) → `X-Real-IP` → `unknown`. Fail-open com `warn` sem IP. Registrado em
+  `docs/SECURITY.md` com M2 e B5. Testes: `src/infra/http/bodyLimit.test.ts` (413 por
+  Content-Length, 413 chunked, corpo pequeno chunked parseado, rota sem opção aceita corpo grande)
+  e `src/infra/http/rate-limit/FixedWindowRateLimiter.test.ts` (429 + Retry-After, contagem por IP,
+  XFF forjado no início não escapa, Redis fora → 200, `resolveClientIp`).
+- **S2** — inativo responde igual a inexistente (404 `PRODUCT_NOT_FOUND`) na borda
+  (`StoreController.priceQuoteItems`); `buildPricedOrderItems` segue distinguindo porque o
+  `CreateWebOrder` (cliente logado) precisa do motivo. Teste: `Store.controller.test.ts` "produto
+  inativo responde igual ao inexistente".
+- **S3** — conferido: `formatAddressLine` não usa o CEP no formato estruturado (só rua, número,
+  complemento, bairro, cidade/UF); nenhuma mudança necessária. Endereço em texto livre legado
+  passa como o cliente digitou. Teste que fixa o comportamento:
+  `GetConversationCheckoutContext.use-case.test.ts` "card do painel não leva o CEP no endereço".
+
+### Qualidade
+
+- **Q1** — `confirmOrder` revalida o troco contra itens atuais + taxa (`amountDueInCents`) antes de
+  criar o pedido; troco <= total → volta a `AWAITING_CASH_CHANGE_AMOUNT` com
+  `CHECKOUT_CASH_CHANGE_TOTAL_CHANGED`. Teste: `CheckoutHandler.confirmCashChange.test.ts` (troco 50,
+  total 52 → sem pedido, estado e mensagem; total 48 → cria).
+- **Q2** — `resolveCheckoutDeliveryFeeInCents({ context, configuredFeeInCents })` em
+  `conversation/shared/`, usado em `CheckoutHandler.confirmOrder`, `enterConfirming`,
+  `CashChangeHandler` e `GetConversationCheckoutContext` (os dois últimos ganharam a dependência
+  `configuredDeliveryFeeInCents`). Testes: `resolveCheckoutDeliveryFeeInCents.test.ts` (sem chave +
+  entrega + 800 → 800) e um caso "sessão anterior ao deploy" em cada um dos quatro pontos.
+- **Q3** — `GlobalHandler.handleRepeatOrder` grava `carryRememberedCheckout(sessionContext)`. Teste:
+  `GlobalHandler.test.ts` "repetir pedido preserva a memória do Alterar".
+- **Q4** — valor exato do total grava `null` e segue. O teste antigo "recusa valor igual ao total"
+  foi trocado por "valor EXATO ... vale como não preciso de troco" (a regra mudou por decisão da
+  revisão); o de "não cobre" passou a usar 90.
+- **Q5** — em `AWAITING_CASH_CHANGE`, texto com valor vai para a mesma validação do
+  `AWAITING_CASH_CHANGE_AMOUNT`. `parseCashAmountToCents` passou a aceitar um único número dentro de
+  uma frase ("troco pra 100", "vou pagar com 50"); dois números ou sinal de menos seguem recusados.
+  Testes: `CashChangeHandler.test.ts` (aceita "troco pra 150", recusa "troco pra 80") e novos casos
+  em `parseCashAmountToCents.test.ts`.
+- **Q6** — `OrdersPreview.page.tsx` e `OrderDetailPreview.page.tsx` usam `deliveryFeeInCents` e
+  `amountDueInCents` fixos na fixture. Efeito colateral aceito: no preview de detalhe, marcar item em
+  falta não recalcula mais o total (no produto quem recalcula é o servidor).
+
+### Testes que faltavam
+
+- **A1** — `CheckoutHandler.confirmCashChange.test.ts` "troco 150 no contexto chega ao pedido e
+  aparece na mensagem de confirmação" (`cashChangeForInCents === 15000` e linha
+  `ORDER_CONFIRMED_CASH_CHANGE_LINE`).
+- **A2** — trecho de troco/selo extraído do `OrderDetailView` para `OrderPaymentNotes.tsx`;
+  `OrderPaymentNotes.test.tsx` (renderToStaticMarkup): selo presente/ausente conforme
+  `requiresCardMachine`, "Troco para R$ 150,00" presente com valor e ausente com `null`.
+
+### Suíte
+
+- `docker start quickcart-test-postgres quickcart-test-redis` — de pé.
+- `bun run typecheck` limpo em `api-quickcart`, `worker-quickcart` e `frontend-web`.
+- `bun run test`: api-quickcart **443 passando, 0 falhas** (412 + 31); worker-quickcart **19
+  passando, 0 falhas**; frontend-web **22 passando, 0 falhas** (18 + 4).

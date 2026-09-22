@@ -24,6 +24,7 @@ import {
 } from '@/modules/admin/shared/orderLabels'
 import { DeliveryFailureAction } from '@/modules/admin/components/DeliveryFailureAction'
 import { OrderStatusSteps } from '@/modules/admin/components/OrderStatusSteps'
+import { OrderPaymentNotes } from '@/modules/admin/components/OrderPaymentNotes'
 import { ORDER_STATUS, type OrderDetail, type OrderItem } from '@/shared/api/api.types'
 import { DELIVERY_FEE_LABEL, FREE_DELIVERY_FEE_LABEL } from '@/shared/order/deliveryFee.constant'
 
@@ -474,16 +475,7 @@ export function OrderDetailView({
         <Card className="p-3 md:p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pagamento</p>
           <p className="mt-0.5 font-medium">{PAYMENT_LABELS[order.paymentMethod] ?? order.paymentMethod}</p>
-          {/* Só aparece em dinheiro com troco pedido — "Não preciso" grava `null`, e a linha some. */}
-          {order.cashChangeForInCents !== null && (
-            <p className="mt-0.5 text-sm">Troco para {formatMoney(order.cashChangeForInCents)}</p>
-          )}
-          {/* Vem pronto do backend (`requiresCardMachine`) — nunca na retirada (roteiro §11, spec §3.2). */}
-          {order.requiresCardMachine && (
-            <Badge className="mt-1.5" variant="outline">
-              🧾 Levar maquininha
-            </Badge>
-          )}
+          <OrderPaymentNotes cashChangeForInCents={order.cashChangeForInCents} requiresCardMachine={order.requiresCardMachine} />
           <p className="mt-0.5 text-xs text-muted-foreground">
             {/* Valor fora da lista vira travessão: "Recibo: none" na tela é código vazando para o
                 lojista, e ele não tem como saber que 'none' significa "não escolheu". */}
