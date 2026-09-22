@@ -58,6 +58,10 @@ const useCase = new CreateWebOrderUseCase({
   customerRepository,
   cacheProvider,
   quoteDeliveryFeeUseCase,
+  // O ViaCEP real não entra em teste: devolve o mesmo endereço que o teste manda.
+  addressLookupProvider: {
+    lookupByCep: async () => ({ street: 'Av. Paulista', neighborhood: 'Bela Vista', city: 'São Paulo', state: 'SP' }),
+  },
 })
 
 const TEST_PHONE_PREFIX = '55119'

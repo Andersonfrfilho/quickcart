@@ -18,7 +18,15 @@ import {
   DeliveryFeeChangedError,
   DeliveryUnavailableError,
 } from '@/shared/errors/OrderErrors'
-import { DELIVERY_QUOTE_KIND, DELIVERY_LOCATION_SOURCE } from '@/modules/order/shared/DeliveryFeeQuote.constant'
+import {
+  DELIVERY_QUOTE_KIND,
+  DELIVERY_LOCATION_SOURCE,
+  DELIVERY_UNAVAILABLE_REASON,
+} from '@/modules/order/shared/DeliveryFeeQuote.constant'
+import type {
+  AddressLookupProviderInterface,
+  AddressLookupResult,
+} from '@/modules/shared/address/AddressLookupProvider.interface'
 import type { QuoteDeliveryFeeUseCase } from './QuoteDeliveryFee.use-case'
 import type { QuoteDeliveryFeeResult } from '@/modules/order/application/types/QuoteDeliveryFee.types'
 import type { CacheProvider } from '@/shared/providers/CacheProvider.interface'
@@ -386,7 +394,26 @@ function buildAddress(overrides: Record<string, unknown> = {}) {
   }
 }
 
-function buildDependencies(products: Map<string, Product>, quoteResult: QuoteDeliveryFeeResult = DEFAULT_QUOTE_RESULT) {
+const VIACEP_LOOKUP: AddressLookupResult = {
+  street: 'Avenida Paulista',
+  neighborhood: 'Bela Vista',
+  city: 'São Paulo',
+  state: 'SP',
+}
+
+class FakeAddressLookupProvider implements AddressLookupProviderInterface {
+  constructor(private readonly isKnownCep: boolean = true) {}
+
+  async lookupByCep(): Promise<AddressLookupResult | undefined> {
+    return this.isKnownCep ? VIACEP_LOOKUP : undefined
+  }
+}
+
+function buildDependencies(
+  products: Map<string, Product>,
+  quoteResult: QuoteDeliveryFeeResult = DEFAULT_QUOTE_RESULT,
+  addressLookupProvider: AddressLookupProviderInterface = new FakeAddressLookupProvider(),
+) {
   const orderRepository = new FakeOrderRepository(products)
   const productRepository = new FakeProductRepository(products)
   const customerRepository = new FakeCustomerRepository()
@@ -398,6 +425,7 @@ function buildDependencies(products: Map<string, Product>, quoteResult: QuoteDel
     customerRepository,
     cacheProvider,
     quoteDeliveryFeeUseCase,
+    addressLookupProvider,
   })
 
   return { useCase, orderRepository, productRepository, customerRepository, cacheProvider, quoteDeliveryFeeUseCase }
@@ -553,5 +581,44 @@ describe('CreateWebOrderUseCase — recotação com QuoteDeliveryFee (T2.1)', ()
     const result = await useCase.execute(buildParams('delivery', { expectedDeliveryFeeInCents: 800 }))
 
     expect(result.order.deliveryFeeInCents).toBe(800)
+  })
+
+  test('rua/bairro/cidade/UF do pedido web saem do ViaCEP, não do navegador; número e complemento ficam', async () => {
+    const { useCase } = buildDependencies(new Map([['product-1', buildProduct()]]))
+
+    const result = await useCase.execute(
+      buildParams('delivery', {
+        address: buildAddress({ street: 'Rua Falsa', neighborhood: 'Outro', city: 'Outra', state: 'RJ', complement: 'ap 2' }),
+      }),
+    )
+
+    expect(result.order.address).toEqual({
+      cep: '01310-100',
+      number: '1000',
+      complement: 'ap 2',
+      ...VIACEP_LOOKUP,
+    })
+  })
+
+  test('CEP que o ViaCEP não conhece → DeliveryUnavailableError com razão cep_not_found', async () => {
+    const { useCase, quoteDeliveryFeeUseCase } = buildDependencies(
+      new Map([['product-1', buildProduct()]]),
+      DEFAULT_QUOTE_RESULT,
+      new FakeAddressLookupProvider(false),
+    )
+
+    const error = await useCase.execute(buildParams('delivery')).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(DeliveryUnavailableError)
+    expect((error as DeliveryUnavailableError).details).toEqual({ reason: DELIVERY_UNAVAILABLE_REASON.CEP_NOT_FOUND })
+    expect(quoteDeliveryFeeUseCase.calls).toEqual([])
+  })
+
+  test('entrega sem endereço → DeliveryUnavailableError, sem asserção não nula', async () => {
+    const { useCase } = buildDependencies(new Map([['product-1', buildProduct()]]))
+
+    await expect(useCase.execute(buildParams('delivery', { address: undefined }))).rejects.toBeInstanceOf(
+      DeliveryUnavailableError,
+    )
   })
 })

@@ -19,6 +19,9 @@ import { DELIVERY_QUOTE_KIND, DELIVERY_UNAVAILABLE_REASON, DELIVERY_LOCATION_SOU
 import type { QuoteDeliveryFeeResult } from '@/modules/order/application/types/QuoteDeliveryFee.types'
 import { ValidationError } from '@/shared/errors/AppError.error'
 import { ProductNotFoundError } from '@/shared/errors/CatalogErrors'
+import { TokenService } from '@adatechnology/user-module'
+import { environment } from '@/infra/config/environment'
+import { QUICKCART_ROLE } from '@/modules/user/shared/User.constant'
 import { StoreController } from './Store.controller'
 
 const PRODUCT_ID = '11111111-1111-1111-1111-111111111111'
@@ -241,5 +244,52 @@ describe('StoreController.handleGetCheckoutQuote', () => {
     await expect(
       controller.handleGetCheckoutQuote(buildRequest({ items, deliveryType: 'delivery', cep: CEP }), response),
     ).rejects.toBeInstanceOf(ValidationError)
+  })
+})
+
+describe('StoreController.handleListMyOrders — coordenada fora da resposta (LGPD)', () => {
+  it('meus pedidos não devolve latitude/longitude do endereço', async () => {
+    const tokenService = new TokenService({
+      secret: environment.USER_ACCESS_TOKEN_SECRET,
+      issuer: 'quickcart',
+      audience: 'quickcart',
+    })
+    const { accessToken } = await tokenService.sign({
+      id: '44444444-4444-4444-8444-444444444444',
+      email: 'pessoa@quickcart.test',
+      name: 'Pessoa',
+      role: QUICKCART_ROLE.CUSTOMER,
+      isActive: true,
+    })
+    const controller = new StoreController({
+      registerCustomerUseCase: {} as never,
+      listMyOrdersUseCase: {
+        async execute() {
+          return {
+            items: [
+              { totalInCents: 5000, deliveryFeeInCents: 500, address: { latitude: -23.5, longitude: -46.6, number: '10' } },
+            ],
+            total: 1,
+            page: 1,
+            perPage: 20,
+          }
+        },
+      } as never,
+      quoteDeliveryFeeUseCase: {} as never,
+      productRepository: {} as never,
+    })
+    const { response, calls } = buildResponseSpy()
+    const request = {
+      ...buildRequest(undefined),
+      method: 'GET',
+      headers: { authorization: `Bearer ${accessToken}` },
+    } as ParsedRequest
+
+    await controller.handleListMyOrders(request, response)
+
+    const serialized = JSON.stringify(calls[0]?.payload)
+    expect(serialized).not.toContain('latitude')
+    expect(serialized).not.toContain('longitude')
+    expect(serialized).toContain('"number":"10"')
   })
 })

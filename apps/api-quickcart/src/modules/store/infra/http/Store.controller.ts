@@ -15,6 +15,7 @@ import { requireSession } from '@/infra/http/middlewares/requireSession'
 import { CUSTOMER_ONLY } from '@/modules/user/shared/User.constant'
 import type { RegisterCustomerUseCase } from '@/modules/store/application/use-cases/RegisterCustomer.use-case'
 import type { ListMyOrdersUseCase } from '@/modules/store/application/use-cases/ListMyOrders.use-case'
+import { withoutAddressCoordinates } from '@/modules/order/shared/withoutAddressCoordinates'
 import { amountDueInCents } from '@/modules/order/shared/amountDue'
 import { buildPricedOrderItems } from '@/modules/order/shared/buildPricedOrderItems'
 import type { ProductRepositoryInterface } from '@/modules/catalog/domain/ProductRepository.interface'
@@ -73,7 +74,7 @@ export class StoreController {
 
     response.json(200, {
       // O valor cobrado sai do backend (spec §3.4): a tela não soma itens + taxa.
-      data: result.items.map((order) => ({ ...order, amountDueInCents: amountDueInCents(order) })),
+      data: result.items.map((order) => ({ ...withoutAddressCoordinates(order), amountDueInCents: amountDueInCents(order) })),
       pagination: { total: result.total, page: result.page, perPage: result.perPage },
     })
   }

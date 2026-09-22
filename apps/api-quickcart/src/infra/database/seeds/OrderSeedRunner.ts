@@ -20,6 +20,7 @@
  *   requisição, e uma seed não repete — usar o Redis de verdade sujaria o ambiente com chaves de 24h.
  */
 
+import { ViaCepAddressLookupProvider } from '@/infra/viacep/ViaCepAddressLookupProvider'
 import { CreateWebOrderUseCase } from '@/modules/order/application/use-cases/CreateWebOrder.use-case'
 import { QuoteDeliveryFeeUseCase } from '@/modules/order/application/use-cases/QuoteDeliveryFee.use-case'
 import { DrizzleOrderRepository } from '@/modules/order/infra/database/DrizzleOrderRepository'
@@ -87,6 +88,7 @@ export async function seedOrders(): Promise<void> {
     customerRepository,
     cacheProvider: new InMemoryCacheProvider(),
     quoteDeliveryFeeUseCase,
+    addressLookupProvider: new ViaCepAddressLookupProvider(),
   })
 
   const catalog = await productRepository.list({

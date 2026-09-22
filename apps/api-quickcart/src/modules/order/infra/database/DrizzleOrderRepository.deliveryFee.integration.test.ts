@@ -56,6 +56,10 @@ const useCase = new CreateWebOrderUseCase({
   customerRepository: new DrizzleCustomerRepository(),
   cacheProvider: new RedisProvider(),
   quoteDeliveryFeeUseCase,
+  // O ViaCEP real não entra em teste: devolve o mesmo endereço que o teste manda.
+  addressLookupProvider: {
+    lookupByCep: async () => ({ street: 'Av. Paulista', neighborhood: 'Bela Vista', city: 'São Paulo', state: 'SP' }),
+  },
 })
 
 const createdCategoryIds: string[] = []

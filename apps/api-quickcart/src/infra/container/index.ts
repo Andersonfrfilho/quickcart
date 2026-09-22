@@ -209,6 +209,8 @@ type OrderModuleDependencies = {
   readonly productRepository: ProductRepositoryInterface
   readonly customerRepository: CustomerRepositoryInterface
   readonly cacheProvider: CacheProvider
+  /** Rua/bairro/cidade/UF do pedido web saem do CEP, não do navegador. */
+  readonly addressLookupProvider: AddressLookupProviderInterface
   /** Para avisar o cliente quando um item do pedido acabar na separação. */
   readonly whatsAppSender: WhatsAppSender
   /**
@@ -267,6 +269,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     customerRepository: dependencies.customerRepository,
     cacheProvider: dependencies.cacheProvider,
     quoteDeliveryFeeUseCase,
+    addressLookupProvider: dependencies.addressLookupProvider,
   })
   const getOrderByShortCodeUseCase = new GetOrderByShortCodeUseCase({
     orderRepository,
@@ -815,6 +818,7 @@ const orderModule = buildOrderModule({
   productRepository: catalogModule.productRepository,
   customerRepository: webhookRepositories.customerRepository,
   cacheProvider: webhookRepositories.cacheProvider,
+  addressLookupProvider: webhookRepositories.addressLookupProvider,
   whatsAppSender: webhookRepositories.whatsAppSender,
   resolveOrderStatusNotifier: () => webhookModule.orderStatusNotifier,
 })

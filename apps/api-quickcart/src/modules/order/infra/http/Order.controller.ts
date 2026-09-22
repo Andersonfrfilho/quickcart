@@ -37,6 +37,7 @@ import { SESSION_ROLE_FORBIDDEN } from '@/shared/errors/codes'
 import type { CustomerRepositoryInterface } from '@/modules/webhook/domain/CustomerRepository.interface'
 import { requiresCardMachine } from '@/modules/order/shared/requiresCardMachine'
 import { amountDueInCents } from '@/modules/order/shared/amountDue'
+import { withoutAddressCoordinates } from '@/modules/order/shared/withoutAddressCoordinates'
 
 type OrderControllerDependencies = {
   readonly createWebOrderUseCase: CreateWebOrderUseCase
@@ -70,6 +71,7 @@ export function withAllowedTransitions<
     readonly deliveryFailureReason?: string | null
     readonly totalInCents: number
     readonly deliveryFeeInCents: number
+    readonly address?: unknown
   },
 >(
   order: TOrder,
@@ -79,7 +81,7 @@ export function withAllowedTransitions<
   readonly amountDueInCents: number
 } {
   return {
-    ...order,
+    ...withoutAddressCoordinates(order),
     allowedNextStatuses: allowedNextStatuses({
       status: order.status,
       deliveryType: order.deliveryType,
@@ -119,14 +121,14 @@ export class OrderController {
       ...input,
       customer: { ...input.customer, phone: customer.phone },
     })
-    response.json(201, { data: { ...result.order, items: result.items } })
+    response.json(201, { data: { ...withoutAddressCoordinates(result.order), items: result.items } })
   }
 
   handleGetByShortCode: RouteHandler = async (request, response) => {
     const shortCode = request.params[0] ?? ''
     const { phone } = validateQuery(getOrderByShortCodeQuerySchema, request.query)
     const result = await this.dependencies.getOrderByShortCodeUseCase.execute({ shortCode, requesterPhone: phone })
-    response.json(200, { data: { ...result.order, items: result.items } })
+    response.json(200, { data: { ...withoutAddressCoordinates(result.order), items: result.items } })
   }
 
   handleListAdmin: RouteHandler = async (request, response) => {

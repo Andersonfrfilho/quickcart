@@ -612,3 +612,16 @@ Commit único com as mudanças acima. Mensagem em português com o porquê, conf
 - `DeliveryOutOfRangeError`: "Endereço a 12,3 km … (até 8,5 km)." e `details.distanceKm` arredondado.
 - Testes: 3,04 km → faixa "até 3 km" com `distanceKm: 3`; mensagem/detalhe do erro.
 - Gates: typecheck limpo; api 671 / 0 fail; frontend 48 / 0 fail.
+
+### D) Coordenada fora das respostas (LGPD)
+- `modules/order/shared/withoutAddressCoordinates.ts`: remove `latitude`/`longitude` do `address`. Aplicado em
+  `withAllowedTransitions` (lista, detalhe e mutações admin), `POST /orders`, `GET /orders/:shortCode` (público)
+  e `GET` "meus pedidos" (`Store.controller`).
+- `Conversation.controller` `handleGetContext`: `withoutContextCoordinates` omite `checkoutLocationDraft` e tira
+  lat/lng de `checkoutAddress` e `rememberedCheckout.address`.
+- `CreateWebOrder`: rua/bairro/cidade/UF sobrescritos pelo ViaCEP do CEP (`addressLookupProvider`); CEP
+  desconhecido → `DeliveryUnavailableError('cep_not_found')` (constante `DELIVERY_UNAVAILABLE_REASON.CEP_NOT_FOUND`);
+  `params.address!` trocado por guard; `'unexpected_quote_kind'` removido — o tipo fecha por narrowing.
+- Testes: público/lista/detalhe/mutação sem lat/lng; meus pedidos; contexto; ViaCEP sobrescreve; CEP desconhecido;
+  entrega sem endereço.
+- Gates: typecheck limpo; api 681 / 0 fail; frontend 48 / 0 fail.

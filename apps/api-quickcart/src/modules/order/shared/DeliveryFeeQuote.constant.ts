@@ -23,6 +23,8 @@ export const DELIVERY_UNAVAILABLE_REASON = {
   NO_CUSTOMER_LOCATION: 'no_customer_location',
   GEOCODING_FAILED: 'geocoding_failed',
   NO_TIERS: 'no_tiers',
+  /** O ViaCEP não conhece o CEP do pedido web: sem rua confiável, não há para onde entregar. */
+  CEP_NOT_FOUND: 'cep_not_found',
 } as const
 
 export type DeliveryUnavailableReason = (typeof DELIVERY_UNAVAILABLE_REASON)[keyof typeof DELIVERY_UNAVAILABLE_REASON]
