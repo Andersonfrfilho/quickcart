@@ -29,6 +29,12 @@ export const CONVERSATION_STATE = {
   AWAITING_ADDRESS_NUMBER: 'awaiting_address_number',
   /** Cotação fora do raio ou indisponível: o cliente escolhe entre retirar na loja e outro endereço. */
   AWAITING_OUT_OF_RANGE_DECISION: 'awaiting_out_of_range_decision',
+  /**
+   * Cotação só pela cidade (D3): antes de cobrar a maior faixa em silêncio, o cliente confirma o
+   * endereço — mandar a localização, trocar o endereço ou retirar na loja. O mesmo estado aceita a
+   * mensagem de localização enquanto ela é esperada.
+   */
+  AWAITING_APPROXIMATE_ADDRESS_DECISION: 'awaiting_approximate_address_decision',
   AWAITING_PAYMENT: 'awaiting_payment',
   /** Só existe quando o pagamento é em dinheiro (roteiro §9): pergunta sim/não sobre troco. */
   AWAITING_CASH_CHANGE: 'awaiting_cash_change',

@@ -36,6 +36,8 @@ const DELIVERY_QUOTE_KEYS = [
 export function withoutDeliveryQuote(context: ConversationContext): ConversationContext {
   const next: Record<string, unknown> = { ...context }
   for (const key of DELIVERY_QUOTE_KEYS) delete next[key]
+  // A estimativa pendente também é cotação: sai junto, para nunca ser confirmada sobre outro endereço.
+  delete next.checkoutApproximateDecision
   return next as ConversationContext
 }
 

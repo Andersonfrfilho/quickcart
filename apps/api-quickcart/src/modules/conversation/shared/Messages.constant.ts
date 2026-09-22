@@ -130,6 +130,13 @@ export const ADDRESS_DECISION_BUTTON_ID = {
   OTHER_ADDRESS: 'address_other',
 } as const
 
+/** Decisão do endereço aproximado (D3): confirmar o endereço antes de cobrar a maior faixa. */
+export const APPROXIMATE_ADDRESS_BUTTON_ID = {
+  SEND_LOCATION: 'approximate_send_location',
+  CHANGE_ADDRESS: 'approximate_change_address',
+  CONFIRM_ESTIMATE: 'approximate_confirm_estimate',
+} as const
+
 export const CONFIRMING_BUTTON_ID = {
   CONFIRM: 'confirm_order',
   EDIT: 'edit_order',
@@ -413,6 +420,23 @@ export const MESSAGES = {
   CHECKOUT_DELIVERY_UNAVAILABLE:
     'Não consegui calcular a distância até seu endereço agora 😕 Quer retirar na loja ou informar outro endereço?',
   CHECKOUT_OUT_OF_RANGE_UNEXPECTED_INPUT: 'Por favor, escolha: retirar na loja ou informar outro endereço ☝️',
+  /**
+   * D3, decisão do usuário: cobrar a maior faixa em silêncio é cobrar a mais sem avisar. O cliente vê
+   * o endereço encontrado (`{endereco}`: rua, bairro e cidade — nunca o CEP completo) e escolhe.
+   */
+  CHECKOUT_APPROXIMATE_ADDRESS_DECISION:
+    'Encontrei este endereço:\n{endereco}\n\nMas não consegui a localização exata dele, então não sei a distância certa até a loja 🤔 Como prefere seguir?',
+  /** Uma linha só: o caminho para mandar a localização no WhatsApp. */
+  CHECKOUT_APPROXIMATE_ASK_LOCATION:
+    'Toque no 📎 aqui embaixo, escolha *Localização* e envie a sua — assim calculo a distância exata 📍',
+  CHECKOUT_APPROXIMATE_UNEXPECTED_INPUT:
+    'Não entendi 🤔 Escolha uma das opções abaixo, ou me mande outro CEP (8 números).',
+  /** Segunda resposta fora do esperado: explica as opções em vez de repetir a mesma pergunta. */
+  CHECKOUT_APPROXIMATE_HELP:
+    'Você pode tocar em *Enviar localização* para eu calcular a distância exata, em *Alterar endereço* para mandar outro CEP ou localização, ou em *Retirar na loja*.',
+  /** Fallback: a localização não veio em duas tentativas, então a estimativa volta à mesa (com o preço). */
+  CHECKOUT_APPROXIMATE_ESTIMATE_OFFER:
+    'Ainda não recebi sua localização 😕 Se preferir, posso seguir com a estimativa pela cidade: a taxa de entrega ficaria em {valor}. Confirma?',
   /** "Isso mesmo" com entrega que não deu para recotar: o atalho cai e o cliente escolhe de novo. */
   CHECKOUT_REMEMBERED_DELIVERY_NOT_QUOTED:
     'Não consegui confirmar a taxa de entrega para o endereço da última vez, então vamos escolher de novo.',
@@ -525,6 +549,17 @@ export const ADDRESS_PICKUP_INSTEAD_BUTTONS = [PICKUP_INSTEAD_BUTTON] as const
 export const OUT_OF_RANGE_DECISION_BUTTONS = [
   PICKUP_INSTEAD_BUTTON,
   { id: ADDRESS_DECISION_BUTTON_ID.OTHER_ADDRESS, title: '📍 Outro endereço' },
+] as const
+
+export const APPROXIMATE_ADDRESS_DECISION_BUTTONS = [
+  { id: APPROXIMATE_ADDRESS_BUTTON_ID.SEND_LOCATION, title: '📍 Enviar localização' },
+  { id: APPROXIMATE_ADDRESS_BUTTON_ID.CHANGE_ADDRESS, title: '✏️ Alterar endereço' },
+  PICKUP_INSTEAD_BUTTON,
+] as const
+
+export const APPROXIMATE_ESTIMATE_BUTTONS = [
+  { id: APPROXIMATE_ADDRESS_BUTTON_ID.CONFIRM_ESTIMATE, title: '✅ Confirmar' },
+  PICKUP_INSTEAD_BUTTON,
 ] as const
 
 export const CONFIRMING_BUTTONS = [

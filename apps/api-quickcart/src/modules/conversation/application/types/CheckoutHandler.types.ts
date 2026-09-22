@@ -35,6 +35,27 @@ export type DeclineDeliveryParams = CheckoutStepParams & {
   readonly result: QuoteDeliveryFeeResult
 }
 
+export type AcceptCepDraftParams = CheckoutStepParams & {
+  readonly cep: string
+}
+
+/** A estimativa pela cidade enquanto ela ainda não foi confirmada pelo cliente (D3). */
+export type PendingApproximateQuote = NonNullable<ConversationContext['checkoutApproximateDecision']>
+
+export type EnterApproximateDecisionParams = CheckoutStepParams & {
+  readonly address: unknown
+  readonly quote: PendingApproximateQuote
+}
+
+export type ApproximateDecisionStepParams = CheckoutStepParams & {
+  readonly pending: PendingApproximateQuote
+}
+
+export type OfferApproximateEstimateParams = {
+  readonly session: ConversationSession
+  readonly pending: PendingApproximateQuote
+}
+
 export type AcceptLocationParams = CheckoutStepParams & {
   readonly coordinates: { readonly latitude: number; readonly longitude: number }
 }

@@ -566,6 +566,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
       [CONVERSATION_STATE.AWAITING_ADDRESS]: checkoutHandler,
       [CONVERSATION_STATE.AWAITING_ADDRESS_NUMBER]: checkoutHandler,
       [CONVERSATION_STATE.AWAITING_OUT_OF_RANGE_DECISION]: checkoutHandler,
+      [CONVERSATION_STATE.AWAITING_APPROXIMATE_ADDRESS_DECISION]: checkoutHandler,
       [CONVERSATION_STATE.AWAITING_PAYMENT]: checkoutHandler,
       [CONVERSATION_STATE.AWAITING_CASH_CHANGE]: cashChangeHandler,
       [CONVERSATION_STATE.AWAITING_CASH_CHANGE_AMOUNT]: cashChangeHandler,

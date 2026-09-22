@@ -33,19 +33,27 @@ import { enterConfirming } from '@/modules/conversation/application/handlers/sup
 import { calculateCartTotalInCents } from '@/modules/conversation/application/handlers/support/cartTotal'
 import { resolveCheckoutDeliveryFeeInCents } from '@/modules/conversation/shared/resolveCheckoutDeliveryFeeInCents'
 import type {
+  AcceptCepDraftParams,
   AcceptedDeliveryQuote,
   AcceptLocationParams,
+  ApproximateDecisionStepParams,
   ApplyRememberedCheckoutParams,
   AskCashChangeAgainParams,
   AskPaymentAfterQuoteParams,
   CheckoutStepParams,
   DeclineDeliveryParams,
   DeliveryQuoteOutcome,
+  EnterApproximateDecisionParams,
+  OfferApproximateEstimateParams,
 } from '@/modules/conversation/application/types/CheckoutHandler.types'
 import { requiresCardMachine } from '@/modules/order/shared/requiresCardMachine'
 import { amountDueInCents } from '@/modules/order/shared/amountDue'
 import { DELIVERY_TYPE } from '@/modules/order/shared/Order.constant'
-import { CUSTOMER_LOCATION_KIND } from '@/modules/order/shared/DeliveryFeeQuote.constant'
+import {
+  CUSTOMER_LOCATION_KIND,
+  DELIVERY_LOCATION_SOURCE,
+  DELIVERY_QUOTE_KIND,
+} from '@/modules/order/shared/DeliveryFeeQuote.constant'
 import type { QuoteDeliveryFeeUseCase } from '@/modules/order/application/use-cases/QuoteDeliveryFee.use-case'
 import type { CustomerLocation } from '@/modules/order/application/types/QuoteDeliveryFee.types'
 import {
@@ -67,6 +75,9 @@ import { serializeError } from '@/shared/serializeError'
 import {
   ADDRESS_DECISION_BUTTON_ID,
   ADDRESS_PICKUP_INSTEAD_BUTTONS,
+  APPROXIMATE_ADDRESS_BUTTON_ID,
+  APPROXIMATE_ADDRESS_DECISION_BUTTONS,
+  APPROXIMATE_ESTIMATE_BUTTONS,
   CASH_CHANGE_BUTTONS,
   CONFIRMING_BUTTON_ID,
   REMEMBERED_CHECKOUT_BUTTON_ID,
@@ -80,11 +91,17 @@ import {
   RECEIPT_PREFERENCE_BUTTONS,
 } from '@/modules/conversation/shared/Messages.constant'
 import type { AddressLookupProviderInterface } from '@/modules/shared/address/AddressLookupProvider.interface'
+import { formatAddressLine } from '@/modules/shared/address/formatAddressLine'
 import { parseAddressNumberReply } from '@/modules/shared/address/parseAddressNumberReply'
 import { CHANNEL } from '@/modules/shared/shared.constant'
 import { OrderEmptyCartError, OrderInsufficientStockError } from '@/shared/errors/OrderErrors'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const CEP_DIGITS_LENGTH = 8
+/** Segunda resposta fora do esperado já vira mensagem de ajuda, em vez de repetir a mesma pergunta. */
+const APPROXIMATE_HELP_AFTER_RETRIES = 2
+/** Duas mensagens que não são localização depois de "Enviar localização": a estimativa volta à mesa. */
+const APPROXIMATE_LOCATION_ATTEMPT_LIMIT = 2
 const checkoutLog = logger.child('CheckoutHandler')
 
 export type CheckoutHandlerDependencies = {
@@ -130,6 +147,9 @@ export class CheckoutHandler implements ConversationHandlerInterface {
         return
       case CONVERSATION_STATE.AWAITING_OUT_OF_RANGE_DECISION:
         await this.handleAwaitingOutOfRangeDecision(context)
+        return
+      case CONVERSATION_STATE.AWAITING_APPROXIMATE_ADDRESS_DECISION:
+        await this.handleAwaitingApproximateAddressDecision(context)
         return
       case CONVERSATION_STATE.AWAITING_PAYMENT:
         await this.handleAwaitingPayment(context)
@@ -367,7 +387,7 @@ export class CheckoutHandler implements ConversationHandlerInterface {
     }
 
     const digitsOnly = message.body.replace(/\D/g, '')
-    if (digitsOnly.length !== 8) {
+    if (digitsOnly.length !== CEP_DIGITS_LENGTH) {
       await this.dependencies.whatsAppSender.sendInteractiveButtons(
         session.customerPhone,
         MESSAGES.CHECKOUT_ADDRESS_NEEDS_CEP_OR_LOCATION,
@@ -376,25 +396,40 @@ export class CheckoutHandler implements ConversationHandlerInterface {
       return
     }
 
-    const found = await this.dependencies.addressLookupProvider.lookupByCep(digitsOnly)
-    if (!found) {
-      await this.dependencies.whatsAppSender.sendInteractiveButtons(
-        session.customerPhone,
-        MESSAGES.CHECKOUT_ASK_ADDRESS_FALLBACK,
-        ADDRESS_PICKUP_INSTEAD_BUTTONS,
-      )
-      return
-    }
+    if (await this.acceptCepDraft({ session, checkoutContext, cep: digitsOnly })) return
+
+    await this.dependencies.whatsAppSender.sendInteractiveButtons(
+      session.customerPhone,
+      MESSAGES.CHECKOUT_ASK_ADDRESS_FALLBACK,
+      ADDRESS_PICKUP_INSTEAD_BUTTONS,
+    )
+  }
+
+  /** `false` quando o ViaCEP não conhece o CEP: quem chamou decide o que dizer nesse caso. */
+  private async acceptCepDraft({ session, checkoutContext, cep }: AcceptCepDraftParams): Promise<boolean> {
+    const found = await this.dependencies.addressLookupProvider.lookupByCep(cep)
+    if (!found) return false
 
     await this.dependencies.conversationSessionRepository.updateStateByPhone({
       customerPhone: session.customerPhone,
       currentState: CONVERSATION_STATE.AWAITING_ADDRESS_NUMBER,
       context: {
         ...withoutCheckoutAddress(withoutDeliveryQuote(checkoutContext)),
-        checkoutAddressDraft: { cep: digitsOnly, ...found },
+        checkoutAddressDraft: { cep, ...found },
       },
     })
     await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_ASK_ADDRESS_NUMBER)
+    return true
+  }
+
+  /** Volta ao passo do endereço (aceita CEP novo ou localização), sem endereço nem cotação velhos. */
+  private async askAddressAgain({ session, checkoutContext }: CheckoutStepParams): Promise<void> {
+    await this.dependencies.conversationSessionRepository.updateStateByPhone({
+      customerPhone: session.customerPhone,
+      currentState: CONVERSATION_STATE.AWAITING_ADDRESS,
+      context: withoutCheckoutAddress(withoutDeliveryQuote(checkoutContext)),
+    })
+    await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_ASK_ADDRESS)
   }
 
   /** Localização cota pela coordenada exata antes do número: o número é para o entregador, não para a taxa. */
@@ -464,23 +499,194 @@ export class CheckoutHandler implements ConversationHandlerInterface {
       return
     }
 
+    const address = {
+      cep: draft.cep,
+      street: draft.street,
+      number,
+      ...(complement ? { complement } : {}),
+      neighborhood: draft.neighborhood,
+      city: draft.city,
+      state: draft.state,
+    }
+
+    if (result.kind === DELIVERY_QUOTE_KIND.APPROXIMATE_MAX_TIER) {
+      await this.enterApproximateDecision({
+        session,
+        checkoutContext,
+        address,
+        quote: { feeInCents: result.feeInCents, tierMaxKm: result.tier.maxDistanceKm, tierFeeInCents: result.tier.feeInCents },
+      })
+      return
+    }
+
     await this.askPaymentAfterQuote({
       session,
       context: {
         ...withoutCheckoutAddress(withoutDeliveryQuote(checkoutContext)),
         ...accepted.context,
-        checkoutAddress: {
-          cep: draft.cep,
-          street: draft.street,
-          number,
-          ...(complement ? { complement } : {}),
-          neighborhood: draft.neighborhood,
-          city: draft.city,
-          state: draft.state,
-        },
+        checkoutAddress: address,
       },
       quoteMessage: accepted.message,
     })
+  }
+
+  /**
+   * D3, decisão do usuário: a maior faixa não é cobrada em silêncio. O cliente vê o endereço
+   * encontrado (rua, número, bairro e cidade — nunca o CEP) e escolhe entre mandar a localização,
+   * trocar o endereço e retirar na loja. A estimativa fica pendente no contexto, fora da cotação.
+   */
+  private async enterApproximateDecision(params: EnterApproximateDecisionParams): Promise<void> {
+    const { session, checkoutContext, address, quote } = params
+    await this.dependencies.conversationSessionRepository.updateStateByPhone({
+      customerPhone: session.customerPhone,
+      currentState: CONVERSATION_STATE.AWAITING_APPROXIMATE_ADDRESS_DECISION,
+      context: {
+        ...withoutCheckoutAddress(withoutDeliveryQuote(checkoutContext)),
+        checkoutAddress: address,
+        checkoutApproximateDecision: quote,
+      },
+    })
+    await this.dependencies.whatsAppSender.sendInteractiveButtons(
+      session.customerPhone,
+      MESSAGES.CHECKOUT_APPROXIMATE_ADDRESS_DECISION.replace('{endereco}', formatAddressLine(address) ?? ''),
+      APPROXIMATE_ADDRESS_DECISION_BUTTONS,
+    )
+  }
+
+  private async handleAwaitingApproximateAddressDecision({ session, message }: ConversationHandlerContext): Promise<void> {
+    const checkoutContext = (session.context ?? {}) as ConversationContext
+    const pending = checkoutContext.checkoutApproximateDecision
+
+    if (!pending) {
+      await this.askAddressAgain({ session, checkoutContext })
+      return
+    }
+
+    if (message.kind === 'location') {
+      await this.quoteApproximateAddressByLocation({
+        session,
+        checkoutContext,
+        coordinates: { latitude: message.latitude, longitude: message.longitude },
+      })
+      return
+    }
+
+    if (message.kind === 'button_reply') {
+      if (message.buttonId === ADDRESS_DECISION_BUTTON_ID.PICKUP_INSTEAD) {
+        await this.choosePickup({ session, checkoutContext })
+        return
+      }
+      if (message.buttonId === APPROXIMATE_ADDRESS_BUTTON_ID.CHANGE_ADDRESS) {
+        await this.askAddressAgain({ session, checkoutContext })
+        return
+      }
+      if (message.buttonId === APPROXIMATE_ADDRESS_BUTTON_ID.SEND_LOCATION) {
+        await this.askApproximateLocation({ session, checkoutContext, pending })
+        return
+      }
+      if (message.buttonId === APPROXIMATE_ADDRESS_BUTTON_ID.CONFIRM_ESTIMATE) {
+        await this.confirmApproximateEstimate({ session, checkoutContext, pending })
+        return
+      }
+    }
+
+    if (message.kind === 'text' && message.body.replace(/\D/g, '').length === CEP_DIGITS_LENGTH) {
+      const cep = message.body.replace(/\D/g, '')
+      if (await this.acceptCepDraft({ session, checkoutContext, cep })) return
+    }
+
+    await this.repeatApproximateQuestion({ session, checkoutContext, pending })
+  }
+
+  /** A coordenada é exata: recota por ela e segue para o pagamento com o endereço já informado. */
+  private async quoteApproximateAddressByLocation(params: AcceptLocationParams): Promise<void> {
+    const { session, checkoutContext, coordinates } = params
+    const { result, accepted } = await this.quoteDelivery({ kind: CUSTOMER_LOCATION_KIND.COORDINATES, ...coordinates })
+    if (!accepted) {
+      await this.declineDelivery({ session, checkoutContext, result })
+      return
+    }
+
+    await this.askPaymentAfterQuote({
+      session,
+      context: { ...withoutDeliveryQuote(checkoutContext), ...accepted.context },
+      quoteMessage: accepted.message,
+    })
+  }
+
+  private async askApproximateLocation({ session, checkoutContext, pending }: ApproximateDecisionStepParams): Promise<void> {
+    await this.dependencies.conversationSessionRepository.updateStateByPhone({
+      customerPhone: session.customerPhone,
+      currentState: CONVERSATION_STATE.AWAITING_APPROXIMATE_ADDRESS_DECISION,
+      context: { ...checkoutContext, checkoutApproximateDecision: { ...pending, awaitingLocation: true, locationAttempts: 0 } },
+    })
+    await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_APPROXIMATE_ASK_LOCATION)
+  }
+
+  /** Só aqui a estimativa vira cotação de verdade — com a fonte `cep_approximate` que o pedido grava. */
+  private async confirmApproximateEstimate({ session, checkoutContext, pending }: ApproximateDecisionStepParams): Promise<void> {
+    await this.askPaymentAfterQuote({
+      session,
+      context: {
+        ...withoutDeliveryQuote(checkoutContext),
+        checkoutDeliveryFeeInCents: pending.feeInCents,
+        checkoutDeliveryTierMaxKm: pending.tierMaxKm,
+        checkoutDeliveryTierFeeInCents: pending.tierFeeInCents,
+        checkoutDeliveryLocationSource: DELIVERY_LOCATION_SOURCE.CEP_APPROXIMATE,
+      },
+      quoteMessage: MESSAGES.CHECKOUT_DELIVERY_FEE_APPROXIMATE.replace('{valor}', formatPriceInCents(pending.feeInCents)),
+    })
+  }
+
+  /**
+   * Resposta que não é botão, localização nem CEP. Esperando a localização, a segunda tentativa
+   * frustrada devolve a estimativa à mesa (com o preço) em vez de insistir; fora disso, a pergunta
+   * é repetida uma vez e depois vira mensagem de ajuda, sem sair do estado.
+   */
+  private async repeatApproximateQuestion({ session, checkoutContext, pending }: ApproximateDecisionStepParams): Promise<void> {
+    if (pending.awaitingLocation) {
+      const locationAttempts = (pending.locationAttempts ?? 0) + 1
+      const hasGivenUpOnLocation = locationAttempts >= APPROXIMATE_LOCATION_ATTEMPT_LIMIT
+      await this.dependencies.conversationSessionRepository.updateStateByPhone({
+        customerPhone: session.customerPhone,
+        currentState: CONVERSATION_STATE.AWAITING_APPROXIMATE_ADDRESS_DECISION,
+        context: {
+          ...checkoutContext,
+          checkoutApproximateDecision: { ...pending, locationAttempts, awaitingLocation: !hasGivenUpOnLocation },
+        },
+      })
+      if (!hasGivenUpOnLocation) {
+        await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_APPROXIMATE_ASK_LOCATION)
+        return
+      }
+      await this.offerApproximateEstimate({ session, pending })
+      return
+    }
+
+    if ((pending.locationAttempts ?? 0) >= APPROXIMATE_LOCATION_ATTEMPT_LIMIT) {
+      await this.offerApproximateEstimate({ session, pending })
+      return
+    }
+
+    const retryCount = (pending.retryCount ?? 0) + 1
+    await this.dependencies.conversationSessionRepository.updateStateByPhone({
+      customerPhone: session.customerPhone,
+      currentState: CONVERSATION_STATE.AWAITING_APPROXIMATE_ADDRESS_DECISION,
+      context: { ...checkoutContext, checkoutApproximateDecision: { ...pending, retryCount } },
+    })
+    await this.dependencies.whatsAppSender.sendInteractiveButtons(
+      session.customerPhone,
+      retryCount >= APPROXIMATE_HELP_AFTER_RETRIES ? MESSAGES.CHECKOUT_APPROXIMATE_HELP : MESSAGES.CHECKOUT_APPROXIMATE_UNEXPECTED_INPUT,
+      APPROXIMATE_ADDRESS_DECISION_BUTTONS,
+    )
+  }
+
+  private async offerApproximateEstimate(params: OfferApproximateEstimateParams): Promise<void> {
+    await this.dependencies.whatsAppSender.sendInteractiveButtons(
+      params.session.customerPhone,
+      MESSAGES.CHECKOUT_APPROXIMATE_ESTIMATE_OFFER.replace('{valor}', formatPriceInCents(params.pending.feeInCents)),
+      APPROXIMATE_ESTIMATE_BUTTONS,
+    )
   }
 
   private async handleAwaitingOutOfRangeDecision({ session, message }: ConversationHandlerContext): Promise<void> {
@@ -492,12 +698,7 @@ export class CheckoutHandler implements ConversationHandlerInterface {
     }
 
     if (message.kind === 'button_reply' && message.buttonId === ADDRESS_DECISION_BUTTON_ID.OTHER_ADDRESS) {
-      await this.dependencies.conversationSessionRepository.updateStateByPhone({
-        customerPhone: session.customerPhone,
-        currentState: CONVERSATION_STATE.AWAITING_ADDRESS,
-        context: withoutCheckoutAddress(withoutDeliveryQuote(checkoutContext)),
-      })
-      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_ASK_ADDRESS)
+      await this.askAddressAgain({ session, checkoutContext })
       return
     }
 
