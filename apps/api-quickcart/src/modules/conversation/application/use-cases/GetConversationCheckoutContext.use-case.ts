@@ -22,6 +22,7 @@ import { CHANNEL } from '@/modules/shared/shared.constant'
 import { amountDueInCents } from '@/modules/order/shared/amountDue'
 import { formatAddressLine } from '@/modules/shared/address/formatAddressLine'
 import { resolveCheckoutDeliveryFeeInCents } from '@/modules/conversation/shared/resolveCheckoutDeliveryFeeInCents'
+import { DELIVERY_TYPE } from '@/modules/order/shared/Order.constant'
 import type {
   ConversationCheckoutContext,
   GetConversationCheckoutContextParams,
@@ -48,15 +49,25 @@ export class GetConversationCheckoutContextUseCase {
     if (items.length === 0 && !hasCheckout) return undefined
 
     const subtotalInCents = items.reduce((sum, item) => sum + item.lineTotalInCents, 0)
-    // Entrega ainda sem cotação (endereço não informado) aparece sem taxa no card; a T3.3 mostra a faixa.
-    const deliveryFeeInCents = resolveCheckoutDeliveryFeeInCents(context) ?? 0
+    /*
+     * Entrega ainda sem cotação por faixa (endereço não informado, ou sessão de antes desta task)
+     * manda `null` — não 0: taxa zero pareceria "grátis" no card (T3.3), e o total cobrado ainda não
+     * existe de verdade. `resolveCheckoutDeliveryFeeInCents` já devolve `undefined` nesse caso.
+     */
+    const quotedDeliveryFeeInCents = resolveCheckoutDeliveryFeeInCents(context)
+    const isPickup = context.checkoutDeliveryType === DELIVERY_TYPE.PICKUP
+    const deliveryFeeInCents = quotedDeliveryFeeInCents ?? null
 
     return CHECKOUT_CONTEXT_RESPONSE_SCHEMA.parse({
       items,
       subtotalInCents,
       deliveryType: context.checkoutDeliveryType ?? null,
       deliveryFeeInCents,
-      amountDueInCents: amountDueInCents({ totalInCents: subtotalInCents, deliveryFeeInCents }),
+      // Sem faixa calculada (D3, aproximada) nem para retirada: `checkoutDeliveryDistanceKm` some por design da T1.1.
+      deliveryDistanceKm: isPickup ? null : context.checkoutDeliveryDistanceKm ?? null,
+      deliveryTierMaxKm: isPickup ? null : context.checkoutDeliveryTierMaxKm ?? null,
+      deliveryLocationSource: isPickup ? null : context.checkoutDeliveryLocationSource ?? null,
+      amountDueInCents: amountDueInCents({ totalInCents: subtotalInCents, deliveryFeeInCents: quotedDeliveryFeeInCents ?? 0 }),
       address: formatAddressLine(context.checkoutAddress) ?? null,
       paymentMethod: context.checkoutPaymentMethod ?? null,
       cashChangeForInCents: context.checkoutCashChangeForInCents ?? null,

@@ -35,6 +35,13 @@ export const DELIVERY_LOCATION_SOURCE = {
 
 export type DeliveryLocationSource = (typeof DELIVERY_LOCATION_SOURCE)[keyof typeof DELIVERY_LOCATION_SOURCE]
 
+/** Para `z.enum(...)` em schema de resposta (card da conversa, painel) — mesmos três valores. */
+export const DELIVERY_LOCATION_SOURCE_VALUES = [
+  DELIVERY_LOCATION_SOURCE.WHATSAPP_LOCATION,
+  DELIVERY_LOCATION_SOURCE.CEP,
+  DELIVERY_LOCATION_SOURCE.CEP_APPROXIMATE,
+] as const
+
 export const CUSTOMER_LOCATION_KIND = {
   COORDINATES: 'coordinates',
   CEP: 'cep',

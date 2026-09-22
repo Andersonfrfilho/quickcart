@@ -311,7 +311,13 @@ export type ConversationCheckoutContext = {
   readonly items: ReadonlyArray<{ readonly name: string; readonly quantity: number; readonly lineTotalInCents: number }>
   readonly subtotalInCents: number
   readonly deliveryType: 'delivery' | 'pickup' | null
-  readonly deliveryFeeInCents: number
+  /** `null` = entrega ainda sem cotação por faixa (endereço não informado) — nunca "grátis" (T3.3). */
+  readonly deliveryFeeInCents: number | null
+  /** Só em cotação `quoted` — a aproximada pela cidade (D3) não calcula a distância da casa. */
+  readonly deliveryDistanceKm: number | null
+  readonly deliveryTierMaxKm: number | null
+  /** `whatsapp_location` | `cep` | `cep_approximate` — nunca a coordenada nem o CEP em si. */
+  readonly deliveryLocationSource: 'whatsapp_location' | 'cep' | 'cep_approximate' | null
   readonly amountDueInCents: number
   readonly address: string | null
   readonly paymentMethod: string | null

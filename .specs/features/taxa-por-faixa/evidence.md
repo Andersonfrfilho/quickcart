@@ -279,3 +279,68 @@ resolvido mantendo as duas entradas (`AWAITING_ADDRESS_NUMBER` do #33 e `AWAITIN
 da T3.1), como orientado.
 
 **Números:** typecheck limpo. `bun run test`: 638 pass / 0 fail (93 arquivos) — base 635 + 3 testes novos.
+
+## T3.3 — Card da conversa
+
+**Arquivos** (`apps/api-quickcart/src/`):
+- `modules/order/shared/DeliveryFeeQuote.constant.ts` — `DELIVERY_LOCATION_SOURCE_VALUES` (tupla dos
+  três valores), para `z.enum(...)` sem duplicar a lista.
+- `modules/conversation/shared/CheckoutContext.schema.ts` — `deliveryFeeInCents` virou `CENTS.nullable()`
+  (`null` = sem cotação, nunca 0 inventado); três campos novos, todos opcionais/nulos:
+  `deliveryDistanceKm`, `deliveryTierMaxKm`, `deliveryLocationSource`. Schema continua `.strict()` — só
+  esses três campos entraram, nada de coordenada nem CEP.
+- `modules/conversation/application/use-cases/GetConversationCheckoutContext.use-case.ts` — a
+  **pendência da T3.1**: antes, `resolveCheckoutDeliveryFeeInCents(context) ?? 0` escondia "sem
+  cotação" atrás de "taxa zero". Agora `deliveryFeeInCents` é `null` quando a entrega ainda não foi
+  cotada (`resolveCheckoutDeliveryFeeInCents` devolveu `undefined`); `deliveryTierMaxKm`,
+  `deliveryDistanceKm` e `deliveryLocationSource` vêm direto do contexto, `null` na retirada (mesmo que
+  sobre alguma faixa de uma entrega anterior no mesmo contexto) e na ausência do campo.
+  `amountDueInCents` continua somando itens + taxa (0 quando não cotada) — o rótulo "Total" vs.
+  "Subtotal (sem entrega)" é decisão do frontend, que já sabe distinguir `null` de `0`.
+- `modules/conversation/application/use-cases/GetConversationCheckoutContext.use-case.test.ts` — testes
+  ajustados para os campos novos (`toEqual` e a lista de chaves) e 4 casos novos: sessão antiga sem
+  cotação (os quatro campos `null`, mas `amountDueInCents` segue = subtotal); cotação aproximada (D3:
+  faixa sem distância); retirada com faixa "sobrando" no contexto (por segurança, os três campos saem
+  `null` mesmo assim); resposta sem latitude/longitude/CEP mesmo com `checkoutLocationDraft` no
+  contexto da sessão.
+- `modules/conversation/infra/http/ConversationCheckoutContext.controller.test.ts` — fixture do
+  contrato ganhou os três campos novos (exigidos pelo tipo).
+
+**Arquivos** (`apps/frontend-web/src/`):
+- `shared/api/api.types.ts` — `ConversationCheckoutContext` espelha o contrato novo:
+  `deliveryFeeInCents: number | null`, `deliveryDistanceKm`, `deliveryTierMaxKm`,
+  `deliveryLocationSource: 'whatsapp_location' | 'cep' | 'cep_approximate' | null`.
+- `modules/conversations/shared/orderInProgress.constant.ts` — `DELIVERY_FEE_TO_CALCULATE` ("a
+  calcular"), `SUBTOTAL_WITHOUT_DELIVERY` ("Subtotal (sem entrega)") e
+  `DELIVERY_LOCATION_SOURCE_LABELS` (`whatsapp_location` → "pela localização", `cep` → "pelo CEP",
+  `cep_approximate` → "estimativa pela cidade").
+- `modules/conversations/components/OrderInProgressCard.tsx` — `deliveryTierText` monta "até N km · X
+  km, fonte" (ou só "até N km, fonte" na estimativa, sem distância); a linha da taxa mostra
+  `${valor} (${faixa})` quando há faixa no contexto. `isDeliveryQuoted = deliveryFeeInCents !== null`
+  decide entre "a calcular"/valor formatado e entre o rótulo "Total"/"Subtotal (sem entrega)" — a
+  pendência exata que a T3.1 deixou registrada.
+- `modules/conversations/components/OrderInProgressCard.test.tsx` — fixtures ganharam os três campos
+  (exigidos pelo tipo); 4 casos novos: entrega sem cotação (mostra "a calcular" e "Subtotal (sem
+  entrega)", nunca "0,00"); cotação aproximada (mostra a faixa e "estimativa pela cidade", sem
+  distância, sem `NaN`); cotação por localização/CEP (mostra faixa, distância e fonte); nenhuma
+  latitude/longitude aparece no HTML renderizado.
+
+**Decisões:**
+- `deliveryFeeInCents` continuou `number | null` (não virou uma união mais rica tipo
+  `{ kind: 'quoted' | 'missing', ... }`): o contrato já tinha esse campo consumido por dois lados
+  (schema Zod da API e tipo do frontend), e `null` já é o sinal padrão de "ausente" no resto do
+  contrato (`address`, `paymentMethod`, `cashChangeForInCents`) — introduzir uma segunda convenção só
+  para este campo quebraria a leitura do resto do objeto.
+- Retirada zera faixa/distância/fonte mesmo que o contexto tenha sobrado de uma entrega anterior
+  (ex.: cliente trocou de "Entrega" para "Retirar na loja" depois de já ter cotado): o card nunca deve
+  sugerir uma faixa que não vale mais para o pedido atual. Coberto por teste dedicado.
+- `checkoutLocationDraft` (coordenada temporária da T3.1, antes do endereço final) não tem campo
+  correspondente no schema de resposta — `.strict()` já bloqueia se alguém tentasse repassar o
+  contexto inteiro; o teste "sem latitude/longitude" prova isso mesmo colocando a coordenada no
+  contexto de entrada.
+- Nenhuma mudança em `OrderDetailView.tsx` (pedido já criado, fora do escopo desta task — fica para a
+  Fase 4/5 conforme o design.md, que já lista essa tela ao lado do card da conversa).
+
+**Números:** typecheck limpo nos dois apps. `bun run test`: api-quickcart 641 pass / 0 fail (93
+arquivos) — base 638 (pós-T3.2) + 3 testes novos; frontend-web 27 pass / 0 fail (5 arquivos) — base 24
++ 3 testes novos.
