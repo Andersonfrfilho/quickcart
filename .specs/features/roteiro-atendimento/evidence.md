@@ -511,3 +511,80 @@ requisição. Agora é um `findByIds` (uma consulta, `inArray`). A cotação gan
 - Um dublê do controller era `as never` e não acusou o método novo no typecheck — só a suíte pegou.
   Tipar dublês com `as never` esconde exatamente esse tipo de quebra.
 - Suíte da api: 369 verdes (361 + 8 novos).
+
+## T2.3 — Botão Alterar
+
+### Arquivos
+
+- `apps/api-quickcart/src/modules/conversation/shared/Messages.constant.ts` —
+  `CONFIRMING_BUTTON_ID.EDIT = 'edit_order'`; `CONFIRMING_BUTTONS` ganha o botão
+  `{ id: EDIT, title: '✏️ Alterar' }` entre Confirmar e Cancelar (3 botões, dentro do limite do
+  WhatsApp; título com 10 caracteres, na mesma faixa de "✅ Confirmar"/"❌ Cancelar").
+- `apps/api-quickcart/src/modules/conversation/application/handlers/CheckoutHandler.ts` —
+  `handleConfirming` trata `CONFIRMING_BUTTON_ID.EDIT` chamando o novo método privado
+  `alterCheckout`. Ele muda o estado para `CART_REVIEW` e reaproveita `sendCartSummary` (a mesma
+  função que `CartHandler` usa para mostrar o carrinho) — nenhuma montagem de resumo duplicada.
+  Nada escreve no `cartRepository`: o carrinho persistido não é tocado, só o estado da conversa.
+- `apps/api-quickcart/src/modules/conversation/application/handlers/CartHandler.ts` —
+  `handleCartReview`, ao clicar "Fechar pedido", passa a checar `session.context.rememberedCheckout`
+  ANTES de consultar `resolveRememberedCheckout` (última compra no banco).
+- `apps/api-quickcart/src/modules/conversation/application/handlers/CheckoutHandler.alterCheckout.test.ts`
+  (novo) — "Alterar" muda para `cart_review` preservando o checkout escolhido como
+  `rememberedCheckout` (sem apagar carrinho); carrinho vazio avisa e não quebra.
+- `apps/api-quickcart/src/modules/conversation/application/handlers/CartHandler.rememberedCheckout.test.ts`
+  (novo) — com `rememberedCheckout` já na sessão, `handleCartReview` o usa direto e NÃO chama
+  `orderRepository.findLastByCustomer`.
+
+### Decisão sobre o `rememberedCheckout` (investigação pedida pela task)
+
+`toRememberedCheckout` (`rememberedCheckout.ts`) monta a memória a partir do **último pedido
+confirmado no banco** (`orderRepository.findLastByCustomer`), consultado só quando o cliente entra
+em `cart_review` e aperta "Fechar pedido" (`CartHandler.handleCartReview`). No fluxo de "Alterar", o
+cliente está voltando ANTES de qualquer pedido novo existir — o último pedido no banco ainda é o de
+uma compra anterior (ou nenhum), não o que ele acabou de escolher nesta sessão. Reaproveitar
+`toRememberedCheckout`/`findLastByCustomer` aqui ofereceria a escolha errada (ou nenhuma).
+
+**Decisão:** ao clicar "Alterar", `CheckoutHandler.alterCheckout` monta o `rememberedCheckout`
+**diretamente do `checkoutContext` da sessão** (o mesmo formato de `ConversationContext['rememberedCheckout']`:
+`deliveryType`, `address?`, `paymentMethod`, `receiptPreference`, `email?`) e grava no contexto do
+novo estado `CART_REVIEW`. `CartHandler.handleCartReview` passa a preferir esse valor de sessão ao
+"Fechar pedido" de novo, só caindo para `resolveRememberedCheckout` (banco) quando a sessão não
+carrega nenhum. Isso reaproveita o MESMO atalho "Isso mesmo" e o MESMO caminho de
+`handleAwaitingDeliveryType` já corrigido (commit 02b01dd) — nada foi contornado:
+- Pagamento lembrado **dinheiro** → `AWAITING_CASH_CHANGE` de novo (o troco depende do total DESTA
+  compra, que pode ter mudado com a alteração do carrinho).
+- `checkoutDeliveryFeeInCents` é **recotado** por `quoteDeliveryFeeInCents(remembered.deliveryType)`
+  a partir do contexto atual, nunca copiado direto do valor antigo.
+- Pagamento lembrado **cartão na entrega + entrega** → aviso da maquininha reenviado.
+
+Nenhuma duplicação de lógica: `alterCheckout` só monta o objeto e reusa `sendCartSummary`;
+`handleAwaitingDeliveryType` continua sendo o único lugar que decide o que fazer com um
+`rememberedCheckout`, seja ele vindo do banco (repetir última compra) ou da sessão (Alterar).
+
+### Cancelar
+
+Sem mudança — `CONFIRMING_BUTTON_ID.CANCEL` continua indo para `GREETING` com `MESSAGES.ORDER_CANCELLED`,
+como antes.
+
+### Typecheck
+
+`cd apps/api-quickcart && bun run typecheck` → `tsc --noEmit`, sem erros. Frontend não tocado nesta
+task (nenhum arquivo de `apps/frontend-web` mudou).
+
+### Testes
+
+- Baseline antes da T2.3: **369 testes passando, 0 falhas** (api-quickcart).
+- Depois da T2.3: **372 testes passando, 0 falhas** — 3 testes novos (2 em
+  `CheckoutHandler.alterCheckout.test.ts`, 1 em `CartHandler.rememberedCheckout.test.ts`).
+- Banco de teste: `quickcart-test-postgres`/`quickcart-test-redis` já estavam de pé; migrations
+  rodadas de novo (`migrate.ts` + `migrateCustomer.ts` com `--env-file=../../envs/env.test`) — nenhuma
+  migration nova nesta task (T2.3 não mexe em coluna nem tabela).
+- Dublês de teste tipados com `as unknown as <Dependencies>` sobre um objeto literal completo (mesmo
+  padrão já usado em `CheckoutHandler.rememberedCheckout.test.ts`), nunca `as never` — o typecheck
+  acusa método faltando na interface.
+
+### Desvios da spec
+
+Nenhum. Confirmar/Cancelar mantidos como estavam; "Alterar" foi o único botão novo, e o
+reaproveitamento de entrega/pagamento ao fechar de novo passa pelo mesmo caminho corrigido em
+02b01dd, incluindo repetir a pergunta do troco e recotar a taxa de entrega.

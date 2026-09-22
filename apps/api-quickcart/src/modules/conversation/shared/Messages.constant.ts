@@ -102,6 +102,7 @@ export const REMEMBERED_CHECKOUT_BUTTON_ID = {
 
 export const CONFIRMING_BUTTON_ID = {
   CONFIRM: 'confirm_order',
+  EDIT: 'edit_order',
   CANCEL: 'cancel_order',
 } as const
 
@@ -404,5 +405,6 @@ export const REMEMBERED_CHECKOUT_BUTTONS = [
 
 export const CONFIRMING_BUTTONS = [
   { id: CONFIRMING_BUTTON_ID.CONFIRM, title: '✅ Confirmar' },
+  { id: CONFIRMING_BUTTON_ID.EDIT, title: '✏️ Alterar' },
   { id: CONFIRMING_BUTTON_ID.CANCEL, title: '❌ Cancelar' },
 ] as const

@@ -430,7 +430,60 @@ export class CheckoutHandler implements ConversationHandlerInterface {
       return
     }
 
+    if (message.buttonId === CONFIRMING_BUTTON_ID.EDIT) {
+      await this.alterCheckout(session, customer, checkoutContext)
+      return
+    }
+
     await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CONFIRMING_UNEXPECTED_INPUT)
+  }
+
+  /**
+   * "Alterar" (T2.3, spec §3.4): volta ao carrinho sem descartar nada. O carrinho persistido não é
+   * tocado — só o estado da conversa muda — e a exibição reaproveita `sendCartSummary`, a mesma
+   * função que `CartHandler` usa para entrar em `cart_review`.
+   *
+   * O contexto de checkout já escolhido nesta sessão vira `rememberedCheckout` (mesmo formato do
+   * atalho lembrado de pedido anterior), para o "Isso mesmo" oferecer de novo entrega e pagamento
+   * ao fechar o pedido de novo — sem isso o `rememberedCheckout` só nasceria do ÚLTIMO PEDIDO
+   * confirmado no banco, que não existe ainda neste ponto (o cliente está alterando ANTES de
+   * confirmar). Ele passa pelo MESMO caminho do atalho lembrado
+   * (`handleAwaitingDeliveryType`), então troco é reperguntado e a taxa de entrega é recotada do
+   * contexto atual, nunca copiados direto do que já tinha sido escolhido (correção T1.1/T1.2).
+   */
+  private async alterCheckout(session: ConversationSession, customer: Customer, checkoutContext: ConversationContext): Promise<void> {
+    const { checkoutDeliveryType, checkoutAddress, checkoutPaymentMethod, checkoutReceiptPreference, checkoutEmail } = checkoutContext
+
+    const rememberedCheckout: ConversationContext['rememberedCheckout'] =
+      checkoutDeliveryType && checkoutPaymentMethod && checkoutReceiptPreference
+        ? {
+            deliveryType: checkoutDeliveryType,
+            ...(checkoutAddress !== undefined ? { address: checkoutAddress } : {}),
+            paymentMethod: checkoutPaymentMethod,
+            receiptPreference: checkoutReceiptPreference,
+            ...(checkoutEmail ? { email: checkoutEmail } : {}),
+          }
+        : undefined
+
+    await this.dependencies.conversationSessionRepository.updateStateByPhone({
+      customerPhone: session.customerPhone,
+      currentState: CONVERSATION_STATE.CART_REVIEW,
+      context: rememberedCheckout ? { rememberedCheckout } : {},
+    })
+
+    const cart = await this.dependencies.cartRepository.findOpenByCustomer(customer.id, CHANNEL.WHATSAPP)
+    if (!cart) {
+      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CART_EMPTY)
+      return
+    }
+
+    await sendCartSummary({
+      customerPhone: session.customerPhone,
+      cartId: cart.id,
+      cartRepository: this.dependencies.cartRepository,
+      productRepository: this.dependencies.productRepository,
+      whatsAppSender: this.dependencies.whatsAppSender,
+    })
   }
 
   private async confirmOrder(session: ConversationSession, customer: Customer, checkoutContext: ConversationContext): Promise<void> {

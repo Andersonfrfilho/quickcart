@@ -107,7 +107,13 @@ export class CartHandler implements ConversationHandlerInterface {
     }
 
     if (message.buttonId === CART_REVIEW_BUTTON_ID.CHECKOUT) {
-      const remembered = await this.resolveRememberedCheckout(customer)
+      /*
+       * Prioriza o que a sessão já guardou (vindo do "Alterar", T2.3): ali ainda não existe pedido
+       * novo no banco para `resolveRememberedCheckout` achar, e o que o cliente acabou de escolher
+       * nesta conversa é mais recente que o último pedido confirmado.
+       */
+      const sessionContext = (session.context ?? {}) as ConversationContext
+      const remembered = sessionContext.rememberedCheckout ?? (await this.resolveRememberedCheckout(customer))
 
       if (remembered) {
         // Uma pergunta em vez de quatro. O estado continua o mesmo: o handler de entrega reconhece os
