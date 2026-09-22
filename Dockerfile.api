@@ -18,10 +18,28 @@ COPY --from=deps /app/apps/api-quickcart/node_modules ./apps/api-quickcart/node_
 COPY . .
 RUN bun run --filter @quickcart/api typecheck
 
+# Transcrição local de áudio (TRANSCRIPTION_LOCAL_FALLBACK_ENABLED): compila só o whisper-cli, estático,
+# e baixa o modelo aqui, para o runner receber dois arquivos em vez da toolchain inteira.
+# large-v3-turbo, como recomenda o provider: o small erra demais em pt-BR. q5_0 porque tem ~550 MB contra
+# ~1,6 GB do original. O --max-context 0 e o colapso de repetições já vêm do provider (>= 0.1.0).
+FROM alpine:3.20 AS whisper
+ARG WHISPER_CPP_VERSION=v1.8.7
+ARG WHISPER_MODEL=large-v3-turbo-q5_0
+RUN apk add --no-cache build-base cmake git bash curl
+RUN git clone --depth 1 --branch "${WHISPER_CPP_VERSION}" https://github.com/ggml-org/whisper.cpp /tmp/whisper \
+  && cmake -S /tmp/whisper -B /tmp/whisper/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF \
+  && cmake --build /tmp/whisper/build --target whisper-cli -j"$(nproc)" \
+  && install -m 0755 /tmp/whisper/build/bin/whisper-cli /usr/local/bin/whisper-cli \
+  && mkdir -p /models \
+  && bash /tmp/whisper/models/download-ggml-model.sh "${WHISPER_MODEL}" /models
+
 FROM oven/bun:1.3-alpine AS runner
 WORKDIR /app
 
-RUN apk add --no-cache dumb-init
+RUN apk add --no-cache dumb-init ffmpeg libstdc++ libgomp
+
+COPY --from=whisper /usr/local/bin/whisper-cli /usr/local/bin/whisper-cli
+COPY --from=whisper /models /models
 
 COPY --from=deps /app/node_modules ./node_modules
 # `apps/api-quickcart` vem inteiro do builder, com o `node_modules` dele junto — o `.dockerignore`
