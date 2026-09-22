@@ -679,3 +679,89 @@ Reconferido nesta sessão, com evidência fresca:
 - `bun run --cwd apps/frontend-web test`: 48 pass / 0 fail.
 
 Verificado: `make seed ENV=test` sai 0; typecheck limpo; api 684 pass / 0 fail.
+
+## Confirmação de endereço aproximado
+
+**Decisão do usuário (2026-09-22):** cotação `approximate_max_tier` no fluxo do bot deixava de cobrar
+a maior faixa em silêncio ("estimativa pela cidade") e passa a **confirmar o endereço com o cliente
+antes de cobrar**. A cotação web pública **não mudou de contrato** — `Store.controller.ts` segue
+devolvendo `approximate_max_tier` como antes; nada foi tocado na Fase 4.
+
+**Arquivos** (`apps/api-quickcart/src/`):
+- `modules/conversation/shared/ConversationState.constant.ts` — estado novo
+  `AWAITING_APPROXIMATE_ADDRESS_DECISION`. Registrado em `infra/container/index.ts` (o mapa é
+  `Record<ConversationState, ...>`: sem a entrada o `tsc` reprova, e foi exatamente o que aconteceu
+  na primeira compilação).
+- `modules/conversation/shared/ConversationContext.types.ts` — `checkoutApproximateDecision`
+  (`feeInCents`, `tierMaxKm`, `tierFeeInCents`, `retryCount?`, `locationAttempts?`,
+  `awaitingLocation?`). **Estimativa pendente não é cotação**: enquanto ela existe, o contexto não
+  tem `checkoutDeliveryLocationSource`, então `resolveCheckoutDeliveryFeeInCents` devolve
+  `undefined` e nenhum caminho cobra taxa por engano.
+- `modules/conversation/shared/deliveryQuoteContext.ts` — `withoutDeliveryQuote` passa a apagar
+  também `checkoutApproximateDecision`: a estimativa pendente é cotação e não pode sobreviver a um
+  endereço novo. Isso faz "Alterar endereço", "Quero mudar", o clique em "Entrega" e a retirada
+  limparem a pendência sem código novo em cada caminho.
+- `modules/conversation/shared/Messages.constant.ts` — `APPROXIMATE_ADDRESS_BUTTON_ID`
+  (`SEND_LOCATION`, `CHANGE_ADDRESS`, `CONFIRM_ESTIMATE`), `APPROXIMATE_ADDRESS_DECISION_BUTTONS`
+  (Enviar localização / Alterar endereço / Retirar na loja — 3 botões, o teto do WhatsApp) e
+  `APPROXIMATE_ESTIMATE_BUTTONS` (Confirmar / Retirar na loja), reusando o `PICKUP_INSTEAD_BUTTON`
+  que já existia. Textos novos: `CHECKOUT_APPROXIMATE_ADDRESS_DECISION` (mostra o endereço
+  encontrado via `{endereco}`), `CHECKOUT_APPROXIMATE_ASK_LOCATION` (uma linha de como enviar),
+  `CHECKOUT_APPROXIMATE_UNEXPECTED_INPUT`, `CHECKOUT_APPROXIMATE_HELP`,
+  `CHECKOUT_APPROXIMATE_ESTIMATE_OFFER`.
+- `modules/conversation/application/types/CheckoutHandler.types.ts` — `AcceptCepDraftParams`,
+  `PendingApproximateQuote`, `EnterApproximateDecisionParams`, `ApproximateDecisionStepParams`,
+  `OfferApproximateEstimateParams` (toda função com 2+ parâmetros recebe objeto tipado).
+- `modules/conversation/application/handlers/CheckoutHandler.ts` — o fluxo:
+  1. `handleAwaitingAddressNumber`, no caminho do CEP, verifica o `kind` do resultado: só
+     `approximate_max_tier` desvia para `enterApproximateDecision`, que grava o endereço completo e
+     a estimativa **pendente** (nenhum campo de cotação) e manda os três botões. O corpo da mensagem
+     sai de `formatAddressLine` — rua, número, bairro e cidade/UF, **nunca o CEP** (teste explícito).
+  2. `handleAwaitingApproximateAddressDecision`: localização → recota pela coordenada e vai ao
+     pagamento mantendo o endereço já informado (fonte `whatsapp_location`); "Alterar endereço" →
+     `askAddressAgain`; "Retirar na loja" → `choosePickup` (taxa 0); "Enviar localização" →
+     `askApproximateLocation`; "Confirmar" → `confirmApproximateEstimate`.
+  3. Texto com 8 dígitos vale como endereço novo (mesmo `acceptCepDraft` do passo do endereço).
+  4. `repeatApproximateQuestion`: esperando localização, a 1ª mensagem inválida repete o "como
+     enviar" e a 2ª (`APPROXIMATE_LOCATION_ATTEMPT_LIMIT`) oferece a estimativa com o preço e os
+     botões Confirmar / Retirar; fora disso, a 1ª repete a pergunta e a 2ª
+     (`APPROXIMATE_HELP_AFTER_RETRIES`) manda a ajuda, sempre **sem sair do estado**.
+  5. `confirmApproximateEstimate` é o **único** ponto que transforma a estimativa em cotação, com
+     `DELIVERY_LOCATION_SOURCE.CEP_APPROXIMATE` — daí `confirmOrder` grava
+     `delivery_location_source = cep_approximate` sem nenhuma mudança no caminho do pedido.
+
+**Refatorações pequenas (sem mudança de comportamento):** `acceptCepDraft` (extraída de
+`handleAwaitingAddress`, agora usada também pelo estado novo) e `askAddressAgain` (extraída e
+reusada pelo "Outro endereço" do `AWAITING_OUT_OF_RANGE_DECISION`, que era código idêntico).
+`CEP_DIGITS_LENGTH` substitui o `8` literal.
+
+**Decisões e limites de escopo:**
+- **Só a coordenada volta a decidir a taxa; o endereço do CEP continua sendo o endereço do pedido.**
+  Quando a localização chega no estado novo, o número e o complemento já foram informados — pedir de
+  novo (como faz `acceptLocation` no caminho do zero) seria repetir pergunta. A coordenada serve à
+  distância, o endereço estruturado serve ao entregador.
+- **`quoteRememberedDelivery` ("Isso mesmo") não mudou**: a entrega lembrada com CEP aproximado
+  segue sendo recotada e aceita. Aquele endereço já foi usado num pedido anterior — o cliente já o
+  confirmou —, e o caso não está entre os requisitos desta mudança. O teste existente
+  (`"Alterar" não leva a cotação adiante; "Isso mesmo" depois recota`) documenta esse caminho.
+- Contexto sem `checkoutApproximateDecision` no estado novo (sessão que atravessou deploy) volta ao
+  passo do endereço em vez de inventar taxa.
+- Nenhum log novo: coordenada, CEP e endereço não aparecem em log em nenhum dos caminhos.
+
+**Testes** (`CheckoutHandler.deliveryQuote.test.ts`, +8 casos; 1 reescrito):
+- reescrito: `approximate_max_tier` agora vai para `AWAITING_APPROXIMATE_ADDRESS_DECISION` com a
+  estimativa pendente, sem nenhum campo de cotação, e a mensagem mostra rua/cidade e **não** o CEP.
+- "Enviar localização" pede a localização e marca `awaitingLocation`; localização recebida no estado
+  novo cota pela coordenada (`whatsapp_location`) e vai ao pagamento mantendo o endereço; "Alterar
+  endereço" volta ao endereço apagando endereço e pendência; "Retirar na loja" fecha em retirada com
+  taxa 0; CEP de 8 dígitos em texto vale como endereço novo; texto inválido repete uma vez e depois
+  manda a ajuda sem sair do estado; duas mensagens que não são localização levam à oferta da
+  estimativa com o preço e os botões Confirmar/Retirar; confirmar a estimativa grava a cotação
+  aproximada e o pedido sai com `quotedDeliveryLocationSource = cep_approximate` e distância `null`.
+- `GetConversationCheckoutContext.use-case.test.ts` (+1): sessão parada no estado novo devolve
+  `deliveryFeeInCents`/faixa/fonte `null`, mantém os itens e o `amountDueInCents` do subtotal, e a
+  resposta não vaza `checkoutApproximateDecision`.
+
+**Números:** typecheck limpo nos três apps. `bun run test`: api-quickcart 693 pass / 0 fail (97
+arquivos) — base 684 + 9 testes novos; frontend-web 48 pass / 0 fail (sem alteração);
+worker-quickcart 21 pass / 0 fail (sem alteração).

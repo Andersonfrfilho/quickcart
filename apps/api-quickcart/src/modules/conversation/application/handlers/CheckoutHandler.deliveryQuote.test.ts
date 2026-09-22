@@ -23,6 +23,9 @@ import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInC
 import {
   ADDRESS_DECISION_BUTTON_ID,
   ADDRESS_PICKUP_INSTEAD_BUTTONS,
+  APPROXIMATE_ADDRESS_BUTTON_ID,
+  APPROXIMATE_ADDRESS_DECISION_BUTTONS,
+  APPROXIMATE_ESTIMATE_BUTTONS,
   CONFIRMING_BUTTON_ID,
   DELIVERY_TYPE_BUTTON_ID,
   DELIVERY_TYPE_BUTTONS,
@@ -30,6 +33,7 @@ import {
   OUT_OF_RANGE_DECISION_BUTTONS,
   PAYMENT_METHOD_BUTTON_ID,
   PAYMENT_METHOD_BUTTONS,
+  RECEIPT_PREFERENCE_BUTTON_ID,
   REMEMBERED_CHECKOUT_BUTTON_ID,
 } from '@/modules/conversation/shared/Messages.constant'
 import type { QuoteDeliveryFeeParams, QuoteDeliveryFeeResult } from '@/modules/order/application/types/QuoteDeliveryFee.types'
@@ -185,6 +189,13 @@ const LOCATION_MESSAGE: ParsedInboundMessage = {
 }
 
 const DELIVERY_CONTEXT: ConversationContext = { checkoutDeliveryType: DELIVERY_TYPE.DELIVERY }
+const APPROXIMATE_ADDRESS = { cep: CEP, ...VIACEP_ADDRESS, number: '412' }
+const APPROXIMATE_PENDING = { feeInCents: 1000, tierMaxKm: 8, tierFeeInCents: 1000 }
+const APPROXIMATE_DECISION_CONTEXT: ConversationContext = {
+  ...DELIVERY_CONTEXT,
+  checkoutAddress: APPROXIMATE_ADDRESS,
+  checkoutApproximateDecision: APPROXIMATE_PENDING,
+}
 const CEP_DRAFT_CONTEXT: ConversationContext = { ...DELIVERY_CONTEXT, checkoutAddressDraft: { cep: CEP, ...VIACEP_ADDRESS } }
 
 const QUOTE_KEYS = [
@@ -235,21 +246,21 @@ describe('CheckoutHandler — entrega por CEP (cotação quando o endereço fica
     expect(buttonMessages).toEqual([{ body: MESSAGES.CHECKOUT_ASK_PAYMENT, buttons: PAYMENT_METHOD_BUTTONS }])
   })
 
-  it('approximate_max_tier: grava a maior faixa, sem distância, e avisa que é estimativa pela cidade', async () => {
-    const { handler, stateUpdates, texts } = buildHarness(APPROXIMATE)
+  it('approximate_max_tier: NÃO cobra ainda — confirma o endereço com o cliente antes (D3)', async () => {
+    const { handler, stateUpdates, texts, buttonMessages } = buildHarness(APPROXIMATE)
 
     await handler.handle({ session: buildSession(CONVERSATION_STATE.AWAITING_ADDRESS_NUMBER, CEP_DRAFT_CONTEXT), customer: CUSTOMER, message: text('412') })
 
     const context = stateUpdates[0]?.context
-    expect(stateUpdates[0]?.currentState).toBe(CONVERSATION_STATE.AWAITING_PAYMENT)
-    expect(context).toMatchObject({
-      checkoutDeliveryFeeInCents: 1000,
-      checkoutDeliveryTierMaxKm: 8,
-      checkoutDeliveryTierFeeInCents: 1000,
-      checkoutDeliveryLocationSource: DELIVERY_LOCATION_SOURCE.CEP_APPROXIMATE,
-    })
-    expect(context).not.toHaveProperty('checkoutDeliveryDistanceKm')
-    expect(texts).toEqual([MESSAGES.CHECKOUT_DELIVERY_FEE_APPROXIMATE.replace('{valor}', formatPriceInCents(1000))])
+    expect(stateUpdates[0]?.currentState).toBe(CONVERSATION_STATE.AWAITING_APPROXIMATE_ADDRESS_DECISION)
+    expectNoQuote(context)
+    expect(context?.checkoutApproximateDecision).toEqual({ feeInCents: 1000, tierMaxKm: 8, tierFeeInCents: 1000 })
+    expect(context?.checkoutAddress).toEqual(APPROXIMATE_ADDRESS)
+    expect(texts).toEqual([])
+    expect(buttonMessages[0]?.buttons).toEqual(APPROXIMATE_ADDRESS_DECISION_BUTTONS)
+    expect(buttonMessages[0]?.body).toContain('Avenida Paulista, 412')
+    expect(buttonMessages[0]?.body).toContain('São Paulo')
+    expect(buttonMessages[0]?.body).not.toContain(CEP)
   })
 
   it('out_of_range: vai para a decisão com distância e limite, sem endereço nem cotação no contexto', async () => {
@@ -600,5 +611,184 @@ describe('CheckoutHandler — coordenada nunca em log', () => {
     expect(allLogs).not.toContain(String(LONGITUDE))
     expect(allLogs).not.toContain('23.5613')
     expect(allLogs).not.toContain('46.6565')
+  })
+})
+
+/**
+ * Decisão do usuário (D3): cotação aproximada não vira cobrança em silêncio. O cliente confirma o
+ * endereço antes — mandando a localização, trocando o endereço, retirando na loja ou, se a
+ * localização não vier, aceitando a estimativa com o preço na tela.
+ */
+describe('CheckoutHandler — confirmação de endereço aproximado', () => {
+  it('"Enviar localização" explica como enviar e passa a esperar a localização no mesmo estado', async () => {
+    const { handler, stateUpdates, texts } = buildHarness(APPROXIMATE)
+
+    await handler.handle({
+      session: buildSession(CONVERSATION_STATE.AWAITING_APPROXIMATE_ADDRESS_DECISION, APPROXIMATE_DECISION_CONTEXT),
+      customer: CUSTOMER,
+      message: button(APPROXIMATE_ADDRESS_BUTTON_ID.SEND_LOCATION),
+    })
+
+    expect(stateUpdates[0]?.currentState).toBe(CONVERSATION_STATE.AWAITING_APPROXIMATE_ADDRESS_DECISION)
+    expect(stateUpdates[0]?.context.checkoutApproximateDecision).toEqual({ ...APPROXIMATE_PENDING, awaitingLocation: true, locationAttempts: 0 })
+    expect(texts).toEqual([MESSAGES.CHECKOUT_APPROXIMATE_ASK_LOCATION])
+  })
+
+  it('localização recebida no estado novo cota pela coordenada exata e segue para o pagamento', async () => {
+    const { handler, stateUpdates, texts, buttonMessages, quoteCalls } = buildHarness(QUOTED_BY_LOCATION)
+
+    await handler.handle({
+      session: buildSession(CONVERSATION_STATE.AWAITING_APPROXIMATE_ADDRESS_DECISION, {
+        ...APPROXIMATE_DECISION_CONTEXT,
+        checkoutApproximateDecision: { ...APPROXIMATE_PENDING, awaitingLocation: true, locationAttempts: 0 },
+      }),
+      customer: CUSTOMER,
+      message: LOCATION_MESSAGE,
+    })
+
+    expect(quoteCalls).toEqual([
+      { deliveryType: DELIVERY_TYPE.DELIVERY, location: { kind: CUSTOMER_LOCATION_KIND.COORDINATES, latitude: LATITUDE, longitude: LONGITUDE } },
+    ])
+    const context = stateUpdates[0]?.context
+    expect(stateUpdates[0]?.currentState).toBe(CONVERSATION_STATE.AWAITING_PAYMENT)
+    expect(context).toMatchObject({
+      checkoutDeliveryFeeInCents: 500,
+      checkoutDeliveryDistanceKm: 2.43,
+      checkoutDeliveryLocationSource: DELIVERY_LOCATION_SOURCE.WHATSAPP_LOCATION,
+      checkoutAddress: APPROXIMATE_ADDRESS,
+    })
+    expect(context).not.toHaveProperty('checkoutApproximateDecision')
+    expect(texts).toEqual([QUOTED_MESSAGE])
+    expect(buttonMessages).toEqual([{ body: MESSAGES.CHECKOUT_ASK_PAYMENT, buttons: PAYMENT_METHOD_BUTTONS }])
+  })
+
+  it('"Alterar endereço" volta ao endereço e apaga endereço e estimativa pendente', async () => {
+    const { handler, stateUpdates, texts } = buildHarness(APPROXIMATE)
+
+    await handler.handle({
+      session: buildSession(CONVERSATION_STATE.AWAITING_APPROXIMATE_ADDRESS_DECISION, APPROXIMATE_DECISION_CONTEXT),
+      customer: CUSTOMER,
+      message: button(APPROXIMATE_ADDRESS_BUTTON_ID.CHANGE_ADDRESS),
+    })
+
+    expect(stateUpdates).toEqual([{ currentState: CONVERSATION_STATE.AWAITING_ADDRESS, context: DELIVERY_CONTEXT }])
+    expectNoQuote(stateUpdates[0]?.context)
+    expect(stateUpdates[0]?.context).not.toHaveProperty('checkoutApproximateDecision')
+    expect(texts).toEqual([MESSAGES.CHECKOUT_ASK_ADDRESS])
+  })
+
+  it('"Retirar na loja" fecha em retirada com taxa 0', async () => {
+    const { handler, stateUpdates, buttonMessages } = buildHarness(APPROXIMATE)
+
+    await handler.handle({
+      session: buildSession(CONVERSATION_STATE.AWAITING_APPROXIMATE_ADDRESS_DECISION, APPROXIMATE_DECISION_CONTEXT),
+      customer: CUSTOMER,
+      message: button(ADDRESS_DECISION_BUTTON_ID.PICKUP_INSTEAD),
+    })
+
+    expect(stateUpdates).toEqual([
+      { currentState: CONVERSATION_STATE.AWAITING_PAYMENT, context: { checkoutDeliveryType: DELIVERY_TYPE.PICKUP, checkoutDeliveryFeeInCents: 0 } },
+    ])
+    expect(buttonMessages).toEqual([{ body: MESSAGES.CHECKOUT_ASK_PAYMENT, buttons: PAYMENT_METHOD_BUTTONS }])
+  })
+
+  it('CEP de 8 dígitos em texto vale como endereço novo', async () => {
+    const { handler, stateUpdates, texts } = buildHarness(APPROXIMATE)
+
+    await handler.handle({
+      session: buildSession(CONVERSATION_STATE.AWAITING_APPROXIMATE_ADDRESS_DECISION, APPROXIMATE_DECISION_CONTEXT),
+      customer: CUSTOMER,
+      message: text('01310-100'),
+    })
+
+    expect(stateUpdates[0]?.currentState).toBe(CONVERSATION_STATE.AWAITING_ADDRESS_NUMBER)
+    expect(stateUpdates[0]?.context.checkoutAddressDraft).toEqual({ cep: CEP, ...VIACEP_ADDRESS })
+    expect(stateUpdates[0]?.context).not.toHaveProperty('checkoutApproximateDecision')
+    expect(texts).toEqual([MESSAGES.CHECKOUT_ASK_ADDRESS_NUMBER])
+  })
+
+  it('texto que não é CEP repete a pergunta uma vez e depois vira mensagem de ajuda, sem sair do estado', async () => {
+    const { handler, stateUpdates, buttonMessages } = buildHarness(APPROXIMATE)
+
+    await handler.handle({
+      session: buildSession(CONVERSATION_STATE.AWAITING_APPROXIMATE_ADDRESS_DECISION, APPROXIMATE_DECISION_CONTEXT),
+      customer: CUSTOMER,
+      message: text('pode mandar'),
+    })
+    await handler.handle({
+      session: buildSession(CONVERSATION_STATE.AWAITING_APPROXIMATE_ADDRESS_DECISION, stateUpdates[0]?.context as ConversationContext),
+      customer: CUSTOMER,
+      message: text('pode mandar'),
+    })
+
+    expect(stateUpdates.map((update) => update.currentState)).toEqual([
+      CONVERSATION_STATE.AWAITING_APPROXIMATE_ADDRESS_DECISION,
+      CONVERSATION_STATE.AWAITING_APPROXIMATE_ADDRESS_DECISION,
+    ])
+    expect(buttonMessages).toEqual([
+      { body: MESSAGES.CHECKOUT_APPROXIMATE_UNEXPECTED_INPUT, buttons: APPROXIMATE_ADDRESS_DECISION_BUTTONS },
+      { body: MESSAGES.CHECKOUT_APPROXIMATE_HELP, buttons: APPROXIMATE_ADDRESS_DECISION_BUTTONS },
+    ])
+  })
+
+  it('duas mensagens que não são localização levam à oferta da estimativa com o preço', async () => {
+    const { handler, stateUpdates, texts, buttonMessages } = buildHarness(APPROXIMATE)
+    let context: ConversationContext = { ...APPROXIMATE_DECISION_CONTEXT, checkoutApproximateDecision: { ...APPROXIMATE_PENDING, awaitingLocation: true, locationAttempts: 0 } }
+
+    for (const body of ['aqui em casa', 'não sei mandar']) {
+      await handler.handle({ session: buildSession(CONVERSATION_STATE.AWAITING_APPROXIMATE_ADDRESS_DECISION, context), customer: CUSTOMER, message: text(body) })
+      context = stateUpdates[stateUpdates.length - 1]?.context as ConversationContext
+    }
+
+    expect(texts).toEqual([MESSAGES.CHECKOUT_APPROXIMATE_ASK_LOCATION])
+    expect(buttonMessages).toEqual([
+      { body: MESSAGES.CHECKOUT_APPROXIMATE_ESTIMATE_OFFER.replace('{valor}', formatPriceInCents(1000)), buttons: APPROXIMATE_ESTIMATE_BUTTONS },
+    ])
+    expect(context.checkoutApproximateDecision).toEqual({ ...APPROXIMATE_PENDING, locationAttempts: 2, awaitingLocation: false })
+    expectNoQuote(context as Record<string, unknown>)
+  })
+
+  it('confirmar a estimativa grava a cotação aproximada e o pedido sai com fonte cep_approximate', async () => {
+    const { handler, stateUpdates, texts, createOrderCalls } = buildHarness(APPROXIMATE)
+
+    await handler.handle({
+      session: buildSession(CONVERSATION_STATE.AWAITING_APPROXIMATE_ADDRESS_DECISION, {
+        ...APPROXIMATE_DECISION_CONTEXT,
+        checkoutApproximateDecision: { ...APPROXIMATE_PENDING, locationAttempts: 2 },
+      }),
+      customer: CUSTOMER,
+      message: button(APPROXIMATE_ADDRESS_BUTTON_ID.CONFIRM_ESTIMATE),
+    })
+
+    const quotedContext = stateUpdates[0]?.context as ConversationContext
+    expect(stateUpdates[0]?.currentState).toBe(CONVERSATION_STATE.AWAITING_PAYMENT)
+    expect(quotedContext).toMatchObject({
+      checkoutDeliveryFeeInCents: 1000,
+      checkoutDeliveryTierMaxKm: 8,
+      checkoutDeliveryTierFeeInCents: 1000,
+      checkoutDeliveryLocationSource: DELIVERY_LOCATION_SOURCE.CEP_APPROXIMATE,
+      checkoutAddress: APPROXIMATE_ADDRESS,
+    })
+    expect(quotedContext).not.toHaveProperty('checkoutDeliveryDistanceKm')
+    expect(quotedContext).not.toHaveProperty('checkoutApproximateDecision')
+    expect(texts).toEqual([MESSAGES.CHECKOUT_DELIVERY_FEE_APPROXIMATE.replace('{valor}', formatPriceInCents(1000))])
+
+    await handler.handle({
+      session: buildSession(CONVERSATION_STATE.CONFIRMING, {
+        ...quotedContext,
+        checkoutPaymentMethod: PAYMENT_METHOD_BUTTON_ID.PIX,
+        checkoutReceiptPreference: RECEIPT_PREFERENCE_BUTTON_ID.WHATSAPP,
+      }),
+      customer: CUSTOMER,
+      message: button(CONFIRMING_BUTTON_ID.CONFIRM),
+    })
+
+    expect(createOrderCalls[0]).toMatchObject({
+      quotedDeliveryFeeInCents: 1000,
+      quotedDeliveryTierMaxKm: 8,
+      quotedDeliveryTierFeeInCents: 1000,
+      quotedDeliveryLocationSource: DELIVERY_LOCATION_SOURCE.CEP_APPROXIMATE,
+      quotedDeliveryDistanceKm: null,
+    })
   })
 })

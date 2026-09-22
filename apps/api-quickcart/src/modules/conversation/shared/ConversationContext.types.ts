@@ -81,6 +81,20 @@ export type ConversationContext = {
     readonly city: string
     readonly state: string
   }
+  /**
+   * Cotação aproximada (D3) à espera da confirmação do cliente: ainda NÃO é taxa cobrada — só vira
+   * cotação de verdade (com `checkoutDeliveryLocationSource`) quando ele confirma a estimativa.
+   * `retryCount` conta as respostas que não são botão nem CEP; `locationAttempts` conta o que chegou
+   * depois de "Enviar localização" e não era localização.
+   */
+  readonly checkoutApproximateDecision?: {
+    readonly feeInCents: number
+    readonly tierMaxKm: number
+    readonly tierFeeInCents: number
+    readonly retryCount?: number
+    readonly locationAttempts?: number
+    readonly awaitingLocation?: boolean
+  }
   /** Localização do WhatsApp já cotada, à espera do número/complemento para o entregador. */
   readonly checkoutLocationDraft?: {
     readonly latitude: number

@@ -86,6 +86,24 @@ describe('GetConversationCheckoutContextUseCase', () => {
     expect(result).toBeUndefined()
   })
 
+  it('sessão esperando a confirmação do endereço aproximado: taxa ainda não cotada, resumo intacto', async () => {
+    const result = await buildUseCase({
+      hasCart: true,
+      context: {
+        checkoutDeliveryType: 'delivery',
+        checkoutAddress: { cep: '01001000', street: 'Praça da Sé', number: '10', neighborhood: 'Sé', city: 'São Paulo', state: 'SP' },
+        checkoutApproximateDecision: { feeInCents: 1000, tierMaxKm: 8, tierFeeInCents: 1000 },
+      },
+    }).execute({ whatsappNumber: PHONE })
+
+    expect(result?.deliveryFeeInCents).toBeNull()
+    expect(result?.deliveryTierMaxKm).toBeNull()
+    expect(result?.deliveryLocationSource).toBeNull()
+    expect(result?.items).toHaveLength(2)
+    expect(result?.amountDueInCents).toBe(2490 * 2 + 899)
+    expect(JSON.stringify(result)).not.toContain('checkoutApproximateDecision')
+  })
+
   it('monta itens da tabela carts e soma a taxa do CONTEXTO no total devido', async () => {
     const result = await buildUseCase({ hasCart: true, context: FULL_CHECKOUT_CONTEXT }).execute({ whatsappNumber: PHONE })
 
