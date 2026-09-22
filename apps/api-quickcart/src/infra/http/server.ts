@@ -71,7 +71,11 @@ export function createRouter({ userModule }: CreateRouterParams): Router {
     categoryController: container.catalog.categoryController,
     productController: container.catalog.productController,
   })
-  registerOrderRoutes({ router, orderController: container.order.orderController })
+  registerOrderRoutes({
+    router,
+    orderController: container.order.orderController,
+    deliveryFeeTiersController: container.order.deliveryFeeTiersController,
+  })
   registerWebhookRoutes({ router, webhookController: container.webhook.controller })
   registerInternalRoutes({ router, internalController: container.internal.controller })
   registerConversationRoutes({

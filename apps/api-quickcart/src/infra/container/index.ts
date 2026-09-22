@@ -119,6 +119,8 @@ import { DrizzleGeocodeFailureRepository } from '@/modules/shared/address/infra/
 import { DrizzleDeliveryFeeTierRepository } from '@/modules/order/infra/database/DrizzleDeliveryFeeTierRepository'
 import { EnsureDefaultDeliveryFeeTiersUseCase } from '@/modules/order/application/use-cases/EnsureDefaultDeliveryFeeTiers.use-case'
 import { QuoteDeliveryFeeUseCase } from '@/modules/order/application/use-cases/QuoteDeliveryFee.use-case'
+import { ReplaceDeliveryFeeTiersUseCase } from '@/modules/order/application/use-cases/ReplaceDeliveryFeeTiers.use-case'
+import { DeliveryFeeTiersController } from '@/modules/order/infra/http/DeliveryFeeTiers.controller'
 import { SetOrderItemUnavailableUseCase } from '@/modules/order/application/use-cases/SetOrderItemUnavailable.use-case'
 import { SetOrderItemPickedUseCase } from '@/modules/order/application/use-cases/SetOrderItemPicked.use-case'
 import { AskUnavailableItemsUseCase } from '@/modules/order/application/use-cases/AskUnavailableItems.use-case'
@@ -231,6 +233,7 @@ type OrderModule = {
   readonly orderController: OrderController
   readonly resolveOrderDeliveryEstimateUseCase: ResolveOrderDeliveryEstimateUseCase
   readonly quoteDeliveryFeeUseCase: QuoteDeliveryFeeUseCase
+  readonly deliveryFeeTiersController: DeliveryFeeTiersController
 }
 
 function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
@@ -355,6 +358,12 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     customerRepository: dependencies.customerRepository,
   })
 
+  const replaceDeliveryFeeTiersUseCase = new ReplaceDeliveryFeeTiersUseCase({ deliveryFeeTierRepository })
+  const deliveryFeeTiersController = new DeliveryFeeTiersController({
+    deliveryFeeTierRepository,
+    replaceDeliveryFeeTiersUseCase,
+  })
+
   return {
     orderRepository,
     createOrderFromCartUseCase,
@@ -369,6 +378,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     orderController,
     resolveOrderDeliveryEstimateUseCase,
     quoteDeliveryFeeUseCase,
+    deliveryFeeTiersController,
   }
 }
 
@@ -914,6 +924,7 @@ export const container = {
     orderController: orderModule.orderController,
     /** Único cálculo de taxa (spec §3.3) — a cotação pública do `StoreController` recota por aqui. */
     quoteDeliveryFeeUseCase: orderModule.quoteDeliveryFeeUseCase,
+    deliveryFeeTiersController: orderModule.deliveryFeeTiersController,
   },
   webhook: webhookModule,
   /*

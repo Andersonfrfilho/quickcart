@@ -192,6 +192,11 @@ const PREVIEW_ORDER: OrderDetail = {
   deliveryFailureReason: null,
   // Pedido em separação: a sacola ainda não saiu, então não há viagem nenhuma a mostrar.
   deliveryAttempts: [],
+  // Snapshot da cotação (spec §3.7): a vitrine mostra a mesma faixa/distância que a tela real leria do pedido.
+  deliveryDistanceKm: 2.1,
+  deliveryTierMaxKm: 3,
+  deliveryTierFeeInCents: 800,
+  deliveryLocationSource: 'cep',
 }
 
 /**

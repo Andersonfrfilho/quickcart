@@ -210,6 +210,23 @@ export type Order = {
    * tela só desenha o que ela permite.
    */
   readonly allowedNextStatuses: readonly string[]
+  /**
+   * Snapshot da cotação de entrega (spec §3.7): `null` nos quatro campos em retirada e em pedido
+   * anterior a esta coluna. Lido do PEDIDO, nunca da configuração atual — a faixa é substituída a
+   * cada PUT do painel, então recalcular pela config vigente mentiria sobre o que foi cobrado.
+   */
+  readonly deliveryDistanceKm: number | null
+  readonly deliveryTierMaxKm: number | null
+  readonly deliveryTierFeeInCents: number | null
+  readonly deliveryLocationSource: DeliveryLocationSource | null
+}
+
+export type DeliveryLocationSource = 'whatsapp_location' | 'cep' | 'cep_approximate'
+
+/** "Até X km, cobra Y" — a faixa i cobre (X[i-1], X[i]] (spec §3.1). */
+export type DeliveryFeeTier = {
+  readonly maxDistanceKm: number
+  readonly feeInCents: number
 }
 
 export type OrderItem = {

@@ -16,6 +16,7 @@ import { AdminDemandsPage } from '@/modules/admin/pages/AdminDemands.page'
 import { AdminCustomersPage } from '@/modules/customers/pages/AdminCustomers.page'
 import { AdminCustomerSettingsPage } from '@/modules/customers/pages/AdminCustomerSettings.page'
 import { AdminOrderDetailPage } from '@/modules/admin/pages/AdminOrderDetail.page'
+import { AdminDeliveryFeesPage } from '@/modules/admin/pages/AdminDeliveryFees.page'
 import { OrderDetailPreviewPage } from '@/modules/preview/pages/OrderDetailPreview.page'
 import { OrdersPreviewPage } from '@/modules/preview/pages/OrdersPreview.page'
 import { AdminConversationsPage } from '@/modules/conversations/pages/AdminConversations.page'
@@ -95,5 +96,6 @@ export const { RouterProvider, RouteRenderer } = createRouter([
   { path: '/admin/flows', component: withAdminLayout(AdminFlowsPage) },
   { path: '/admin/templates', component: withAdminLayout(AdminTemplatesPage) },
   { path: '/admin/equipe', component: withAdminLayout(TeamPage) },
+  { path: '/admin/delivery-fees', component: withAdminLayout(AdminDeliveryFeesPage) },
   ...previewRoutes,
 ])

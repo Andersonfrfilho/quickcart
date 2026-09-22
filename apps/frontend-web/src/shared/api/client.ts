@@ -8,6 +8,7 @@ import type {
   Category,
   CheckoutQuote,
   CheckoutQuoteInput,
+  DeliveryFeeTier,
   DeliveryType,
   Order,
   OrderSortableField,
@@ -184,6 +185,17 @@ export async function adminUpdateProduct(id: string, body: unknown): Promise<Api
 
 export async function adminAdjustStock(id: string, body: { delta: number }): Promise<ApiItemResponse<Product>> {
   return apiClient.patch(`/v1/admin/products/${id}/stock`, body, { })
+}
+
+export async function adminListDeliveryFeeTiers(): Promise<ApiCollectionResponse<DeliveryFeeTier>> {
+  return apiClient.get('/v1/admin/delivery-fee-tiers', { })
+}
+
+/** Lista vazia é válida: desliga a entrega (spec §3.1, §4 item 9). */
+export async function adminReplaceDeliveryFeeTiers(
+  tiers: readonly DeliveryFeeTier[],
+): Promise<ApiCollectionResponse<DeliveryFeeTier>> {
+  return apiClient.put('/v1/admin/delivery-fee-tiers', tiers, { })
 }
 
 export type ListUnmatchedDemandsParams = {

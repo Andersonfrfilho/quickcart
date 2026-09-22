@@ -445,3 +445,94 @@ fora do raio, indisponível, nunca coordenada, sem CEP → 422) + 1 (`CreateWebO
 (`amountDue.test.ts` perdeu os dois casos de `resolveDeliveryFeeInCents`, removida) = +7; frontend-web
 40 pass / 0 fail (7 arquivos) — base 27 + 5 (`useCheckoutQuote.query.test.ts`) + 8
 (`checkoutDelivery.constant.test.ts`) = +13.
+
+## T5.1 — Edição das faixas
+
+**Arquivos** (`apps/api-quickcart/src/`):
+- `modules/order/application/use-cases/ReplaceDeliveryFeeTiers.use-case.ts` (novo) — lê a lista antiga
+  via `deliveryFeeTierRepository.listOrdered()`, chama `replaceAll` (já transacional desde a T1.2) e
+  loga `info` de auditoria (`security.md` §10) com `actorUserId`, `previousTiers` e `newTiers` — nunca
+  o e-mail, só o id.
+- `modules/order/infra/http/DeliveryFeeTiers.controller.ts` (novo) — `handleList` (GET) e
+  `handleReplace` (PUT), `requireSession({ roles: ADMIN_ONLY })` nos dois, `userModule` injetável como
+  o `ConversationCheckoutContextController` (o teste exercita 401/403 com token de verdade). PUT valida
+  com `deliveryFeeTiersInputSchema` via `validateBody` (já devolve todos os erros de uma vez, T1.2) —
+  **exceto lista vazia**: `deliveryFeeTiersInputSchema` exige 1–10 faixas (regra do CONTEÚDO de uma
+  lista não vazia, testada em T1.2), mas o painel PODE mandar `[]` de propósito para desligar a
+  entrega (spec §3.1, §4 item 9). Só o array vazio (`Array.isArray(body) && body.length === 0`) passa
+  direto para o use case; qualquer outro valor cai na validação normal.
+- `modules/order/infra/http/OrderRoutes.ts` — `GET`/`PUT /v1/admin/delivery-fee-tiers`, mesmo arquivo
+  de rotas do módulo (a interface do repositório já mora em `order/domain`).
+- `infra/container/index.ts` (`buildOrderModule`) — reaproveita o `deliveryFeeTierRepository` que a
+  T2.1 já monta ali para o `quoteDeliveryFeeUseCase`; monta `replaceDeliveryFeeTiersUseCase` e
+  `deliveryFeeTiersController`, expostos em `container.order`.
+- `infra/http/server.ts` — `registerOrderRoutes` recebe `deliveryFeeTiersController`.
+- Testes: `DeliveryFeeTiers.controller.test.ts` (token real via `TokenService`, como
+  `ConversationCheckoutContext.controller.test.ts`) — GET admin 200, GET atendente 403, GET sem sessão
+  401, PUT atendente 403 (lista intocada), PUT sem sessão 401, PUT inválido devolve as duas violações
+  da mesma linha numa mensagem só (422, lista intocada), PUT válido substitui a lista, PUT com `[]`
+  aceito e desliga a entrega. `ReplaceDeliveryFeeTiers.use-case.test.ts` — substitui e devolve a nova
+  lista, aceita lista vazia, lê a lista antiga antes de trocar (auditoria).
+
+**Arquivos** (`apps/frontend-web/src/`):
+- `shared/api/api.types.ts` — `Order` ganha os quatro campos do snapshot da cotação (T2.1) que a api
+  já devolvia mas o tipo não declarava: `deliveryDistanceKm`, `deliveryTierMaxKm`,
+  `deliveryTierFeeInCents`, `deliveryLocationSource` (mais o tipo `DeliveryLocationSource`). Novo tipo
+  `DeliveryFeeTier` (`maxDistanceKm`/`feeInCents`).
+- `shared/api/client.ts` — `adminListDeliveryFeeTiers()` e `adminReplaceDeliveryFeeTiers(tiers)`.
+- `modules/admin/shared/deliveryFeeTiers.constant.ts` (novo) — `parseDeliveryFeeTiersErrorMessage`
+  desfaz a mensagem única que `validateBody` (api) junta com `; ` (`"0.maxDistanceKm: ...; ...`"),
+  devolvendo `Map<índice da linha, mensagens>` para o erro aparecer NA LINHA da tabela; erro sem
+  índice numérico (ex.: tamanho da lista) cai na chave `-1`. `resolveOutOfRangeWarning` monta "Fora de
+  N km a loja não entrega" (N = maior faixa) ou "Sem faixas, só retirada" com a lista vazia.
+- `modules/admin/shared/queries/useAdminDeliveryFeeTiers.query.ts` e
+  `modules/admin/shared/mutations/useReplaceDeliveryFeeTiers.mutation.ts` — mesmo padrão de
+  `useAdminCategoriesQuery`/`useAdjustStockMutation`.
+- `modules/admin/hooks/useAdminDeliveryFeesPage.hook.ts` (novo) — rascunho em TEXTO por linha
+  (`maxDistanceKmText`/`feeInReaisText`): campo vazio ou "3," não pode virar `NaN` enquanto a pessoa
+  ainda digita. Só substitui o rascunho quando a query resolve pela primeira vez (não a cada
+  revalidação em segundo plano, senão apagaria edição em andamento). `save()` bloqueia local se algum
+  campo não converte para número; erro do servidor (`getApiErrorCode(error) === 'VALIDATION_ERROR'`)
+  vira `rowErrors` por `parseDeliveryFeeTiersErrorMessage`.
+- `modules/admin/pages/AdminDeliveryFees.page.tsx` (novo) — tabela "Até (km)"/"Taxa (R$)", adicionar
+  (até 10, botão desabilita no limite) e remover linha, aviso de fora de raio/sem faixas, erro por
+  linha embaixo do campo de taxa, "Salvar" manda a lista inteira.
+  `app/routes.tsx`: `/admin/delivery-fees`. `components/Layout.tsx`: item "Faixas de entrega" (🚚) na
+  seção Administração, `roles: ADMIN_ONLY`.
+- `modules/admin/components/OrderDetailView.tsx` — no card "Total", nova linha "Faixa até N km · X km"
+  (com "aprox., CEP genérico" quando `deliveryLocationSource === 'cep_approximate'`, que nunca tem
+  distância por decisão da T1.1/T2.1). Lida do PEDIDO (`order.deliveryTierMaxKm`/`deliveryDistanceKm`/
+  `deliveryLocationSource`), nunca da configuração de faixas vigente — a faixa é substituída a cada
+  PUT do painel, e recalcular pela config atual mostraria uma taxa que o cliente nunca pagou. Ausente
+  quando `deliveryTierMaxKm` é `null` (retirada, pedido antigo).
+- `modules/preview/pages/OrderDetailPreview.page.tsx` e `OrdersPreview.page.tsx` — fixtures ganham os
+  quatro campos novos (a interface `Order` passou a exigi-los); o preview de detalhe ganha valores
+  reais para exercitar a nova linha, o de lista usa `null` (a lista não mostra faixa).
+- Testes: `deliveryFeeTiers.constant.test.ts` (separa mensagem por linha, junta duas violações da
+  mesma linha, erro sem índice cai em `-1`, aviso com/sem faixas) e
+  `OrderDetailView.deliveryTier.test.tsx` (cotação exata mostra faixa + distância, `cep_approximate`
+  mostra faixa sem distância com "aprox.", pedido sem cotação não mostra nada).
+
+**Decisões:**
+- Controller e use case novos ficam em `modules/order/`, não num módulo próprio: a interface do
+  repositório (`DeliveryFeeTierRepository.interface.ts`) e o repositório Drizzle já vivem ali desde a
+  T1.2, e o `quoteDeliveryFeeUseCase` (T2.1) já é montado dentro de `buildOrderModule` — um módulo
+  novo só para o painel duplicaria a montagem do mesmo repositório.
+- `deliveryFeeTiersInputSchema` (T1.2) não foi alterado para aceitar lista vazia: ele já tem teste
+  explícito "rejeita lista vazia" e é usado só por este controller, então mudar o mínimo ali
+  contradiria o T1.2 documentado. A saída ficou no controller (bypass explícito só para `[]`), que é
+  o único ponto que precisa das duas regras ("conteúdo válido" + "vazio desliga a entrega").
+- Sem teste de integração HTTP fim-a-fim (Router real + servidor): o projeto não tem esse padrão em
+  nenhuma rota (confirmado por busca — nenhum `*.integration.test.ts` sobe o `Router`); o padrão
+  existente para 401/403 é token real do `TokenService` contra o controller direto (`requireSession.
+  test.ts`, `ConversationCheckoutContext.controller.test.ts`), replicado aqui.
+- Sem toast nem componente de erro compartilhado: o projeto não tem biblioteca de toast, e a única
+  convenção existente para erro de API (`useCheckoutPage.hook.ts`) é estado local + texto inline —
+  replicada aqui como `generalError` (texto abaixo do botão Salvar) e `rowErrors` (texto abaixo do
+  campo, por linha).
+
+**Números:** typecheck limpo nos dois apps. `bun run test` (Postgres/Redis de teste de pé, migrations
+aplicadas): api-quickcart 659 pass / 0 fail (97 arquivos) — base 648 + 8
+(`DeliveryFeeTiers.controller.test.ts`) + 3 (`ReplaceDeliveryFeeTiers.use-case.test.ts`) = +11;
+frontend-web 48 pass / 0 fail (11 arquivos) — base 40 + 5 (`deliveryFeeTiers.constant.test.ts`) + 3
+(`OrderDetailView.deliveryTier.test.tsx`) = +8.
