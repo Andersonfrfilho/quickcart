@@ -64,4 +64,23 @@ describe('buildEditingCartSection', () => {
 
     expect(section.rows.map((row) => row.id).at(-1)).toBe(EDITING_CART_ROW_ID.DONE)
   })
+
+  it('a linha de página anterior só aparece a partir da segunda página', () => {
+    const rows = buildRows(10)
+
+    const firstPage = buildEditingCartSection(rows, 1)
+    expect(firstPage.rows.map((row) => row.id)).not.toContain(EDITING_CART_ROW_ID.PREVIOUS_PAGE)
+
+    const secondPage = buildEditingCartSection(rows, 2)
+    expect(secondPage.rows.map((row) => row.id)).toContain(EDITING_CART_ROW_ID.PREVIOUS_PAGE)
+  })
+
+  it('ida e volta bate na mesma primeira página (round-trip)', () => {
+    const rows = buildRows(10)
+
+    const firstPage = buildEditingCartSection(rows, 1)
+    const backToFirstPage = buildEditingCartSection(rows, 1)
+
+    expect(backToFirstPage.rows).toEqual(firstPage.rows)
+  })
 })

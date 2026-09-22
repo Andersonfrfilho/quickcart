@@ -179,6 +179,11 @@ export class CartHandler implements ConversationHandlerInterface {
       return
     }
 
+    if (message.listId === EDITING_CART_ROW_ID.PREVIOUS_PAGE) {
+      await this.sendEditingCartList(session, customer.id, Math.max(1, (context.editingCartPage ?? 1) - 1))
+      return
+    }
+
     if (message.listId.startsWith(EDITING_CART_ROW_PREFIX.ITEM)) {
       const cartItemId = message.listId.slice(EDITING_CART_ROW_PREFIX.ITEM.length)
       const cartItem = await this.dependencies.cartRepository.findItemById(cartItemId)

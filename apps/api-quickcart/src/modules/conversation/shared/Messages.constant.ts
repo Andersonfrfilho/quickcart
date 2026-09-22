@@ -32,13 +32,16 @@ export const CART_REVIEW_BUTTON_ID = {
   EDIT_CART: 'edit_cart',
 } as const
 
-/** Título da linha de paginação, igual em toda lista interativa (categoria, busca, resolução, carrinho). */
+/** Título das linhas de paginação, iguais em toda lista interativa (categoria, busca, resolução, carrinho). */
 export const NEXT_PAGE_ROW_TITLE = '➡️ Próxima página'
+export const PREVIOUS_PAGE_ROW_TITLE = '⬅️ Página anterior'
 
 export const BROWSE_ROW_ID = {
   NEXT_PAGE: 'next_page',
+  PREVIOUS_PAGE: 'previous_page',
   /** Avança a busca por texto livre feita durante a navegação — distinto de `NEXT_PAGE` (paginação de categoria). */
   NEXT_SEARCH_PAGE: 'next_search_page',
+  PREVIOUS_SEARCH_PAGE: 'previous_search_page',
 } as const
 
 export const BROWSE_ROW_PREFIX = {
@@ -57,8 +60,9 @@ export const RESOLVE_ROW_ID = {
    * barato" ali escolheria outro produto sem o cliente perceber.
    */
   CHEAPEST: 'resolve_cheapest',
-  /** Avança a página da lista de candidatos do item pendente atual, sem mexer na fila. */
+  /** Muda a página da lista de candidatos do item pendente atual, sem mexer na fila. */
   NEXT_PAGE: 'resolve_next_page',
+  PREVIOUS_PAGE: 'resolve_previous_page',
 } as const
 
 export const RESOLVE_ROW_PREFIX = {
@@ -68,6 +72,7 @@ export const RESOLVE_ROW_PREFIX = {
 export const EDITING_CART_ROW_ID = {
   DONE: 'done_editing',
   NEXT_PAGE: 'editing_cart_next_page',
+  PREVIOUS_PAGE: 'editing_cart_previous_page',
 } as const
 
 export const EDITING_CART_ROW_PREFIX = {

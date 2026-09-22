@@ -26,6 +26,7 @@ import {
   EDITING_CART_ROW_ID,
   EDITING_CART_ROW_PREFIX,
   NEXT_PAGE_ROW_TITLE,
+  PREVIOUS_PAGE_ROW_TITLE,
   RESOLVE_ROW_ID,
   RESOLVE_ROW_PREFIX,
 } from '@/modules/conversation/shared/Messages.constant'
@@ -65,20 +66,34 @@ export function buildCategorySection(categories: readonly Category[]): Interacti
 /** Só o que a linha exibe: vale tanto para a página da categoria quanto para o resultado da busca. */
 type ProductRowSource = PricedItem & { readonly id: string }
 
-export function buildProductSection(
-  products: readonly ProductRowSource[],
-  hasNextPage: boolean,
+export type BuildProductSectionParams = {
+  readonly products: readonly ProductRowSource[]
+  readonly hasNextPage: boolean
+  readonly hasPreviousPage?: boolean
   /** Paginação de categoria e busca por texto livre avançam de formas diferentes — precisam de ids distintos. */
-  nextPageRowId: string = BROWSE_ROW_ID.NEXT_PAGE,
-): InteractiveListSection {
+  readonly nextPageRowId?: string
+  readonly previousPageRowId?: string
+}
+
+export function buildProductSection(params: BuildProductSectionParams): InteractiveListSection {
+  const {
+    products,
+    hasNextPage,
+    hasPreviousPage = false,
+    nextPageRowId = BROWSE_ROW_ID.NEXT_PAGE,
+    previousPageRowId = BROWSE_ROW_ID.PREVIOUS_PAGE,
+  } = params
+
   const productRows: InteractiveListRow[] = products.map((product) => ({
     id: `${BROWSE_ROW_PREFIX.PRODUCT}${product.id}`,
     title: truncate(product.name, LIST_ROW_TITLE_MAX_LENGTH),
     description: buildItemDescription(product),
   }))
+  const previousPageRow: InteractiveListRow = { id: previousPageRowId, title: PREVIOUS_PAGE_ROW_TITLE }
   const nextPageRow: InteractiveListRow = { id: nextPageRowId, title: NEXT_PAGE_ROW_TITLE }
-  const rows = hasNextPage ? [...productRows, nextPageRow] : productRows
-  return { title: truncate('Produtos', LIST_SECTION_TITLE_MAX_LENGTH), rows }
+  const navigationRows = [...(hasPreviousPage ? [previousPageRow] : []), ...(hasNextPage ? [nextPageRow] : [])]
+
+  return { title: truncate('Produtos', LIST_SECTION_TITLE_MAX_LENGTH), rows: [...productRows, ...navigationRows] }
 }
 
 export type EditingCartRow = {
@@ -88,12 +103,16 @@ export type EditingCartRow = {
   readonly priceInCents: number
 }
 
-/** Linhas fixas da seção (concluir + próxima página reservada) descontadas do teto de 10 rows da Meta. */
-const EDITING_CART_FIXED_ROWS = 2
+/** Linhas fixas da seção (concluir + anterior + próxima, ambas reservadas) descontadas do teto de 10 rows da Meta. */
+const EDITING_CART_FIXED_ROWS = 3
 const EDITING_CART_ITEMS_PER_PAGE = WHATSAPP_CHOICE_LIMIT.LIST_ROWS - EDITING_CART_FIXED_ROWS
 
 export function buildEditingCartSection(rows: readonly EditingCartRow[], page: number = FIRST_PAGE): InteractiveListSection {
-  const { pageItems, hasNextPage } = paginateRows({ items: rows, page, itemsPerPage: EDITING_CART_ITEMS_PER_PAGE })
+  const { pageItems, hasNextPage, hasPreviousPage } = paginateRows({
+    items: rows,
+    page,
+    itemsPerPage: EDITING_CART_ITEMS_PER_PAGE,
+  })
 
   const itemRows: InteractiveListRow[] = pageItems.map((row) => ({
     id: `${EDITING_CART_ROW_PREFIX.ITEM}${row.cartItemId}`,
@@ -101,8 +120,9 @@ export function buildEditingCartSection(rows: readonly EditingCartRow[], page: n
     description: buildItemDescription({ name: row.productName, priceInCents: row.priceInCents * row.quantity }),
   }))
   const doneRow: InteractiveListRow = { id: EDITING_CART_ROW_ID.DONE, title: '✅ Concluir edição' }
+  const previousPageRow: InteractiveListRow = { id: EDITING_CART_ROW_ID.PREVIOUS_PAGE, title: PREVIOUS_PAGE_ROW_TITLE }
   const nextPageRow: InteractiveListRow = { id: EDITING_CART_ROW_ID.NEXT_PAGE, title: NEXT_PAGE_ROW_TITLE }
-  const trailingRows = hasNextPage ? [doneRow, nextPageRow] : [doneRow]
+  const trailingRows = [doneRow, ...(hasPreviousPage ? [previousPageRow] : []), ...(hasNextPage ? [nextPageRow] : [])]
 
   return { title: truncate('Seus itens', LIST_SECTION_TITLE_MAX_LENGTH), rows: [...itemRows, ...trailingRows] }
 }
@@ -147,15 +167,21 @@ export function buildResolveSection(pending: PendingResolution): InteractiveList
     ? [{ id: RESOLVE_ROW_ID.CHEAPEST, title: MESSAGES.RESOLVE_CHEAPEST_LABEL }]
     : []
   const skipRow: InteractiveListRow = { id: RESOLVE_ROW_ID.SKIP_ITEM, title: '❌ Nenhum desses' }
+  const previousPageRow: InteractiveListRow = { id: RESOLVE_ROW_ID.PREVIOUS_PAGE, title: PREVIOUS_PAGE_ROW_TITLE }
   const nextPageRow: InteractiveListRow = { id: RESOLVE_ROW_ID.NEXT_PAGE, title: NEXT_PAGE_ROW_TITLE }
 
   /**
-   * "Tanto faz" e "Nenhum desses" ocupam a página inteira; a próxima página reserva mais uma
-   * linha sempre — mesmo na última, que não a usa — para o slice de candidatos não mudar de página para página.
+   * "Tanto faz" e "Nenhum desses" ocupam a página inteira; anterior e próxima reservam mais duas
+   * linhas sempre — mesmo nas páginas que não as usam — para o slice de candidatos vir da mesma
+   * conta de offset em toda página, e ir/voltar bater sempre no mesmo resultado.
    */
-  const candidatesPerPage = WHATSAPP_CHOICE_LIMIT.LIST_ROWS - delegateRows.length - 2
+  const candidatesPerPage = WHATSAPP_CHOICE_LIMIT.LIST_ROWS - delegateRows.length - 3
   const page = pending.page ?? FIRST_PAGE
-  const { pageItems, hasNextPage } = paginateRows({ items: pending.candidates, page, itemsPerPage: candidatesPerPage })
+  const { pageItems, hasNextPage, hasPreviousPage } = paginateRows({
+    items: pending.candidates,
+    page,
+    itemsPerPage: candidatesPerPage,
+  })
 
   /** Candidatos mantêm ordem de relevância entre páginas; dentro da página, o mais barato aparece primeiro. */
   const orderedPageCandidates = [...pageItems].sort((left, right) => left.priceInCents - right.priceInCents)
@@ -166,7 +192,12 @@ export function buildResolveSection(pending: PendingResolution): InteractiveList
     description: buildItemDescription(candidate),
   }))
 
-  const trailingRows = hasNextPage ? [...delegateRows, skipRow, nextPageRow] : [...delegateRows, skipRow]
+  const trailingRows = [
+    ...delegateRows,
+    skipRow,
+    ...(hasPreviousPage ? [previousPageRow] : []),
+    ...(hasNextPage ? [nextPageRow] : []),
+  ]
 
   return {
     title: truncate(`Opções: ${pending.originalTerm}`, LIST_SECTION_TITLE_MAX_LENGTH),

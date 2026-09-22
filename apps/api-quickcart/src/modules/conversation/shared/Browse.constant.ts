@@ -7,9 +7,12 @@
  *
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  *
- * 9 produtos + 1 linha "next_page" = 10 rows — limite máximo de uma seção de
+ * 8 produtos + "anterior" + "próxima" = 10 rows — limite máximo de uma seção de
  * lista interativa na WhatsApp Business API (spec §4 fala em "10/página", mas
- * a página cheia precisa reservar uma row para a navegação).
+ * a página cheia precisa reservar uma row para cada linha de navegação). As
+ * duas linhas de navegação são reservadas em toda página, mesmo quando só uma
+ * (ou nenhuma) aparece — assim o offset de cada página vem da mesma conta, e
+ * ir e voltar sempre mostra os mesmos produtos.
  */
 
-export const BROWSE_PRODUCTS_PER_PAGE = 9
+export const BROWSE_PRODUCTS_PER_PAGE = 8

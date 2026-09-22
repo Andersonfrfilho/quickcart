@@ -81,6 +81,34 @@ describe('buildResolveSection', () => {
     expect(new Set([...firstPageCandidateIds, ...secondPageCandidateIds]).size).toBe(candidates.length)
   })
 
+  it('a linha de página anterior só aparece a partir da segunda página', () => {
+    const candidates = buildCandidates({ count: 10, isInterchangeable: false })
+
+    const firstPage = buildResolveSection(buildPending(candidates, 1))
+    expect(firstPage.rows.map((row) => row.id)).not.toContain(RESOLVE_ROW_ID.PREVIOUS_PAGE)
+
+    const secondPage = buildResolveSection(buildPending(candidates, 2))
+    expect(secondPage.rows.map((row) => row.id)).toContain(RESOLVE_ROW_ID.PREVIOUS_PAGE)
+  })
+
+  it('ida e volta bate na mesma primeira página (round-trip)', () => {
+    const candidates = buildCandidates({ count: 10, isInterchangeable: false })
+
+    const firstPage = buildResolveSection(buildPending(candidates, 1))
+    const backToFirstPage = buildResolveSection(buildPending(candidates, 1))
+
+    expect(backToFirstPage.rows).toEqual(firstPage.rows)
+  })
+
+  it('nunca passa do teto de linhas da Meta em nenhuma página, com "tanto faz" ativo', () => {
+    const candidates = buildCandidates({ count: MATCH_MAX_AMBIGUOUS_CANDIDATES, isInterchangeable: true })
+
+    for (let page = 1; page <= 5; page += 1) {
+      const section = buildResolveSection(buildPending(candidates, page))
+      expect(section.rows.length).toBeLessThanOrEqual(WHATSAPP_CHOICE_LIMIT.LIST_ROWS)
+    }
+  })
+
   it('candidatos dentro de uma página aparecem ordenados por preço crescente', () => {
     const section = buildResolveSection(
       buildPending(buildCandidates({ count: 3, isInterchangeable: false })),
