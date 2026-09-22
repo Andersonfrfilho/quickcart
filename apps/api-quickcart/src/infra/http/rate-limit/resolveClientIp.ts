@@ -7,15 +7,28 @@
  *
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  *
- * O edge do Railway ACRESCENTA o IP de quem o conectou ao final de `X-Forwarded-For`; o que vem
- * antes é o que o cliente mandou e pode ser forjado. Com exatamente um proxy confiável na frente,
- * o único valor confiável é o último da lista — o primeiro é escolha do atacante.
+ * O IP do cliente vem de `X-Real-IP`, que o edge do Railway PREENCHE com o endereço remoto de quem
+ * conectou (docs.railway.com, Public Networking › Specs & Limits).
+ *
+ * `X-Forwarded-For` NÃO serve de fonte: verificado em staging em 2026-09-22, o valor que o cliente
+ * manda chega intacto ao fim da lista — com o último salto como chave, 65 requisições com um IP
+ * forjado diferente cada uma passaram todas, e sem forjar a 53ª já levou 429. Qualquer um contornava
+ * o limite trocando um header.
+ *
+ * O último salto do `X-Forwarded-For` fica só como reserva para quando não há edge na frente
+ * (desenvolvimento local), onde não existe `X-Real-IP` e ninguém de fora alcança a porta.
  */
 
 import { RATE_LIMIT_UNKNOWN_CLIENT } from './rateLimit.constant'
 
 export function resolveClientIp(headers: Readonly<Record<string, string>>): string {
-  const forwardedFor = headers['x-forwarded-for']
-  const lastHop = forwardedFor?.split(',').map((entry) => entry.trim()).filter(Boolean).at(-1)
-  return lastHop ?? headers['x-real-ip'] ?? RATE_LIMIT_UNKNOWN_CLIENT
+  const realIp = headers['x-real-ip']?.trim()
+  if (realIp) return realIp
+
+  const lastHop = headers['x-forwarded-for']
+    ?.split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .at(-1)
+  return lastHop ?? RATE_LIMIT_UNKNOWN_CLIENT
 }
