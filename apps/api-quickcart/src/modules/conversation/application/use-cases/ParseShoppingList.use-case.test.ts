@@ -167,4 +167,68 @@ describe('ParseShoppingListUseCase', () => {
       ])
     })
   })
+
+  describe('item sem vírgula depois do peso', () => {
+    test('corta a transcrição real do staging em quatro itens', async () => {
+      const result = await buildUseCase(['Broto Legal']).execute({ rawText: 'Quero arroz broto legal de 5kg Feijão e açúcar E sal' })
+
+      expect(result.items).toEqual([
+        { term: 'arroz broto legal', quantity: 5, unit: 'kg' },
+        { term: 'feijao', quantity: 1, unit: 'un' },
+        { term: 'acucar', quantity: 1, unit: 'un' },
+        { term: 'sal', quantity: 1, unit: 'un' },
+      ])
+    })
+
+    test('separa itens com o peso depois do produto', async () => {
+      const result = await buildUseCase().execute({ rawText: 'feijao 1kg arroz 5kg' })
+
+      expect(result.items).toEqual([
+        { term: 'feijao', quantity: 1, unit: 'kg' },
+        { term: 'arroz', quantity: 5, unit: 'kg' },
+      ])
+    })
+
+    test('não corta quando o peso vem antes do produto', async () => {
+      const result = await buildUseCase().execute({ rawText: '5 kg de feijão e 5kg arroz' })
+
+      expect(result.items).toEqual([
+        { term: 'feijao', quantity: 5, unit: 'kg' },
+        { term: 'arroz', quantity: 5, unit: 'kg' },
+      ])
+    })
+  })
+
+  describe('pontuação e conjunção da fala', () => {
+    test('separa itens no ponto final e entende o verbo depois de "também"', async () => {
+      const result = await buildUseCase(['Tio João']).execute({
+        rawText: 'Quero comprar 5 kg de arroz, tio João, e açúcar, feijão de 2 kg. Também quero sal.',
+      })
+
+      expect(result.items).toEqual([
+        { term: 'arroz tio joao', quantity: 5, unit: 'kg' },
+        { term: 'acucar', quantity: 1, unit: 'un' },
+        { term: 'feijao', quantity: 2, unit: 'kg' },
+        { term: 'sal', quantity: 1, unit: 'un' },
+      ])
+    })
+
+    test('não deixa a conjunção no começo do termo', async () => {
+      const result = await buildUseCase().execute({ rawText: 'arroz, e açúcar' })
+
+      expect(result.items).toEqual([
+        { term: 'arroz', quantity: 1, unit: 'un' },
+        { term: 'acucar', quantity: 1, unit: 'un' },
+      ])
+    })
+
+    test('preserva o decimal ditado com ponto ou vírgula', async () => {
+      const result = await buildUseCase().execute({ rawText: '1,5kg de arroz e 2.5 litros de leite' })
+
+      expect(result.items).toEqual([
+        { term: 'arroz', quantity: 1.5, unit: 'kg' },
+        { term: 'leite', quantity: 2.5, unit: 'litros' },
+      ])
+    })
+  })
 })
