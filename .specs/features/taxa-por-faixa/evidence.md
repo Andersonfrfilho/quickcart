@@ -634,3 +634,20 @@ Commit único com as mudanças acima. Mensagem em português com o porquê, conf
 - `ResolveOrderDeliveryEstimate.test.ts`: `toBeDefined` trocados por valores (1,96 km, 15–30 min).
 - Não alterado (decisão do usuário a registrar): `GEOCODE_PRECISION.NONE` → maior faixa.
 - Gates: typecheck limpo; api 684 / 0 fail; frontend 48 / 0 fail.
+
+## T6.2 — seed sem provedor externo
+
+`make seed ENV=test` quebrava no CI (`seed_failed - Não foi possível calcular a taxa de entrega`).
+Causa: `CreateWebOrder` passou a cotar a entrega, e o `env.test` não tem `STORE_CEP` (ausente de
+propósito, para teste de integração não geocodificar de verdade) — a cotação devolvia `unavailable`
+e derrubava a seed inteira. No CI ainda se soma a falta de saída para ViaCEP/Nominatim.
+
+Correção:
+- `SeedOfflineAddressProviders.ts`: geocodificação e ViaCEP da seed com coordenada fixa por CEP
+  (Piumhi com precisão de município, que é o caso D3). Sem rede e determinístico.
+- `OrderSeedRunner.ts`: garante as faixas padrão antes dos pedidos (a seed roda em banco recém
+  migrado, antes de qualquer boot) e trata `DeliveryOutOfRangeError`/`DeliveryUnavailableError` como
+  cliente de exemplo pulado, com `warn`, em vez de matar a seed. Pedido fora da última faixa deixou
+  de ser possível por decisão da spec.
+
+Verificado: `make seed ENV=test` sai 0; typecheck limpo; api 684 pass / 0 fail.

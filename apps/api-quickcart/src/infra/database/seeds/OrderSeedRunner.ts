@@ -20,8 +20,8 @@
  *   requisição, e uma seed não repete — usar o Redis de verdade sujaria o ambiente com chaves de 24h.
  */
 
-import { ViaCepAddressLookupProvider } from '@/infra/viacep/ViaCepAddressLookupProvider'
 import { CreateWebOrderUseCase } from '@/modules/order/application/use-cases/CreateWebOrder.use-case'
+import { EnsureDefaultDeliveryFeeTiersUseCase } from '@/modules/order/application/use-cases/EnsureDefaultDeliveryFeeTiers.use-case'
 import { QuoteDeliveryFeeUseCase } from '@/modules/order/application/use-cases/QuoteDeliveryFee.use-case'
 import { DrizzleOrderRepository } from '@/modules/order/infra/database/DrizzleOrderRepository'
 import { DrizzleDeliveryFeeTierRepository } from '@/modules/order/infra/database/DrizzleDeliveryFeeTierRepository'
@@ -30,7 +30,11 @@ import { DrizzleCustomerRepository } from '@/modules/webhook/infra/database/Driz
 import { ResolveCepCoordinateUseCase } from '@/modules/shared/address/ResolveCepCoordinate.use-case'
 import { DrizzleGeocodedAddressRepository } from '@/modules/shared/address/infra/DrizzleGeocodedAddressRepository'
 import { DrizzleGeocodeFailureRepository } from '@/modules/shared/address/infra/DrizzleGeocodeFailureRepository'
-import { NominatimGeocodingProvider } from '@/infra/nominatim/NominatimGeocodingProvider'
+import { DeliveryOutOfRangeError, DeliveryUnavailableError } from '@/shared/errors/OrderErrors'
+import {
+  SeedOfflineAddressLookupProvider,
+  SeedOfflineGeocodingProvider,
+} from './SeedOfflineAddressProviders'
 import type { CacheProvider } from '@/shared/providers/CacheProvider.interface'
 import { generateId } from '@/shared/id'
 import { environment } from '@/infra/config/environment'
@@ -70,14 +74,18 @@ export async function seedOrders(): Promise<void> {
   const productRepository = new DrizzleProductRepository()
   const customerRepository = new DrizzleCustomerRepository()
 
+  const deliveryFeeTierRepository = new DrizzleDeliveryFeeTierRepository()
+  // Sem faixa não existe entrega, e no CI a seed roda num banco recém-migrado, antes de qualquer boot.
+  await new EnsureDefaultDeliveryFeeTiersUseCase({ deliveryFeeTierRepository }).execute()
+
   const resolveCepCoordinateUseCase = new ResolveCepCoordinateUseCase({
     geocodedAddressRepository: new DrizzleGeocodedAddressRepository(),
-    geocodingProvider: new NominatimGeocodingProvider(),
+    geocodingProvider: new SeedOfflineGeocodingProvider(),
     geocodeFailureRepository: new DrizzleGeocodeFailureRepository(),
     storeCep: environment.STORE_CEP,
   })
   const quoteDeliveryFeeUseCase = new QuoteDeliveryFeeUseCase({
-    deliveryFeeTierRepository: new DrizzleDeliveryFeeTierRepository(),
+    deliveryFeeTierRepository,
     resolveCepCoordinateUseCase,
     storeCep: environment.STORE_CEP,
     detourFactor: environment.DISTANCE_DETOUR_FACTOR,
@@ -88,7 +96,7 @@ export async function seedOrders(): Promise<void> {
     customerRepository,
     cacheProvider: new InMemoryCacheProvider(),
     quoteDeliveryFeeUseCase,
-    addressLookupProvider: new ViaCepAddressLookupProvider(),
+    addressLookupProvider: new SeedOfflineAddressLookupProvider(),
   })
 
   const catalog = await productRepository.list({
@@ -135,15 +143,29 @@ export async function seedOrders(): Promise<void> {
       return { productId: product.id, quantity: (itemIndex % 3) + 1 }
     })
 
-    await createWebOrderUseCase.execute({
-      idempotencyKey: generateId(),
-      customer: { name: seedCustomer.name, phone: seedCustomer.phone },
-      items,
-      deliveryType: seedCustomer.deliveryType,
-      ...(seedCustomer.address ? { address: seedCustomer.address } : {}),
-      paymentMethod: seedCustomer.paymentMethod,
-      receiptPreference: 'whatsapp',
-    })
+    try {
+      await createWebOrderUseCase.execute({
+        idempotencyKey: generateId(),
+        customer: { name: seedCustomer.name, phone: seedCustomer.phone },
+        items,
+        deliveryType: seedCustomer.deliveryType,
+        ...(seedCustomer.address ? { address: seedCustomer.address } : {}),
+        paymentMethod: seedCustomer.paymentMethod,
+        receiptPreference: 'whatsapp',
+      })
+    } catch (error) {
+      /*
+       * Endereço fora da última faixa deixou de ser pedido possível — a taxa por faixa recusa na
+       * criação. O cliente de exemplo que existia para o aviso de "fora do raio" fica sem pedido,
+       * em vez de derrubar a seed inteira.
+       */
+      if (error instanceof DeliveryOutOfRangeError || error instanceof DeliveryUnavailableError) {
+        skipped++
+        log.warn('order_seed_skipped', { purpose: seedCustomer.purpose, reason: error.code })
+        continue
+      }
+      throw error
+    }
 
     created++
     log.info('order_seeded', { purpose: seedCustomer.purpose })
