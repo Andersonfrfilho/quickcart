@@ -22,7 +22,8 @@ import type { CartRepositoryInterface } from '@/modules/cart/domain/CartReposito
 import type { ProductRepositoryInterface } from '@/modules/catalog/domain/ProductRepository.interface'
 import type { ConversationSessionRepositoryInterface } from '@/modules/webhook/domain/ConversationSessionRepository.interface'
 import type { WhatsAppSender } from '@/modules/webhook/infra/whatsapp/WhatsAppSender'
-import type { CartDraftItem } from '@/modules/conversation/shared/ConversationContext.types'
+import type { CartDraftItem, ConversationContext } from '@/modules/conversation/shared/ConversationContext.types'
+import { carryRememberedCheckout } from '@/modules/conversation/application/handlers/support/carryRememberedCheckout'
 import { sendCartSummary } from '@/modules/conversation/application/handlers/support/CartSummary'
 import { materializeCartDraft } from '@/modules/conversation/application/handlers/support/materializeCartDraft'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
@@ -81,10 +82,11 @@ export async function enterCartReview(params: EnterCartReviewParams): Promise<vo
    * bot repetir "não encontrei: ovos" a cada rodada, além de contar a mesma demanda várias vezes no
    * relatório. O aviso ao cliente já foi dado; a demanda já foi gravada.
    */
+  const sessionContext = (session.context ?? {}) as ConversationContext
   await conversationSessionRepository.updateStateByPhone({
     customerPhone: session.customerPhone,
     currentState: CONVERSATION_STATE.CART_REVIEW,
-    context: { unmatchedTerms: [] },
+    context: { unmatchedTerms: [], ...carryRememberedCheckout(sessionContext) },
   })
 
   if (allUnmatchedTerms.length > 0) {

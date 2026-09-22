@@ -22,6 +22,7 @@ import type { ConversationSessionRepositoryInterface } from '@/modules/webhook/d
 import type { WhatsAppSender } from '@/modules/webhook/infra/whatsapp/WhatsAppSender'
 import type { ConversationContext } from '@/modules/conversation/shared/ConversationContext.types'
 import { buildResolveSection } from '@/modules/conversation/application/handlers/support/InteractiveListBuilders'
+import { carryRememberedCheckout } from '@/modules/conversation/application/handlers/support/carryRememberedCheckout'
 import { enterCartReview } from '@/modules/conversation/application/handlers/support/enterCartReview'
 import type { UnmatchedDemandRepositoryInterface } from '@/modules/conversation/domain/UnmatchedDemandRepository.interface'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
@@ -77,10 +78,11 @@ export async function advanceResolutionQueue(params: AdvanceResolutionQueueParam
     return
   }
 
+  const sessionContext = (session.context ?? {}) as ConversationContext
   await conversationSessionRepository.updateStateByPhone({
     customerPhone: session.customerPhone,
     currentState: CONVERSATION_STATE.RESOLVING_ITEMS,
-    context: { cartDraft, unmatchedTerms, pendingResolutions },
+    context: { cartDraft, unmatchedTerms, pendingResolutions, ...carryRememberedCheckout(sessionContext) },
   })
 
   const section = buildResolveSection(nextPending)

@@ -588,3 +588,61 @@ task (nenhum arquivo de `apps/frontend-web` mudou).
 Nenhum. Confirmar/Cancelar mantidos como estavam; "Alterar" foi o único botão novo, e o
 reaproveitamento de entrega/pagamento ao fechar de novo passa pelo mesmo caminho corrigido em
 02b01dd, incluindo repetir a pergunta do troco e recotar a taxa de entrega.
+
+### T2.3 — correção: memória sobrevive à edição do carrinho
+
+**Defeito.** A T2.3 (c8073aa) fazia "Alterar" guardar `rememberedCheckout` no contexto e
+`CartHandler.handleCartReview` priorizá-lo ao "Fechar pedido". Mas quem aperta "Alterar" quer
+mudar o CARRINHO, e as transições do ciclo de montagem/edição gravavam `context: {}` (ou um
+objeto novo sem `rememberedCheckout`), apagando a memória junto:
+- `CartHandler.ts`: "Adicionar mais" (`handleCartReview`, `ADD_MORE`), `sendEditingCartList`
+  (as duas saídas: carrinho vazio e listagem normal) e `returnToCartReview` ("Concluir edição").
+- `enterCartReview.ts` (ponto único de entrada em `cart_review`, usado por `advanceResolutionQueue`
+  e por `BrowseHandler`): gravava `context: { unmatchedTerms: [] }`.
+- `advanceResolutionQueue.ts`: ao abrir `RESOLVING_ITEMS` (fila de desambiguação), gravava só
+  `{ cartDraft, unmatchedTerms, pendingResolutions }`.
+
+Resultado: Alterar → editar/adicionar item → voltar ao carrinho → Fechar pedido perdia a memória,
+e `handleCartReview` caía no `resolveRememberedCheckout` (último pedido do banco) — outra compra,
+ou nada para cliente novo. O critério 7 só funcionava no caso inútil de "Alterar" sem mexer em
+nada.
+
+**Causa.** Cada transição do ciclo escrevia o contexto do zero (ou reconstruía só os campos que
+lhe interessavam) em vez de carregar adiante o que já estava lá.
+
+**Correção.** Uma função única,
+`carryRememberedCheckout(context): Pick<ConversationContext, 'rememberedCheckout'>`
+(`apps/api-quickcart/src/modules/conversation/application/handlers/support/carryRememberedCheckout.ts`),
+devolve `{ rememberedCheckout }` quando existir no contexto de origem, e `{}` quando não. Usada em:
+- `CartHandler.ts`: `handleCartReview` (`ADD_MORE`, linha ~150), `sendEditingCartList` (linhas
+  ~239 e ~254) e `returnToCartReview` (linha ~277). A transição de editar item em si
+  (`handleEditingCart`, linha ~194, que grava `editingCartItemId`) já espalhava `...context`
+  inteiro e não precisou de mudança — só ganhou o `rememberedCheckout` de graça por já preservar
+  o contexto todo.
+- `enterCartReview.ts` (linha ~87): `context: { unmatchedTerms: [], ...carryRememberedCheckout(sessionContext) }`.
+- `advanceResolutionQueue.ts` (linha ~83): `context: { cartDraft, unmatchedTerms, pendingResolutions, ...carryRememberedCheckout(sessionContext) }`.
+
+Só `rememberedCheckout` é carregado — nenhuma outra chave de checkout (`checkoutDeliveryType`,
+`checkoutPaymentMethod`, `checkoutCashChangeForInCents` etc.) atravessa o ciclo de edição; quem
+decide se o reaproveitamento vale é a pergunta "Isso mesmo?" em `handleAwaitingDeliveryType`
+(não tocado nesta correção), igual à T2.3 original.
+
+Fora do ciclo de montagem/edição nada mudou: `GlobalHandler`, `CheckoutHandler`, `MenuHandler`,
+`GreetingHandler` e `enterConfirming` continuam gravando `context: {}` nas saídas por
+sair/cancelar, conclusão de pedido e expiração — verificado que nenhum desses grep-a `context: {}`
+foi tocado.
+
+**Testes novos**, sem `as never` (dublês tipados por `as unknown as <Dependencies>` sobre objeto
+literal, mesmo padrão do resto do arquivo):
+- `CartHandler.rememberedCheckoutSurvivesEditing.test.ts` (5 casos): "Adicionar mais" preserva;
+  "Editar carrinho" preserva; "Concluir edição" preserva; escolher item para editar preserva
+  (`editingCartItemId` + `rememberedCheckout`); sem `rememberedCheckout` prévio, não inventa memória.
+- `support/enterCartReview.rememberedCheckout.test.ts` (4 casos): `enterCartReview` isolado
+  preserva; caminho completo "Adicionar mais → lista → cart_review" via `advanceResolutionQueue`
+  preserva; caminho com `RESOLVING_ITEMS` (desambiguação pendente) preserva; sem memória prévia,
+  não inventa.
+- Invariantes do troco/taxa de entrega (commit 02b01dd, T2.1) não foram tocados — cobertura
+  existente em `CheckoutHandler.rememberedCheckout.test.ts` continua verde sem alteração.
+
+**Números.** Baseline antes desta correção: 372 testes passando, 0 falhas. Depois: **381 testes
+passando, 0 falhas** (9 novos: 5 + 4 acima). `bun run typecheck` limpo.
