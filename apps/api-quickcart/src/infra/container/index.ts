@@ -76,6 +76,8 @@ import { ParseShoppingListUseCase } from '@/modules/conversation/application/use
 import { GroqListRefinerProvider } from '@/modules/conversation/infra/providers/GroqListRefinerProvider'
 import { DrizzleListImportRepository } from '@/modules/conversation/infra/database/DrizzleListImportRepository'
 import { DrizzleUnmatchedDemandRepository } from '@/modules/conversation/infra/database/DrizzleUnmatchedDemandRepository'
+import { ConversationCheckoutContextController } from '@/modules/conversation/infra/http/ConversationCheckoutContext.controller'
+import { GetConversationCheckoutContextUseCase } from '@/modules/conversation/application/use-cases/GetConversationCheckoutContext.use-case'
 import { UnmatchedDemandController } from '@/modules/conversation/infra/http/UnmatchedDemand.controller'
 import { ProcessParsedListItems } from '@/modules/conversation/application/handlers/support/ProcessParsedListItems'
 import { GreetingHandler } from '@/modules/conversation/application/handlers/GreetingHandler'
@@ -653,11 +655,13 @@ type ConversationHttpModule = {
   readonly previewMediaController: ReturnType<typeof createPreviewMediaController>
   readonly previewInboundController: ReturnType<typeof createPreviewInboundController>
   readonly unmatchedDemandController: UnmatchedDemandController
+  readonly checkoutContextController: ConversationCheckoutContextController
 }
 
 function buildConversationHttpModule(params: {
   readonly metaWhatsApp: MetaWhatsAppModule
   readonly objectStorage?: ObjectStorageInterface
+  readonly getConversationCheckoutContextUseCase: GetConversationCheckoutContextUseCase
 }): ConversationHttpModule {
   return {
     conversationController: new ConversationController({
@@ -684,6 +688,9 @@ function buildConversationHttpModule(params: {
     previewInboundController: createPreviewInboundController(params.metaWhatsApp),
     unmatchedDemandController: new UnmatchedDemandController({
       unmatchedDemandRepository: new DrizzleUnmatchedDemandRepository(),
+    }),
+    checkoutContextController: new ConversationCheckoutContextController({
+      getConversationCheckoutContextUseCase: params.getConversationCheckoutContextUseCase,
     }),
   }
 }
@@ -839,6 +846,12 @@ export const container = {
   conversationHttp: buildConversationHttpModule({
     metaWhatsApp: webhookModule.metaWhatsApp,
     ...(quickCartObjectStorage ? { objectStorage: quickCartObjectStorage.forModule } : {}),
+    getConversationCheckoutContextUseCase: new GetConversationCheckoutContextUseCase({
+      conversationSessionRepository: webhookRepositories.conversationSessionRepository,
+      customerRepository: webhookRepositories.customerRepository,
+      cartRepository: cartModule.cartRepository,
+      productRepository: catalogModule.productRepository,
+    }),
   }),
   internal: buildInternalModule({
     conversationSessionRepository: webhookRepositories.conversationSessionRepository,

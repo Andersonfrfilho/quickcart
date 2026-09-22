@@ -65,6 +65,7 @@ export function createRouter({ userModule }: CreateRouterParams): Router {
     previewMediaController: container.conversationHttp.previewMediaController,
     previewInboundController: container.conversationHttp.previewInboundController,
     unmatchedDemandController: container.conversationHttp.unmatchedDemandController,
+    checkoutContextController: container.conversationHttp.checkoutContextController,
   })
 
   // Notificação inteira — inbox, SSE do sino, devices, preferências e templates — em três linhas.

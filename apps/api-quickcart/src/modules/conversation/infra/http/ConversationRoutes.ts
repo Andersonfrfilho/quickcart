@@ -19,6 +19,7 @@ import type { createPreviewTranscriptController } from './PreviewTranscript.cont
 import type { createPreviewMediaController } from './PreviewMedia.controller'
 import type { createPreviewInboundController } from './PreviewInbound.controller'
 import type { UnmatchedDemandController } from './UnmatchedDemand.controller'
+import type { ConversationCheckoutContextController } from './ConversationCheckoutContext.controller'
 
 type PreviewTranscriptController = ReturnType<typeof createPreviewTranscriptController>
 type PreviewMediaController = ReturnType<typeof createPreviewMediaController>
@@ -33,11 +34,12 @@ type RegisterConversationRoutesParams = {
   readonly previewMediaController: PreviewMediaController
   readonly previewInboundController: PreviewInboundController
   readonly unmatchedDemandController: UnmatchedDemandController
+  readonly checkoutContextController: ConversationCheckoutContextController
 }
 
 export function registerConversationRoutes(params: RegisterConversationRoutesParams): void {
   const { router, conversationController, settingsController, streamController, previewTranscriptController } = params
-  const { previewMediaController, previewInboundController, unmatchedDemandController } = params
+  const { previewMediaController, previewInboundController, unmatchedDemandController, checkoutContextController } = params
 
   // Demanda que a loja está perdendo. Fica em /admin porque é leitura sobre comportamento de cliente,
   // e agregada ela ainda diz quantas pessoas pediram cada item.
@@ -51,6 +53,8 @@ export function registerConversationRoutes(params: RegisterConversationRoutesPar
   router.get('/v1/admin/conversations', conversationController.handleList)
   router.get('/v1/admin/conversations/:number/messages', conversationController.handleListMessages)
   router.get('/v1/admin/conversations/:number/context', conversationController.handleGetContext)
+  // Recorte do contexto para o card "pedido em andamento" — nunca o contexto inteiro, que tem PII.
+  router.get('/v1/admin/conversations/:number/checkout-context', checkoutContextController.handleGetCheckoutContext)
   router.get('/v1/admin/conversations/:number/documents', conversationController.handleListDocuments)
   // POST porque a seleção vai no corpo: uma lista de ids não cabe em query string com folga.
   router.post('/v1/admin/conversations/:number/documents/archive', conversationController.handleDownloadDocumentsArchive)
