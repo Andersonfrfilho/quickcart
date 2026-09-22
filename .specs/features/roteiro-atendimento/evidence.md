@@ -999,3 +999,11 @@ Auditoria do `code-standart.md` §15 sobre `git diff origin/main...HEAD` (117 ar
 - `bun run typecheck` limpo em `api-quickcart`, `worker-quickcart` e `frontend-web`.
 - `bun run test`: api-quickcart **443 passando, 0 falhas** (412 + 31); worker-quickcart **19
   passando, 0 falhas**; frontend-web **22 passando, 0 falhas** (18 + 4).
+
+## Decisões do usuário
+
+- **Tela do motorista (2026-09-22):** a tela compartilhada do painel serve. O selo "Levar maquininha"
+  aparece para o motorista pelas mesmas telas do admin; não há tela própria a construir.
+- **Autorização por tenant na rota `checkout-context`:** com um tenant só, a rota responde `200` com
+  `data: null` em vez do `404` para "outro tenant" que o `tasks.md` previa. Passa a importar se o
+  QuickCart atender mais de uma loja.
