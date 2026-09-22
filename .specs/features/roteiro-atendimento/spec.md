@@ -85,8 +85,10 @@ humana: aquela branch tem trabalho não commitado de outra sessão no worktree p
 ### 3.4 Taxa de entrega e resumo completo (roteiro §7)
 
 **Taxa.**
-- Nova env `DELIVERY_FEE_CENTS` (inteiro ≥ 0, padrão `0`) no schema de ambiente da api.
-- Nova coluna `orders.delivery_fee_in_cents integer not null default 0`. Retirada = 0 sempre.
+- ⚠️ **Atualização (spec `taxa-por-faixa`):** a taxa deixou de ser fixa por env (`DELIVERY_FEE_CENTS`)
+  e passa a ser **por faixa de distância**, editável no painel (`PUT /v1/admin/delivery-fee-tiers`).
+  A taxa é cotada junto com o endereço (botão "Entrega") e snapshot no pedido.
+- Coluna `orders.delivery_fee_in_cents` continua sendo `integer not null default 0`. Retirada = 0 sempre.
 - **`total_in_cents` NÃO muda de significado** — continua sendo a soma dos itens. O valor cobrado do
   cliente é `total_in_cents + delivery_fee_in_cents`, e **uma única função** `amountDueInCents(order)`
   calcula isso. Nenhum outro lugar soma os dois.
@@ -96,9 +98,7 @@ humana: aquela branch tem trabalho não commitado de outra sessão no worktree p
   fora, a nota continua batendo.
 - A reprecificação por item em falta (`NotifyUnavailableItems`) recalcula `total_in_cents` e **não
   pode zerar nem recalcular a taxa**.
-- O pedido pela **loja web** (`CreateWebOrder`) cobra a mesma taxa pela mesma regra.
-- ⚠️ **Antes de ligar `DELIVERY_FEE_CENTS > 0` em produção, confirmar com o contador** como a taxa
-  é documentada (serviço à parte, recibo, etc.). O padrão `0` não muda nada no fiscal.
+- O pedido pela **loja web** (`CreateWebOrder`) recota a taxa (coordenação com a tarifa atual).
 
 **Resumo antes de confirmar.** Passa a mostrar, nesta ordem:
 

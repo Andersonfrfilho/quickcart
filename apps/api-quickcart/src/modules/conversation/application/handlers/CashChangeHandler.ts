@@ -37,6 +37,7 @@ import { CHANNEL } from '@/modules/shared/shared.constant'
 import type { AcceptCashChangeAmountParams } from '@/modules/conversation/application/types/CashChangeHandler.types'
 import { amountDueInCents as calculateAmountDueInCents } from '@/modules/order/shared/amountDue'
 import { resolveCheckoutDeliveryFeeInCents } from '@/modules/conversation/shared/resolveCheckoutDeliveryFeeInCents'
+import { returnToAddressForMissingQuote } from '@/modules/conversation/application/handlers/support/returnToAddressForMissingQuote'
 
 /** Portas estreitas: só o que este handler usa, para o teste não precisar de repositório inteiro. */
 export type CashChangeHandlerDependencies = EnterConfirmingDependencies
@@ -117,6 +118,13 @@ export class CashChangeHandler implements ConversationHandlerInterface {
 
   private async acceptCashChangeAmount(params: AcceptCashChangeAmountParams): Promise<void> {
     const { session, customer, checkoutContext, cashChangeForInCents } = params
+    // Troco validado sem taxa conhecida seria validado contra o valor errado: sem cotação, volta ao endereço.
+    const deliveryFeeInCents = resolveCheckoutDeliveryFeeInCents(checkoutContext)
+    if (deliveryFeeInCents === undefined) {
+      await returnToAddressForMissingQuote({ dependencies: this.dependencies, customerPhone: session.customerPhone, checkoutContext })
+      return
+    }
+
     const cart = await this.dependencies.cartRepository.findOpenByCustomer(customer.id, CHANNEL.WHATSAPP)
     const cartTotalInCents = cart
       ? await calculateCartTotalInCents({
@@ -127,10 +135,7 @@ export class CashChangeHandler implements ConversationHandlerInterface {
       : 0
     const amountDueInCents = calculateAmountDueInCents({
       totalInCents: cartTotalInCents,
-      deliveryFeeInCents: resolveCheckoutDeliveryFeeInCents({
-        context: checkoutContext,
-        configuredFeeInCents: this.dependencies.configuredDeliveryFeeInCents,
-      }),
+      deliveryFeeInCents,
     })
 
     // Valor exato: vai pagar sem troco. Grava null, como o botão "Não preciso".

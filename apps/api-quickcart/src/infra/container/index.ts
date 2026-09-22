@@ -115,6 +115,12 @@ import { GetAdminOrderDetailUseCase } from '@/modules/order/application/use-case
 import { ResolveOrderDeliveryEstimateUseCase } from '@/modules/order/application/use-cases/ResolveOrderDeliveryEstimate.use-case'
 import { ResolveCepCoordinateUseCase } from '@/modules/shared/address/ResolveCepCoordinate.use-case'
 import { DrizzleGeocodedAddressRepository } from '@/modules/shared/address/infra/DrizzleGeocodedAddressRepository'
+import { DrizzleGeocodeFailureRepository } from '@/modules/shared/address/infra/DrizzleGeocodeFailureRepository'
+import { DrizzleDeliveryFeeTierRepository } from '@/modules/order/infra/database/DrizzleDeliveryFeeTierRepository'
+import { EnsureDefaultDeliveryFeeTiersUseCase } from '@/modules/order/application/use-cases/EnsureDefaultDeliveryFeeTiers.use-case'
+import { QuoteDeliveryFeeUseCase } from '@/modules/order/application/use-cases/QuoteDeliveryFee.use-case'
+import { ReplaceDeliveryFeeTiersUseCase } from '@/modules/order/application/use-cases/ReplaceDeliveryFeeTiers.use-case'
+import { DeliveryFeeTiersController } from '@/modules/order/infra/http/DeliveryFeeTiers.controller'
 import { SetOrderItemUnavailableUseCase } from '@/modules/order/application/use-cases/SetOrderItemUnavailable.use-case'
 import { SetOrderItemPickedUseCase } from '@/modules/order/application/use-cases/SetOrderItemPicked.use-case'
 import { AskUnavailableItemsUseCase } from '@/modules/order/application/use-cases/AskUnavailableItems.use-case'
@@ -203,6 +209,8 @@ type OrderModuleDependencies = {
   readonly productRepository: ProductRepositoryInterface
   readonly customerRepository: CustomerRepositoryInterface
   readonly cacheProvider: CacheProvider
+  /** Rua/bairro/cidade/UF do pedido web saem do CEP, não do navegador. */
+  readonly addressLookupProvider: AddressLookupProviderInterface
   /** Para avisar o cliente quando um item do pedido acabar na separação. */
   readonly whatsAppSender: WhatsAppSender
   /**
@@ -226,6 +234,8 @@ type OrderModule = {
   readonly listOrdersUseCase: ListOrdersUseCase
   readonly orderController: OrderController
   readonly resolveOrderDeliveryEstimateUseCase: ResolveOrderDeliveryEstimateUseCase
+  readonly quoteDeliveryFeeUseCase: QuoteDeliveryFeeUseCase
+  readonly deliveryFeeTiersController: DeliveryFeeTiersController
 }
 
 function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
@@ -236,12 +246,30 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     cartRepository: dependencies.cartRepository,
     productRepository: dependencies.productRepository,
   })
+  /*
+   * Coordenada por CEP, cacheada em Postgres. Uma instância só do provider por processo, porque é ela
+   * que guarda o instante da última chamada para respeitar o 1 req/s do Nominatim.
+   */
+  const resolveCepCoordinateUseCase = new ResolveCepCoordinateUseCase({
+    geocodedAddressRepository: new DrizzleGeocodedAddressRepository(),
+    geocodingProvider: new NominatimGeocodingProvider(),
+    geocodeFailureRepository: new DrizzleGeocodeFailureRepository(),
+    storeCep: environment.STORE_CEP,
+  })
+  const deliveryFeeTierRepository = new DrizzleDeliveryFeeTierRepository()
+  const quoteDeliveryFeeUseCase = new QuoteDeliveryFeeUseCase({
+    deliveryFeeTierRepository,
+    resolveCepCoordinateUseCase,
+    storeCep: environment.STORE_CEP,
+    detourFactor: environment.DISTANCE_DETOUR_FACTOR,
+  })
   const createWebOrderUseCase = new CreateWebOrderUseCase({
     orderRepository,
     productRepository: dependencies.productRepository,
     customerRepository: dependencies.customerRepository,
     cacheProvider: dependencies.cacheProvider,
-    configuredDeliveryFeeInCents: environment.DELIVERY_FEE_CENTS,
+    quoteDeliveryFeeUseCase,
+    addressLookupProvider: dependencies.addressLookupProvider,
   })
   const getOrderByShortCodeUseCase = new GetOrderByShortCodeUseCase({
     orderRepository,
@@ -253,21 +281,13 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     notifyStatusChanged: (params) => dependencies.resolveOrderStatusNotifier().notifyStatusChanged(params),
   }
   const updateOrderStatusUseCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier, receiptQueue })
-  /*
-   * Coordenada por CEP, cacheada em Postgres. Uma instância só do provider por processo, porque é ela
-   * que guarda o instante da última chamada para respeitar o 1 req/s do Nominatim.
-   */
-  const resolveCepCoordinateUseCase = new ResolveCepCoordinateUseCase({
-    geocodedAddressRepository: new DrizzleGeocodedAddressRepository(),
-    geocodingProvider: new NominatimGeocodingProvider(),
-  })
   const resolveOrderDeliveryEstimateUseCase = new ResolveOrderDeliveryEstimateUseCase({
     resolveCepCoordinateUseCase,
+    deliveryFeeTierRepository,
     storeCep: environment.STORE_CEP,
     detourFactor: environment.DISTANCE_DETOUR_FACTOR,
     averageSpeedKmh: environment.DELIVERY_AVERAGE_SPEED_KMH,
     preparationMinutes: environment.STORE_PREPARATION_MINUTES,
-    deliveryRadiusKm: environment.STORE_DELIVERY_RADIUS_KM,
   })
   const getAdminOrderDetailUseCase = new GetAdminOrderDetailUseCase({
     orderRepository,
@@ -342,6 +362,12 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     customerRepository: dependencies.customerRepository,
   })
 
+  const replaceDeliveryFeeTiersUseCase = new ReplaceDeliveryFeeTiersUseCase({ deliveryFeeTierRepository })
+  const deliveryFeeTiersController = new DeliveryFeeTiersController({
+    deliveryFeeTierRepository,
+    replaceDeliveryFeeTiersUseCase,
+  })
+
   return {
     orderRepository,
     createOrderFromCartUseCase,
@@ -355,6 +381,8 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     listOrdersUseCase,
     orderController,
     resolveOrderDeliveryEstimateUseCase,
+    quoteDeliveryFeeUseCase,
+    deliveryFeeTiersController,
   }
 }
 
@@ -400,6 +428,7 @@ type ConversationModuleDependencies = {
   readonly updateCartItemQuantityUseCase: UpdateCartItemQuantityUseCase
   readonly createOrderFromCartUseCase: CreateOrderFromCartUseCase
   readonly resolveOrderDeliveryEstimateUseCase: ResolveOrderDeliveryEstimateUseCase
+  readonly quoteDeliveryFeeUseCase: QuoteDeliveryFeeUseCase
   readonly repeatLastOrderUseCase: RepeatLastOrderUseCase
   readonly resolveCustomerDecisionUseCase: ResolveCustomerDecisionUseCase
   readonly resolveItemSubstitutionUseCase: ResolveItemSubstitutionUseCase
@@ -425,6 +454,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     updateCartItemQuantityUseCase,
     createOrderFromCartUseCase,
     resolveOrderDeliveryEstimateUseCase,
+    quoteDeliveryFeeUseCase,
     repeatLastOrderUseCase,
     resolveCustomerDecisionUseCase,
     resolveItemSubstitutionUseCase,
@@ -497,14 +527,13 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     resolveOrderDeliveryEstimateUseCase,
     addressLookupProvider,
     storePreparationMinutes: environment.STORE_PREPARATION_MINUTES,
-    configuredDeliveryFeeInCents: environment.DELIVERY_FEE_CENTS,
+    quoteDeliveryFeeUseCase,
   })
   const cashChangeHandler = new CashChangeHandler({
     conversationSessionRepository,
     whatsAppSender,
     cartRepository,
     productRepository,
-    configuredDeliveryFeeInCents: environment.DELIVERY_FEE_CENTS,
   })
   const globalHandler = new GlobalHandler({
     conversationSessionRepository,
@@ -536,6 +565,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
       [CONVERSATION_STATE.AWAITING_DELIVERY_TYPE]: checkoutHandler,
       [CONVERSATION_STATE.AWAITING_ADDRESS]: checkoutHandler,
       [CONVERSATION_STATE.AWAITING_ADDRESS_NUMBER]: checkoutHandler,
+      [CONVERSATION_STATE.AWAITING_OUT_OF_RANGE_DECISION]: checkoutHandler,
       [CONVERSATION_STATE.AWAITING_PAYMENT]: checkoutHandler,
       [CONVERSATION_STATE.AWAITING_CASH_CHANGE]: cashChangeHandler,
       [CONVERSATION_STATE.AWAITING_CASH_CHANGE_AMOUNT]: cashChangeHandler,
@@ -788,6 +818,7 @@ const orderModule = buildOrderModule({
   productRepository: catalogModule.productRepository,
   customerRepository: webhookRepositories.customerRepository,
   cacheProvider: webhookRepositories.cacheProvider,
+  addressLookupProvider: webhookRepositories.addressLookupProvider,
   whatsAppSender: webhookRepositories.whatsAppSender,
   resolveOrderStatusNotifier: () => webhookModule.orderStatusNotifier,
 })
@@ -805,6 +836,7 @@ const conversationModule = buildConversationModule({
   updateCartItemQuantityUseCase: cartModule.updateCartItemQuantityUseCase,
   createOrderFromCartUseCase: orderModule.createOrderFromCartUseCase,
   resolveOrderDeliveryEstimateUseCase: orderModule.resolveOrderDeliveryEstimateUseCase,
+  quoteDeliveryFeeUseCase: orderModule.quoteDeliveryFeeUseCase,
   repeatLastOrderUseCase: orderModule.repeatLastOrderUseCase,
   resolveCustomerDecisionUseCase: orderModule.resolveCustomerDecisionUseCase,
   resolveItemSubstitutionUseCase: orderModule.resolveItemSubstitutionUseCase,
@@ -867,6 +899,16 @@ export async function seedOrderStatusTemplates(): Promise<void> {
   logger.child('TemplateSeed').info('order_status_templates_seeded', { count: missing.length })
 }
 
+const deliveryFeeTierRepository = new DrizzleDeliveryFeeTierRepository()
+
+/**
+ * Chamada pelo boot DEPOIS das migrations (T1.3, spec §3.1, D4). Idempotente: só grava quando a
+ * tabela nasce vazia — uma faixa que o painel já editou nunca é sobrescrita.
+ */
+export async function seedDefaultDeliveryFeeTiers(): Promise<void> {
+  await new EnsureDefaultDeliveryFeeTiersUseCase({ deliveryFeeTierRepository }).execute()
+}
+
 export const container = {
   health: buildHealthModule(),
   notification: webhookModule.notification,
@@ -885,6 +927,9 @@ export const container = {
     repeatLastOrderUseCase: orderModule.repeatLastOrderUseCase,
     listOrdersUseCase: orderModule.listOrdersUseCase,
     orderController: orderModule.orderController,
+    /** Único cálculo de taxa (spec §3.3) — a cotação pública do `StoreController` recota por aqui. */
+    quoteDeliveryFeeUseCase: orderModule.quoteDeliveryFeeUseCase,
+    deliveryFeeTiersController: orderModule.deliveryFeeTiersController,
   },
   webhook: webhookModule,
   /*
@@ -904,7 +949,6 @@ export const container = {
       customerRepository: webhookRepositories.customerRepository,
       cartRepository: cartModule.cartRepository,
       productRepository: catalogModule.productRepository,
-      configuredDeliveryFeeInCents: environment.DELIVERY_FEE_CENTS,
     }),
   }),
   internal: buildInternalModule({

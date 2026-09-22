@@ -25,7 +25,6 @@ const NOW = new Date('2026-09-21T12:00:00Z')
 type Scenario = {
   readonly context?: Record<string, unknown>
   readonly hasCart?: boolean
-  readonly configuredDeliveryFeeInCents?: number
 }
 
 function buildUseCase(scenario: Scenario): GetConversationCheckoutContextUseCase {
@@ -65,7 +64,6 @@ function buildUseCase(scenario: Scenario): GetConversationCheckoutContextUseCase
       listItems: async () => [cartItem(RICE_ID, 2), cartItem(BEANS_ID, 1)],
     },
     productRepository: { findByIds: async () => products },
-    configuredDeliveryFeeInCents: scenario.configuredDeliveryFeeInCents ?? 0,
   })
 }
 
@@ -74,6 +72,9 @@ const FULL_CHECKOUT_CONTEXT = {
   checkoutEmail: 'maria@example.com',
   checkoutDeliveryType: 'delivery',
   checkoutDeliveryFeeInCents: 800,
+  checkoutDeliveryDistanceKm: 6.4,
+  checkoutDeliveryTierMaxKm: 8,
+  checkoutDeliveryLocationSource: 'cep',
   checkoutAddress: { cep: '01001000', street: 'Praça da Sé', number: '10', neighborhood: 'Sé', city: 'São Paulo', state: 'SP' },
   checkoutPaymentMethod: 'cash',
   checkoutCashChangeForInCents: 10000,
@@ -96,6 +97,9 @@ describe('GetConversationCheckoutContextUseCase', () => {
       subtotalInCents: 5879,
       deliveryType: 'delivery',
       deliveryFeeInCents: 800,
+      deliveryDistanceKm: 6.4,
+      deliveryTierMaxKm: 8,
+      deliveryLocationSource: 'cep',
       amountDueInCents: 6679,
       address: 'Praça da Sé, 10 — Sé, São Paulo/SP',
       paymentMethod: 'cash',
@@ -111,19 +115,70 @@ describe('GetConversationCheckoutContextUseCase', () => {
     expect(serialized).not.toContain('maria@example.com')
     expect(serialized).not.toContain('01001000')
     expect(Object.keys(result ?? {}).sort()).toEqual(
-      ['address', 'amountDueInCents', 'cashChangeForInCents', 'deliveryFeeInCents', 'deliveryType', 'items', 'paymentMethod', 'subtotalInCents'],
+      [
+        'address',
+        'amountDueInCents',
+        'cashChangeForInCents',
+        'deliveryDistanceKm',
+        'deliveryFeeInCents',
+        'deliveryLocationSource',
+        'deliveryTierMaxKm',
+        'deliveryType',
+        'items',
+        'paymentMethod',
+        'subtotalInCents',
+      ],
     )
   })
 
-  it('sessão anterior ao deploy (sem checkoutDeliveryFeeInCents) com entrega: cota a taxa configurada (800), não 0', async () => {
+  it('sessão anterior ao deploy (entrega sem cotação por faixa): card mostra "a calcular", sem inventar taxa nem faixa', async () => {
     const result = await buildUseCase({
       hasCart: true,
-      configuredDeliveryFeeInCents: 800,
       context: { checkoutDeliveryType: 'delivery', checkoutPaymentMethod: 'cash' },
     }).execute({ whatsappNumber: PHONE })
 
-    expect(result?.deliveryFeeInCents).toBe(800)
-    expect(result?.amountDueInCents).toBe(6679)
+    expect(result?.deliveryFeeInCents).toBeNull()
+    expect(result?.deliveryTierMaxKm).toBeNull()
+    expect(result?.deliveryDistanceKm).toBeNull()
+    expect(result?.deliveryLocationSource).toBeNull()
+    // Sem taxa cotada, "total devido" ainda soma 0 por segurança de tipo, mas o card (T3.3) usa
+    // `deliveryFeeInCents === null` para rotular como "Subtotal (sem entrega)", não "Total".
+    expect(result?.amountDueInCents).toBe(5879)
+  })
+
+  it('entrega cotada com faixa aproximada (D3): sem distância, com o teto da faixa', async () => {
+    const result = await buildUseCase({
+      hasCart: true,
+      context: {
+        checkoutDeliveryType: 'delivery',
+        checkoutPaymentMethod: 'cash',
+        checkoutDeliveryFeeInCents: 1000,
+        checkoutDeliveryTierMaxKm: 8,
+        checkoutDeliveryLocationSource: 'cep_approximate',
+      },
+    }).execute({ whatsappNumber: PHONE })
+
+    expect(result?.deliveryFeeInCents).toBe(1000)
+    expect(result?.deliveryTierMaxKm).toBe(8)
+    expect(result?.deliveryDistanceKm).toBeNull()
+    expect(result?.deliveryLocationSource).toBe('cep_approximate')
+  })
+
+  it('retirada: faixa e distância nulas mesmo que sobrem no contexto de uma entrega anterior', async () => {
+    const result = await buildUseCase({
+      hasCart: true,
+      context: {
+        checkoutDeliveryType: 'pickup',
+        checkoutDeliveryTierMaxKm: 8,
+        checkoutDeliveryDistanceKm: 3,
+        checkoutDeliveryLocationSource: 'cep',
+      },
+    }).execute({ whatsappNumber: PHONE })
+
+    expect(result?.deliveryFeeInCents).toBe(0)
+    expect(result?.deliveryTierMaxKm).toBeNull()
+    expect(result?.deliveryDistanceKm).toBeNull()
+    expect(result?.deliveryLocationSource).toBeNull()
   })
 
   it('card do painel não leva o CEP no endereço (S3)', async () => {
@@ -132,11 +187,30 @@ describe('GetConversationCheckoutContextUseCase', () => {
     expect(result?.address).not.toContain('01001')
   })
 
-  it('carrinho ainda sem checkout: retirada/pagamento nulos e taxa zero', async () => {
+  it('a resposta da API não contém latitude/longitude nem CEP em nenhum campo (T3.3)', async () => {
+    const result = await buildUseCase({
+      hasCart: true,
+      context: {
+        ...FULL_CHECKOUT_CONTEXT,
+        checkoutLocationDraft: { latitude: -23.55, longitude: -46.63 },
+      },
+    }).execute({ whatsappNumber: PHONE })
+
+    const serialized = JSON.stringify(result)
+    expect(serialized).not.toMatch(/latitude|longitude/i)
+    expect(serialized).not.toContain('01001000')
+  })
+
+  it('carrinho ainda sem checkout: retirada/pagamento nulos, taxa e faixa nulas', async () => {
     const result = await buildUseCase({ hasCart: true }).execute({ whatsappNumber: PHONE })
 
     expect(result?.deliveryType).toBeNull()
+    // Sem tipo de entrega escolhido, `resolveCheckoutDeliveryFeeInCents` trata como não-entrega (0),
+    // igual à retirada — só a entrega SEM cotação (checkoutDeliveryType: 'delivery' sem fonte) é `null`.
     expect(result?.deliveryFeeInCents).toBe(0)
+    expect(result?.deliveryTierMaxKm).toBeNull()
+    expect(result?.deliveryDistanceKm).toBeNull()
+    expect(result?.deliveryLocationSource).toBeNull()
     expect(result?.amountDueInCents).toBe(5879)
     expect(result?.address).toBeNull()
     expect(result?.paymentMethod).toBeNull()

@@ -28,6 +28,8 @@ import { DrizzleCustomerRepository } from '@/modules/webhook/infra/database/Driz
 import { DrizzleOrderRepository } from '@/modules/order/infra/database/DrizzleOrderRepository'
 import { CreateWebOrderUseCase } from '@/modules/order/application/use-cases/CreateWebOrder.use-case'
 import { DELIVERY_TYPE } from '@/modules/order/shared/Order.constant'
+import { DELIVERY_QUOTE_KIND, DELIVERY_LOCATION_SOURCE } from '@/modules/order/shared/DeliveryFeeQuote.constant'
+import type { QuoteDeliveryFeeResult } from '@/modules/order/application/types/QuoteDeliveryFee.types'
 
 const DELIVERY_FEE_IN_CENTS = 800
 const TEST_PHONE_PREFIX = '55117'
@@ -37,12 +39,27 @@ const categoryRepository = new DrizzleCategoryRepository()
 const productRepository = new DrizzleProductRepository()
 const orderRepository = new DrizzleOrderRepository()
 
+/** Fixo em `quoted` — este arquivo prova o que o SQL faz com a coluna, não a lógica de cotação (T1.1). */
+const quoteDeliveryFeeUseCase = {
+  execute: async (): Promise<QuoteDeliveryFeeResult> => ({
+    kind: DELIVERY_QUOTE_KIND.QUOTED,
+    feeInCents: DELIVERY_FEE_IN_CENTS,
+    distanceKm: 2,
+    tier: { maxDistanceKm: 3, feeInCents: DELIVERY_FEE_IN_CENTS },
+    source: DELIVERY_LOCATION_SOURCE.CEP,
+  }),
+}
+
 const useCase = new CreateWebOrderUseCase({
   orderRepository,
   productRepository,
   customerRepository: new DrizzleCustomerRepository(),
   cacheProvider: new RedisProvider(),
-  configuredDeliveryFeeInCents: DELIVERY_FEE_IN_CENTS,
+  quoteDeliveryFeeUseCase,
+  // O ViaCEP real não entra em teste: devolve o mesmo endereço que o teste manda.
+  addressLookupProvider: {
+    lookupByCep: async () => ({ street: 'Av. Paulista', neighborhood: 'Bela Vista', city: 'São Paulo', state: 'SP' }),
+  },
 })
 
 const createdCategoryIds: string[] = []
@@ -102,6 +119,18 @@ async function createOrder(params: {
     customer: { name: 'Cliente Taxa', phone: nextTestPhone() },
     items: params.items,
     deliveryType: params.deliveryType,
+    ...(params.deliveryType === DELIVERY_TYPE.DELIVERY
+      ? {
+          address: {
+            cep: '01310-100',
+            street: 'Av. Paulista',
+            number: '1000',
+            neighborhood: 'Bela Vista',
+            city: 'São Paulo',
+            state: 'SP',
+          },
+        }
+      : {}),
     paymentMethod: 'pix',
     receiptPreference: 'whatsapp',
   })
@@ -149,7 +178,7 @@ describe('DrizzleOrderRepository — taxa de entrega fora do total', () => {
     expect(stored.itemCount).toBe(2)
   })
 
-  test('retirada grava taxa 0 mesmo com DELIVERY_FEE_CENTS configurada', async () => {
+  test('retirada grava taxa 0', async () => {
     const productA = await createProduct(1000)
 
     const orderId = await createOrder({ deliveryType: DELIVERY_TYPE.PICKUP, items: [{ productId: productA, quantity: 1 }] })
@@ -197,5 +226,31 @@ describe('DrizzleOrderRepository — taxa de entrega fora do total', () => {
     expect(stored.totalInCents).toBe(3500)
     expect(stored.totalInCents).toBe(stored.itemsSum)
     expect(stored.deliveryFeeInCents).toBe(DELIVERY_FEE_IN_CENTS)
+  })
+})
+
+describe('DrizzleOrderRepository — snapshot da cotação (T2.1, spec §3.7)', () => {
+  test('entrega grava distância, teto, taxa da faixa e fonte; as colunas existem e aceitam valor', async () => {
+    const productA = await createProduct(1000)
+
+    const orderId = await createOrder({ deliveryType: DELIVERY_TYPE.DELIVERY, items: [{ productId: productA, quantity: 1 }] })
+    const [order] = await db.select().from(orders).where(eq(orders.id, orderId))
+
+    expect(Number(order!.deliveryDistanceKm)).toBe(2)
+    expect(Number(order!.deliveryTierMaxKm)).toBe(3)
+    expect(order!.deliveryTierFeeInCents).toBe(DELIVERY_FEE_IN_CENTS)
+    expect(order!.deliveryLocationSource).toBe(DELIVERY_LOCATION_SOURCE.CEP)
+  })
+
+  test('retirada grava as quatro colunas nulas — a coluna aceita null', async () => {
+    const productA = await createProduct(1000)
+
+    const orderId = await createOrder({ deliveryType: DELIVERY_TYPE.PICKUP, items: [{ productId: productA, quantity: 1 }] })
+    const [order] = await db.select().from(orders).where(eq(orders.id, orderId))
+
+    expect(order!.deliveryDistanceKm).toBeNull()
+    expect(order!.deliveryTierMaxKm).toBeNull()
+    expect(order!.deliveryTierFeeInCents).toBeNull()
+    expect(order!.deliveryLocationSource).toBeNull()
   })
 })

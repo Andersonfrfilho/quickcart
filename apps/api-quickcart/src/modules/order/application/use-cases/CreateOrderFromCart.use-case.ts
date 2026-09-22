@@ -13,7 +13,7 @@ import { CartProductUnavailableError } from '@/shared/errors/CartErrors'
 import { OrderEmptyCartError, OrderInsufficientStockError } from '@/shared/errors/OrderErrors'
 import { CART_STATUS } from '@/modules/cart/shared/Cart.constant'
 import { generateId } from '@/shared/id'
-import { resolveDeliveryFeeInCents } from '@/modules/order/shared/amountDue'
+import { DELIVERY_TYPE } from '@/modules/order/shared/Order.constant'
 import type { CartRepositoryInterface } from '@/modules/cart/domain/CartRepository.interface'
 import type { ProductRepositoryInterface } from '@/modules/catalog/domain/ProductRepository.interface'
 import type { OrderRepositoryInterface, CreateOrderItemInput } from '@/modules/order/domain/OrderRepository.interface'
@@ -58,10 +58,12 @@ export class CreateOrderFromCartUseCase {
       receiptPreference: params.receiptPreference,
       notes: params.notes,
       cashChangeForInCents: params.cashChangeForInCents,
-      deliveryFeeInCents: resolveDeliveryFeeInCents({
-        deliveryType: params.deliveryType,
-        configuredFeeInCents: params.quotedDeliveryFeeInCents,
-      }),
+      // Retirada nunca cobra, qualquer que seja o valor recebido; entrega cobra a cotação do contexto, sem recotar.
+      deliveryFeeInCents: params.deliveryType === DELIVERY_TYPE.PICKUP ? 0 : params.quotedDeliveryFeeInCents,
+      deliveryDistanceKm: params.quotedDeliveryDistanceKm ?? null,
+      deliveryTierMaxKm: params.quotedDeliveryTierMaxKm ?? null,
+      deliveryTierFeeInCents: params.quotedDeliveryTierFeeInCents ?? null,
+      deliveryLocationSource: params.quotedDeliveryLocationSource ?? null,
       items,
     })
 

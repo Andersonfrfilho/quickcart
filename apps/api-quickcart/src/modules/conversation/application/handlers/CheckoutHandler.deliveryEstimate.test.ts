@@ -31,6 +31,8 @@ function buildSession(): ConversationSession {
     currentState: CONVERSATION_STATE.CONFIRMING,
     context: {
       checkoutDeliveryType: DELIVERY_TYPE.DELIVERY,
+      checkoutDeliveryFeeInCents: 0,
+      checkoutDeliveryLocationSource: 'cep',
       checkoutPaymentMethod: PAYMENT_METHOD.PIX,
       checkoutReceiptPreference: RECEIPT_PREFERENCE.WHATSAPP,
     },

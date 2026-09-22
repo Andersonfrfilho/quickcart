@@ -39,6 +39,9 @@ describe('OrderInProgressCard', () => {
       subtotalInCents: 4980,
       deliveryType: 'delivery',
       deliveryFeeInCents: 800,
+      deliveryDistanceKm: 6.4,
+      deliveryTierMaxKm: 8,
+      deliveryLocationSource: 'cep',
       // Propositalmente diferente de subtotal + taxa: o card tem de exibir o valor do backend.
       amountDueInCents: 12345,
       address: 'Praça da Sé, 10 — Sé, São Paulo/SP',
@@ -51,6 +54,7 @@ describe('OrderInProgressCard', () => {
     expect(html).toContain('123,45')
     expect(html).toContain('Praça da Sé, 10')
     expect(html).toContain('Troco para')
+    expect(html).toContain('até 8 km · 6,4 km, pelo CEP')
   })
 
   it('taxa zero aparece como grátis', () => {
@@ -59,11 +63,72 @@ describe('OrderInProgressCard', () => {
       subtotalInCents: 0,
       deliveryType: 'pickup',
       deliveryFeeInCents: 0,
+      deliveryDistanceKm: null,
+      deliveryTierMaxKm: null,
+      deliveryLocationSource: null,
       amountDueInCents: 0,
       address: null,
       paymentMethod: 'pix',
       cashChangeForInCents: null,
     })
     expect(html).toContain('grátis')
+  })
+
+  it('entrega sem cotação: mostra "a calcular" em vez de R$ 0,00, e "Subtotal (sem entrega)" em vez de Total (T3.3, spec §3.6)', () => {
+    const html = renderWith({
+      items: [{ name: 'Arroz 5kg', quantity: 2, lineTotalInCents: 4980 }],
+      subtotalInCents: 4980,
+      deliveryType: 'delivery',
+      deliveryFeeInCents: null,
+      deliveryDistanceKm: null,
+      deliveryTierMaxKm: null,
+      deliveryLocationSource: null,
+      amountDueInCents: 4980,
+      address: null,
+      paymentMethod: null,
+      cashChangeForInCents: null,
+    })
+
+    expect(html).toContain('a calcular')
+    expect(html).toContain('Subtotal (sem entrega)')
+    expect(html).not.toContain('0,00')
+  })
+
+  it('cotação aproximada pela cidade (D3): mostra a faixa e a fonte, sem distância', () => {
+    const html = renderWith({
+      items: [{ name: 'Arroz 5kg', quantity: 2, lineTotalInCents: 4980 }],
+      subtotalInCents: 4980,
+      deliveryType: 'delivery',
+      deliveryFeeInCents: 1000,
+      deliveryDistanceKm: null,
+      deliveryTierMaxKm: 8,
+      deliveryLocationSource: 'cep_approximate',
+      amountDueInCents: 5980,
+      address: null,
+      paymentMethod: 'pix',
+      cashChangeForInCents: null,
+    })
+
+    expect(html).toContain('até 8 km, estimativa pela cidade')
+    expect(html).not.toContain('· NaN')
+  })
+
+  it('a resposta não precisa de latitude/longitude/CEP: o card não os exibe (S3/T3.3)', () => {
+    const html = renderWith({
+      items: [{ name: 'Arroz 5kg', quantity: 1, lineTotalInCents: 2490 }],
+      subtotalInCents: 2490,
+      deliveryType: 'delivery',
+      deliveryFeeInCents: 800,
+      deliveryDistanceKm: 3.2,
+      deliveryTierMaxKm: 8,
+      deliveryLocationSource: 'whatsapp_location',
+      amountDueInCents: 3290,
+      address: 'Rua X, 123',
+      paymentMethod: 'pix',
+      cashChangeForInCents: null,
+    })
+
+    expect(html).toContain('pela localização')
+    expect(html).not.toMatch(/latitude|longitude|-23\.\d|-46\.\d/)
   })
 })

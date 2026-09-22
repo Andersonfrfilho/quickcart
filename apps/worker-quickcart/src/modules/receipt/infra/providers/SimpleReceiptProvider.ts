@@ -23,9 +23,12 @@ export function buildTotalLines(params: ReceiptParams): TotalLine[] {
   if (params.deliveryType !== DELIVERY_TYPE.DELIVERY) return [totalLine]
 
   const feeText = params.deliveryFeeInCents > 0 ? formatPrice(params.deliveryFeeInCents) : SIMPLE_RECEIPT_LABEL.FREE_DELIVERY
+  /** "Entrega (até N km)" quando o pedido guarda a faixa aplicada (spec §3.7); sem faixa, o rótulo genérico. */
+  const deliveryFeeLabel =
+    params.deliveryTierMaxKm !== null ? `${SIMPLE_RECEIPT_LABEL.DELIVERY_FEE} (até ${params.deliveryTierMaxKm} km)` : SIMPLE_RECEIPT_LABEL.DELIVERY_FEE
   return [
     { text: `${SIMPLE_RECEIPT_LABEL.SUBTOTAL}: ${formatPrice(params.totalInCents)}`, isEmphasized: false },
-    { text: `${SIMPLE_RECEIPT_LABEL.DELIVERY_FEE}: ${feeText}`, isEmphasized: false },
+    { text: `${deliveryFeeLabel}: ${feeText}`, isEmphasized: false },
     totalLine,
   ]
 }

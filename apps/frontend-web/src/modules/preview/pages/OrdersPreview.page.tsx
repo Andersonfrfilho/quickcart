@@ -188,6 +188,11 @@ function buildPreviewOrders(now: number): Order[] {
     // Fixture paga sempre no Pix — nunca precisa de maquininha.
     requiresCardMachine: false,
     deliveryFailureReason: (sample.deliveryFailureReason ?? null) as Order['deliveryFailureReason'],
+    // A lista não mostra faixa/distância (só o detalhe faz) — a fixture não precisa de valores reais.
+    deliveryDistanceKm: null,
+    deliveryTierMaxKm: null,
+    deliveryTierFeeInCents: null,
+    deliveryLocationSource: null,
   }))
 }
 

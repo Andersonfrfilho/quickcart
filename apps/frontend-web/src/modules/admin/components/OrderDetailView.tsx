@@ -493,6 +493,25 @@ export function OrderDetailView({
               {order.deliveryFeeInCents > 0 ? formatMoney(order.deliveryFeeInCents) : FREE_DELIVERY_FEE_LABEL}
             </p>
           )}
+          {/*
+            Lido do PEDIDO (snapshot da cotação, spec §3.7), nunca da configuração de faixas vigente:
+            o painel pode ter substituído as faixas depois deste pedido, e recalcular pela config atual
+            mostraria uma taxa que o cliente nunca pagou. "aprox." quando o CEP só localizou a cidade
+            (cobrou a maior faixa sem saber a distância real, D3 da spec).
+          */}
+          {order.deliveryType === 'delivery' && order.deliveryTierMaxKm !== null && (
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Faixa até {order.deliveryTierMaxKm} km
+              {order.deliveryDistanceKm !== null ? (
+                <>
+                  {' · '}
+                  {formatDistanceKm(order.deliveryDistanceKm)}
+                </>
+              ) : (
+                order.deliveryLocationSource === 'cep_approximate' && ' (aprox., CEP genérico)'
+              )}
+            </p>
+          )}
           <p className="mt-0.5 text-xs text-muted-foreground">
             {availableItems.length} {availableItems.length === 1 ? 'item' : 'itens'}
             {/* O que faltou fica dito aqui: o total menor sem explicação parece erro de conta. */}

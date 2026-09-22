@@ -7,22 +7,16 @@
  *
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  *
- * A taxa do checkout é a que foi cotada ao escolher a entrega (`checkoutDeliveryFeeInCents`).
- * Sessão iniciada antes do deploy não tem a chave: cair em 0 daria entrega grátis quando a taxa
- * estiver ligada, então cota na hora com a taxa configurada.
+ * A taxa que vale para o checkout em andamento, lida SÓ do contexto. Entrega sem cotação por faixa
+ * (sessão de antes do deploy, ou endereço ainda não informado) devolve `undefined` — nunca 0: taxa
+ * inventada é entrega grátis, e quem chama decide voltar ao endereço.
  */
 
 import type { ConversationContext } from '@/modules/conversation/shared/ConversationContext.types'
-import { resolveDeliveryFeeInCents } from '@/modules/order/shared/amountDue'
+import { DELIVERY_TYPE } from '@/modules/order/shared/Order.constant'
 
-export type ResolveCheckoutDeliveryFeeInCentsParams = {
-  readonly context: ConversationContext
-  readonly configuredFeeInCents: number
-}
-
-export function resolveCheckoutDeliveryFeeInCents(params: ResolveCheckoutDeliveryFeeInCentsParams): number {
-  const { context, configuredFeeInCents } = params
-  if (context.checkoutDeliveryFeeInCents !== undefined) return context.checkoutDeliveryFeeInCents
-  if (!context.checkoutDeliveryType) return 0
-  return resolveDeliveryFeeInCents({ deliveryType: context.checkoutDeliveryType, configuredFeeInCents })
+export function resolveCheckoutDeliveryFeeInCents(context: ConversationContext): number | undefined {
+  if (context.checkoutDeliveryType !== DELIVERY_TYPE.DELIVERY) return 0
+  if (context.checkoutDeliveryLocationSource === undefined) return undefined
+  return context.checkoutDeliveryFeeInCents
 }

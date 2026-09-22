@@ -38,7 +38,13 @@ function buildCustomer(): Customer {
   return { id: CUSTOMER_ID } as unknown as Customer
 }
 
-function buildDependencies(configuredDeliveryFeeInCents = 0) {
+const QUOTED_DELIVERY_CONTEXT = {
+  checkoutDeliveryType: 'delivery',
+  checkoutDeliveryFeeInCents: 800,
+  checkoutDeliveryLocationSource: 'cep',
+}
+
+function buildDependencies() {
   const texts: string[] = []
   const buttonMessages: { body: string; buttons: readonly { id: string; title: string }[] }[] = []
   const stateUpdates: { currentState: string; context: Record<string, unknown> }[] = []
@@ -71,7 +77,6 @@ function buildDependencies(configuredDeliveryFeeInCents = 0) {
         return { name: 'Arroz 5kg', priceInCents: 5000 }
       },
     },
-    configuredDeliveryFeeInCents,
   }
 
   return { dependencies, texts, buttonMessages, stateUpdates }
@@ -207,7 +212,7 @@ describe('CashChangeHandler', () => {
       await handler.handle({
         session: buildSession({
           currentState: CONVERSATION_STATE.AWAITING_CASH_CHANGE_AMOUNT,
-          context: { checkoutDeliveryFeeInCents: 800 },
+          context: QUOTED_DELIVERY_CONTEXT,
         }),
         customer: buildCustomer(),
         message: { kind: 'text', from: PHONE, waMessageId: 'wa-2', body: '105' },
@@ -217,21 +222,23 @@ describe('CashChangeHandler', () => {
       expect(stateUpdates).toEqual([])
     })
 
-    it('sessão anterior ao deploy (sem checkoutDeliveryFeeInCents): cota a taxa configurada, não entrega grátis', async () => {
-      const { dependencies, texts, stateUpdates } = buildDependencies(800)
+    it('sessão anterior ao deploy (entrega sem cotação por faixa): não valida troco sem taxa, volta ao endereço', async () => {
+      const { dependencies, texts, stateUpdates } = buildDependencies()
       const handler = new CashChangeHandler(dependencies)
 
       await handler.handle({
         session: buildSession({
           currentState: CONVERSATION_STATE.AWAITING_CASH_CHANGE_AMOUNT,
-          context: { checkoutDeliveryType: 'delivery' },
+          context: { checkoutDeliveryType: 'delivery', checkoutDeliveryFeeInCents: 0, checkoutPaymentMethod: 'cash' },
         }),
         customer: buildCustomer(),
         message: { kind: 'text', from: PHONE, waMessageId: 'wa-2', body: '105' },
       })
 
-      expect(texts).toEqual([MESSAGES.CHECKOUT_CASH_CHANGE_TOO_LOW.replace('{total}', formatPriceInCents(10800))])
-      expect(stateUpdates).toEqual([])
+      expect(texts).toEqual([MESSAGES.CHECKOUT_DELIVERY_QUOTE_MISSING])
+      expect(stateUpdates).toEqual([
+        { currentState: CONVERSATION_STATE.AWAITING_ADDRESS, context: { checkoutDeliveryType: 'delivery', checkoutPaymentMethod: 'cash' } },
+      ])
     })
 
     it('aceita valor acima de itens + taxa', async () => {
@@ -241,13 +248,13 @@ describe('CashChangeHandler', () => {
       await handler.handle({
         session: buildSession({
           currentState: CONVERSATION_STATE.AWAITING_CASH_CHANGE_AMOUNT,
-          context: { checkoutDeliveryFeeInCents: 800 },
+          context: QUOTED_DELIVERY_CONTEXT,
         }),
         customer: buildCustomer(),
         message: { kind: 'text', from: PHONE, waMessageId: 'wa-2', body: '110' },
       })
 
-      expect(stateUpdates[0]?.context).toEqual({ checkoutDeliveryFeeInCents: 800, checkoutCashChangeForInCents: 11000 })
+      expect(stateUpdates[0]?.context).toEqual({ ...QUOTED_DELIVERY_CONTEXT, checkoutCashChangeForInCents: 11000 })
     })
   })
 

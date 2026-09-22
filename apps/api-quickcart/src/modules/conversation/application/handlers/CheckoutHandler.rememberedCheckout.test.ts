@@ -22,6 +22,9 @@ import {
   PAYMENT_METHOD_BUTTON_ID,
   REMEMBERED_CHECKOUT_BUTTON_ID,
 } from '@/modules/conversation/shared/Messages.constant'
+import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInCents'
+import type { QuoteDeliveryFeeResult } from '@/modules/order/application/types/QuoteDeliveryFee.types'
+import { DELIVERY_LOCATION_SOURCE, DELIVERY_QUOTE_KIND } from '@/modules/order/shared/DeliveryFeeQuote.constant'
 import { CheckoutHandler, type CheckoutHandlerDependencies } from './CheckoutHandler'
 
 const PHONE = '5511988887777'
@@ -78,15 +81,34 @@ function buildDependencies() {
     customerRepository: {},
     createOrderFromCartUseCase: {},
     addressLookupProvider: {},
+    // Entrega lembrada é recotada (T3.1): aqui a faixa atual cobre o endereço lembrado.
+    quoteDeliveryFeeUseCase: {
+      async execute(): Promise<QuoteDeliveryFeeResult> {
+        return QUOTED_RESULT
+      },
+    },
   } as unknown as CheckoutHandlerDependencies
 
   return { dependencies, texts, buttonMessages, stateUpdates }
 }
 
+const REMEMBERED_ADDRESS = { cep: '01001000', street: 'Praça da Sé', number: '10', neighborhood: 'Sé', city: 'São Paulo', state: 'SP' }
+
+const QUOTED_RESULT: QuoteDeliveryFeeResult = {
+  kind: DELIVERY_QUOTE_KIND.QUOTED,
+  feeInCents: 800,
+  distanceKm: 2.4,
+  tier: { maxDistanceKm: 3, feeInCents: 800 },
+  source: DELIVERY_LOCATION_SOURCE.CEP,
+}
+
+const QUOTED_MESSAGE = MESSAGES.CHECKOUT_DELIVERY_FEE_QUOTED.replace('{distancia}', '2,4').replace('{valor}', formatPriceInCents(800))
+
 function buildRememberedContext(paymentMethod: string, deliveryType: string) {
   return {
     rememberedCheckout: {
       deliveryType,
+      ...(deliveryType === DELIVERY_TYPE_BUTTON_ID.DELIVERY ? { address: REMEMBERED_ADDRESS } : {}),
       paymentMethod,
       receiptPreference: 'whatsapp',
     },
@@ -95,7 +117,7 @@ function buildRememberedContext(paymentMethod: string, deliveryType: string) {
 
 describe('CheckoutHandler.handleAwaitingDeliveryType — atalho "Isso mesmo" (checkout lembrado)', () => {
   it('dinheiro lembrado pergunta o troco, não confirma direto', async () => {
-    const { dependencies, buttonMessages, stateUpdates } = buildDependencies()
+    const { dependencies, texts, buttonMessages, stateUpdates } = buildDependencies()
     const handler = new CheckoutHandler(dependencies)
 
     await handler.handle({
@@ -115,6 +137,12 @@ describe('CheckoutHandler.handleAwaitingDeliveryType — atalho "Isso mesmo" (ch
         currentState: CONVERSATION_STATE.AWAITING_CASH_CHANGE,
         context: {
           checkoutDeliveryType: DELIVERY_TYPE_BUTTON_ID.DELIVERY,
+          checkoutDeliveryFeeInCents: 800,
+          checkoutDeliveryDistanceKm: 2.4,
+          checkoutDeliveryTierMaxKm: 3,
+          checkoutDeliveryTierFeeInCents: 800,
+          checkoutDeliveryLocationSource: DELIVERY_LOCATION_SOURCE.CEP,
+          checkoutAddress: REMEMBERED_ADDRESS,
           checkoutPaymentMethod: PAYMENT_METHOD_BUTTON_ID.CASH,
           checkoutReceiptPreference: 'whatsapp',
         },
@@ -122,6 +150,7 @@ describe('CheckoutHandler.handleAwaitingDeliveryType — atalho "Isso mesmo" (ch
     ])
     expect(buttonMessages).toHaveLength(1)
     expect(buttonMessages[0]?.body).toBe(MESSAGES.CHECKOUT_ASK_CASH_CHANGE)
+    expect(texts).toEqual([QUOTED_MESSAGE])
   })
 
   it('cartão na entrega lembrado + entrega envia o aviso da maquininha e confirma', async () => {
@@ -142,7 +171,7 @@ describe('CheckoutHandler.handleAwaitingDeliveryType — atalho "Isso mesmo" (ch
       },
     })
 
-    expect(texts).toEqual([MESSAGES.CHECKOUT_CARD_ON_DELIVERY_MACHINE_NOTICE])
+    expect(texts).toEqual([QUOTED_MESSAGE, MESSAGES.CHECKOUT_CARD_ON_DELIVERY_MACHINE_NOTICE])
     expect(stateUpdates).toEqual([{ currentState: CONVERSATION_STATE.CONFIRMING, context: expect.any(Object) }])
     expect(buttonMessages).toHaveLength(1)
   })
@@ -187,7 +216,7 @@ describe('CheckoutHandler.handleAwaitingDeliveryType — atalho "Isso mesmo" (ch
       },
     })
 
-    expect(texts).toEqual([])
+    expect(texts).toEqual([QUOTED_MESSAGE])
     expect(stateUpdates).toEqual([{ currentState: CONVERSATION_STATE.CONFIRMING, context: expect.any(Object) }])
   })
 })

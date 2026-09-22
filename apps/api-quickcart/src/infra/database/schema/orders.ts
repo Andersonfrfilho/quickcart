@@ -12,7 +12,7 @@
  */
 
 import { sql } from 'drizzle-orm'
-import { pgTable, pgSequence, uuid, varchar, integer, jsonb, text, timestamp } from 'drizzle-orm/pg-core'
+import { pgTable, pgSequence, uuid, varchar, integer, jsonb, text, timestamp, numeric } from 'drizzle-orm/pg-core'
 import { customers } from './customers'
 import { carts } from './carts'
 
@@ -63,6 +63,15 @@ export const orders = pgTable('orders', {
    * `'none'` obrigaria toda leitura a saber que aquele valor não conta.
    */
   deliveryFailureReason: varchar('delivery_failure_reason', { length: 20 }),
+  /**
+   * Snapshot da cotação (spec §3.7): distância, teto e taxa da faixa aplicada, e a fonte da
+   * localização. Sem FK para `delivery_fee_tiers` — o painel substitui a lista inteira a cada PUT,
+   * então a faixa de ontem pode não existir mais. Nulo em retirada e em pedido antigo.
+   */
+  deliveryDistanceKm: numeric('delivery_distance_km', { precision: 6, scale: 2 }),
+  deliveryTierMaxKm: numeric('delivery_tier_max_km', { precision: 5, scale: 2 }),
+  deliveryTierFeeInCents: integer('delivery_tier_fee_in_cents'),
+  deliveryLocationSource: varchar('delivery_location_source', { length: 20 }),
   customerDecisionAskedAt: timestamp('customer_decision_asked_at', { withTimezone: true }),
   /** Cobrança única (a resposta escolhida na regra de fluxo). Preenchido = não cobra de novo. */
   customerDecisionRemindedAt: timestamp('customer_decision_reminded_at', { withTimezone: true }),

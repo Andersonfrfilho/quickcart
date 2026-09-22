@@ -10,6 +10,7 @@
  * Erros do domínio de carrinho/pedidos (usados a partir da Fase 5).
  */
 
+import { formatDistanceKm, roundDistanceKm } from '@/shared/formatDistanceKm'
 import { DomainError } from '@/shared/errors/DomainError'
 import {
   ORDER_NOT_FOUND,
@@ -22,6 +23,9 @@ import {
   ORDER_CUSTOMER_APPROVAL_REQUIRED,
   ORDER_ITEM_NOT_SUBSTITUTABLE,
   ORDER_RECEIPT_ENQUEUE_FAILED,
+  DELIVERY_OUT_OF_RANGE,
+  DELIVERY_FEE_CHANGED,
+  DELIVERY_UNAVAILABLE,
 } from '@/shared/errors/codes'
 
 const ORDER_DOMAIN = 'order'
@@ -134,5 +138,47 @@ export class OrderReceiptEnqueueFailedError extends OrderError {
     super('Status salvo, mas o recibo não foi enviado para emissão. Tente marcar de novo.', 503, ORDER_RECEIPT_ENQUEUE_FAILED, {
       orderId,
     })
+  }
+}
+
+/**
+ * O endereço fica além da última faixa configurada (spec §3.5, §3.3 `out_of_range`).
+ *
+ * 422 e não 404/409: o corpo do pedido é válido, o recurso existe — o que falha é a REGRA de
+ * negócio "esse endereço não recebe entrega". `maxDistanceKm` vai no `details` para a tela mostrar
+ * "entregamos até N km" sem uma segunda chamada.
+ */
+export class DeliveryOutOfRangeError extends OrderError {
+  constructor(params: { readonly distanceKm: number; readonly maxDistanceKm: number }) {
+    super(
+      `Endereço a ${formatDistanceKm(params.distanceKm)} km está fora da área de entrega (até ${formatDistanceKm(params.maxDistanceKm)} km).`,
+      422,
+      DELIVERY_OUT_OF_RANGE,
+      { distanceKm: roundDistanceKm(params.distanceKm), maxDistanceKm: params.maxDistanceKm },
+    )
+  }
+}
+
+/**
+ * A tela recota na criação do pedido e a taxa mudou entre a cotação e o clique em confirmar
+ * (spec §3.5): o painel pode ter editado as faixas no meio da compra.
+ *
+ * 409 e não 422: o corpo continua válido, e o preço não é mais o que a tela mostrou — o cliente
+ * precisa ver o valor novo antes de pagar, não um erro genérico.
+ */
+export class DeliveryFeeChangedError extends OrderError {
+  constructor(params: { readonly previousFeeInCents: number; readonly currentFeeInCents: number }) {
+    super('A taxa de entrega mudou desde a última cotação.', 409, DELIVERY_FEE_CHANGED, params)
+  }
+}
+
+/**
+ * Sem `STORE_CEP`, sem faixas configuradas, ou sem coordenada nenhuma do cliente (D6, spec §3.3
+ * `unavailable`). 422 porque o pedido em si está bem formado — a entrega é que não pode ser
+ * calculada agora; a tela oferece retirada ou outro endereço.
+ */
+export class DeliveryUnavailableError extends OrderError {
+  constructor(reason: string) {
+    super('Não foi possível calcular a taxa de entrega para este endereço agora.', 422, DELIVERY_UNAVAILABLE, { reason })
   }
 }

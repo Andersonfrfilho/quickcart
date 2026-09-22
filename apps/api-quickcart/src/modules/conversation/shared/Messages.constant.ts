@@ -124,6 +124,12 @@ export const REMEMBERED_CHECKOUT_BUTTON_ID = {
   CHANGE_PREFERENCES: 'change_preferences',
 } as const
 
+/** Saídas quando o endereço não serve para entrega (fora do raio, sem cotação, texto sem CEP). */
+export const ADDRESS_DECISION_BUTTON_ID = {
+  PICKUP_INSTEAD: 'address_pickup_instead',
+  OTHER_ADDRESS: 'address_other',
+} as const
+
 export const CONFIRMING_BUTTON_ID = {
   CONFIRM: 'confirm_order',
   EDIT: 'edit_order',
@@ -387,10 +393,32 @@ export const MESSAGES = {
    * CEP primeiro (spec §8 Q1): pede 8 dígitos, não o endereço inteiro — rua/bairro/cidade/UF vêm
    * do ViaCEP, e só falta o número.
    */
-  CHECKOUT_ASK_ADDRESS: '📍 Pode me mandar o CEP do endereço de entrega?',
-  /** CEP não resolveu (ou não parece CEP): não trava, cai para o endereço completo em texto livre. */
-  CHECKOUT_ASK_ADDRESS_FALLBACK: 'Não achei esse CEP 🤔 Pode me mandar o endereço completo de entrega?',
+  CHECKOUT_ASK_ADDRESS: '📍 Pode me mandar o CEP do endereço de entrega? Se preferir, envie sua localização pelo 📎.',
+  /** CEP que não resolve: sem ele não há como cotar a faixa, então o texto livre não é mais aceito. */
+  CHECKOUT_ASK_ADDRESS_FALLBACK:
+    'Não achei esse CEP 🤔 Confere e me manda de novo, ou envie sua localização pelo 📎. Se preferir, retire na loja.',
+  /** Endereço em texto livre: a taxa depende da distância, e ela só sai de um CEP ou de uma localização. */
+  CHECKOUT_ADDRESS_NEEDS_CEP_OR_LOCATION:
+    'Para calcular a taxa de entrega preciso do CEP (8 números) ou da sua localização pelo 📎. Se preferir, retire na loja.',
   CHECKOUT_ASK_ADDRESS_NUMBER: 'Qual o número? (e o complemento, se tiver — ex: "412, apto 71")',
+  /** A localização dá a coordenada, não a porta: o entregador ainda precisa do número e da referência. */
+  CHECKOUT_ASK_LOCATION_ADDRESS_NUMBER:
+    'Recebi sua localização! 📍 Qual o número e o complemento ou ponto de referência para o entregador? (ex: "412, apto 71")',
+  /** `{distancia}` em km com uma casa; `{valor}` a taxa da faixa. Vem antes da pergunta do pagamento. */
+  CHECKOUT_DELIVERY_FEE_QUOTED: 'Taxa de entrega para seu endereço ({distancia} km): {valor}',
+  /** CEP que só localiza a cidade (D3): cobra a maior faixa e diz que é estimativa. */
+  CHECKOUT_DELIVERY_FEE_APPROXIMATE: 'Taxa de entrega para seu endereço (estimativa pela cidade): {valor}',
+  CHECKOUT_DELIVERY_OUT_OF_RANGE:
+    'Seu endereço fica a ~{distancia} km e entregamos até {limite} km 😕 Quer retirar na loja ou informar outro endereço?',
+  CHECKOUT_DELIVERY_UNAVAILABLE:
+    'Não consegui calcular a distância até seu endereço agora 😕 Quer retirar na loja ou informar outro endereço?',
+  CHECKOUT_OUT_OF_RANGE_UNEXPECTED_INPUT: 'Por favor, escolha: retirar na loja ou informar outro endereço ☝️',
+  /** "Isso mesmo" com entrega que não deu para recotar: o atalho cai e o cliente escolhe de novo. */
+  CHECKOUT_REMEMBERED_DELIVERY_NOT_QUOTED:
+    'Não consegui confirmar a taxa de entrega para o endereço da última vez, então vamos escolher de novo.',
+  /** Sessão de antes da taxa por faixa: a entrega não tem cotação e o endereço precisa ser informado de novo. */
+  CHECKOUT_DELIVERY_QUOTE_MISSING:
+    'A taxa de entrega agora depende do endereço. 📍 Pode me mandar o CEP ou sua localização pelo 📎?',
   CHECKOUT_ASK_PAYMENT: 'Como você vai pagar?',
   /**
    * Enviada ao escolher "Cartão na entrega", antes de seguir o fluxo normal (roteiro §11, spec §3.2).
@@ -417,8 +445,12 @@ export const MESSAGES = {
   CONFIRMING_SUMMARY_ITEMS_LABEL: 'Itens:',
   /** Resumo antes de confirmar (spec §3.4): subtotal dos itens, sem a taxa. */
   CONFIRMING_SUMMARY_SUBTOTAL_PREFIX: 'Subtotal:',
-  /** `{valor}` é a taxa formatada; ausente por completo na retirada (`resolveDeliveryFeeInCents` = 0 não basta — a linha não aparece). */
+  /** `{valor}` é a taxa formatada; ausente por completo na retirada (taxa 0 não basta — a linha não aparece). */
   CONFIRMING_SUMMARY_DELIVERY_FEE_PREFIX: 'Taxa de entrega:',
+  /** Cotação com distância conhecida (T3.2, spec §3.4/§3.6): mostra a faixa e a distância no resumo. */
+  CONFIRMING_SUMMARY_DELIVERY_FEE_QUOTED_PREFIX: 'Taxa de entrega (até {limite} km · {distancia} km):',
+  /** Precisão de cidade (D3): sem distância da casa, só a faixa cobrada. */
+  CONFIRMING_SUMMARY_DELIVERY_FEE_APPROXIMATE_PREFIX: 'Taxa de entrega (estimativa pela cidade, até {limite} km):',
   /** Taxa configurada em zero: mostra "grátis" em vez de "R$ 0,00". */
   CONFIRMING_SUMMARY_DELIVERY_FEE_FREE: 'grátis',
   /** `{valor}` = itens + taxa (`amountDueInCents`) — o que será cobrado, nunca só o total dos itens. */
@@ -484,6 +516,15 @@ export const RECEIPT_PREFERENCE_BUTTONS = [
 export const REMEMBERED_CHECKOUT_BUTTONS = [
   { id: REMEMBERED_CHECKOUT_BUTTON_ID.SAME_AS_LAST, title: '✅ Isso mesmo' },
   { id: REMEMBERED_CHECKOUT_BUTTON_ID.CHANGE_PREFERENCES, title: '✏️ Quero mudar' },
+] as const
+
+const PICKUP_INSTEAD_BUTTON = { id: ADDRESS_DECISION_BUTTON_ID.PICKUP_INSTEAD, title: '🏪 Retirar na loja' } as const
+
+export const ADDRESS_PICKUP_INSTEAD_BUTTONS = [PICKUP_INSTEAD_BUTTON] as const
+
+export const OUT_OF_RANGE_DECISION_BUTTONS = [
+  PICKUP_INSTEAD_BUTTON,
+  { id: ADDRESS_DECISION_BUTTON_ID.OTHER_ADDRESS, title: '📍 Outro endereço' },
 ] as const
 
 export const CONFIRMING_BUTTONS = [

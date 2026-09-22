@@ -13,7 +13,7 @@
  */
 
 import { sql } from 'drizzle-orm'
-import { pgTable, uuid, varchar, integer, jsonb, text, timestamp } from 'drizzle-orm/pg-core'
+import { pgTable, uuid, varchar, integer, jsonb, text, timestamp, numeric } from 'drizzle-orm/pg-core'
 import { customers } from './customers'
 
 export const orders = pgTable('orders', {
@@ -29,6 +29,11 @@ export const orders = pgTable('orders', {
   deliveryFeeInCents: integer('delivery_fee_in_cents').default(0).notNull(),
   deliveryType: varchar('delivery_type', { length: 10 }).notNull(),
   address: jsonb('address'),
+  /** Snapshot da cotação (spec §3.7). A migração é da api (0024); espelho só para leitura. */
+  deliveryDistanceKm: numeric('delivery_distance_km', { precision: 6, scale: 2 }),
+  deliveryTierMaxKm: numeric('delivery_tier_max_km', { precision: 5, scale: 2 }),
+  deliveryTierFeeInCents: integer('delivery_tier_fee_in_cents'),
+  deliveryLocationSource: varchar('delivery_location_source', { length: 20 }),
   paymentMethod: varchar('payment_method', { length: 20 }).notNull(),
   receiptPreference: varchar('receipt_preference', { length: 10 }).notNull(),
   fiscalDocumentId: varchar('fiscal_document_id', { length: 60 }),

@@ -22,6 +22,7 @@ const ORDER_DATA: OrderReceiptData = {
   customerName: 'Fulano',
   totalInCents: 5000,
   deliveryFeeInCents: 0,
+  deliveryTierMaxKm: null,
   deliveryType: 'delivery',
   address: { street: 'Rua X, 123' },
   paymentMethod: 'pix',

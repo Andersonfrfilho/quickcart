@@ -20,6 +20,7 @@ function buildParams(overrides: Partial<ReceiptParams> = {}): ReceiptParams {
     items: [{ productName: 'Arroz 5kg', unitPriceInCents: 2490, quantity: 2, totalInCents: 4980 }],
     totalInCents: 4980,
     deliveryFeeInCents: 800,
+    deliveryTierMaxKm: null,
     deliveryType: 'delivery',
     paymentMethod: 'pix',
     address: null,
@@ -42,6 +43,10 @@ describe('SimpleReceiptProvider — taxa de entrega', () => {
 
   it('entrega com taxa 0 mostra "grátis"', () => {
     expect(buildTotalLines(buildParams({ deliveryFeeInCents: 0 }))[1]?.text).toBe('Taxa de entrega: grátis')
+  })
+
+  it('entrega com faixa registrada mostra "Entrega (até N km)"', () => {
+    expect(buildTotalLines(buildParams({ deliveryTierMaxKm: 8 }))[1]?.text).toBe(`Taxa de entrega (até 8 km): ${brl(800)}`)
   })
 
   it('retirada não mostra linha de taxa', () => {

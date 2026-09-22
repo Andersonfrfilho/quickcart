@@ -23,7 +23,20 @@ export type GeocodeResult = {
   readonly provider: string
 }
 
+export const GEOCODE_OUTCOME_KIND = {
+  FOUND: 'found',
+  /** O provedor respondeu e não achou: é isso que vai para o cache negativo de 24h. */
+  NOT_FOUND: 'not_found',
+  /** Rede, timeout, 429/5xx, fila cheia: não diz nada sobre o CEP, então NÃO pode ir para o cache negativo. */
+  TRANSIENT_ERROR: 'transient_error',
+} as const
+
+export type GeocodeOutcome =
+  | { readonly kind: typeof GEOCODE_OUTCOME_KIND.FOUND; readonly coordinate: GeocodeResult }
+  | { readonly kind: typeof GEOCODE_OUTCOME_KIND.NOT_FOUND }
+  | { readonly kind: typeof GEOCODE_OUTCOME_KIND.TRANSIENT_ERROR }
+
 export interface GeocodingProviderInterface {
-  /** `undefined` quando o CEP não resolve — nunca lança; quem chama decide seguir sem coordenada. */
-  geocodeByCep(cep: string): Promise<GeocodeResult | undefined>
+  /** Nunca lança; distingue "não achou" de "não deu para perguntar" para o cache negativo não mentir. */
+  geocodeByCep(cep: string): Promise<GeocodeOutcome>
 }

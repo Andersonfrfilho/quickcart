@@ -20,9 +20,10 @@ import { logger } from '@/shared/logger'
 import { LOG_EVENTS } from '@/shared/constants/log-events.constant'
 import { initSentry } from '@/infra/observability/sentry'
 import { checkDatabaseConnection, closeDatabaseConnection, runMigrations } from '@/infra/database/connection'
-import { seedMainFlow, seedOrderStatusTemplates } from '@/infra/container'
+import { seedMainFlow, seedOrderStatusTemplates, seedDefaultDeliveryFeeTiers } from '@/infra/container'
 import { checkRedisConnection, closeRedisConnection } from '@/infra/redis/connection'
 import { serializeError } from '@/shared/serializeError'
+import { warnWhenStoreCepMissing } from '@/infra/config/warnWhenStoreCepMissing'
 import { INTERNAL_ERROR } from '@/shared/errors/codes'
 
 const SHUTDOWN_TIMEOUT_MS = 10_000
@@ -41,6 +42,8 @@ async function start(): Promise<void> {
   await runMigrations()
   await seedMainFlow()
   await seedOrderStatusTemplates()
+  await seedDefaultDeliveryFeeTiers()
+  warnWhenStoreCepMissing(environment.STORE_CEP)
   await checkRedisConnection()
 
   const userModule = await getQuickCartUserModule()

@@ -74,13 +74,27 @@ export type DeliveryEstimate = {
   readonly isApproximate: boolean
 }
 
+export type RoadDistanceParams = {
+  readonly from: Coordinate
+  readonly to: Coordinate
+  readonly detourFactor: number
+}
+
+/** A distância que a loja usa para tudo — previsão na tela e faixa de taxa — para as duas nunca divergirem. */
+export function calculateRoadDistanceKm(params: RoadDistanceParams): number {
+  return haversineDistanceKm(params.from, params.to) * params.detourFactor
+}
+
 function roundToStep(minutes: number): number {
   return Math.max(MINUTES_ROUNDING_STEP, Math.round(minutes / MINUTES_ROUNDING_STEP) * MINUTES_ROUNDING_STEP)
 }
 
 export function estimateDelivery(params: DeliveryEstimateParams): DeliveryEstimate {
-  const straightLineKm = haversineDistanceKm(params.storeCoordinate, params.customerCoordinate)
-  const roadDistanceKm = straightLineKm * params.detourFactor
+  const roadDistanceKm = calculateRoadDistanceKm({
+    from: params.storeCoordinate,
+    to: params.customerCoordinate,
+    detourFactor: params.detourFactor,
+  })
   const isApproximate = PRECISIONS_WITHOUT_ESTIMATE.has(params.precision)
 
   if (isApproximate) return { roadDistanceKm, isApproximate: true }

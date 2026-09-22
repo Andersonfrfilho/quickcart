@@ -71,7 +71,11 @@ export function createRouter({ userModule }: CreateRouterParams): Router {
     categoryController: container.catalog.categoryController,
     productController: container.catalog.productController,
   })
-  registerOrderRoutes({ router, orderController: container.order.orderController })
+  registerOrderRoutes({
+    router,
+    orderController: container.order.orderController,
+    deliveryFeeTiersController: container.order.deliveryFeeTiersController,
+  })
   registerWebhookRoutes({ router, webhookController: container.webhook.controller })
   registerInternalRoutes({ router, internalController: container.internal.controller })
   registerConversationRoutes({
@@ -172,7 +176,7 @@ export function createRouter({ userModule }: CreateRouterParams): Router {
       customerRepository: container.storeRepositories.customerRepository,
     }),
     productRepository: container.storeRepositories.productRepository,
-    deliveryFeeInCents: environment.DELIVERY_FEE_CENTS,
+    quoteDeliveryFeeUseCase: container.order.quoteDeliveryFeeUseCase,
   })
 
   const checkoutQuoteRateLimiter = new FixedWindowRateLimiter({

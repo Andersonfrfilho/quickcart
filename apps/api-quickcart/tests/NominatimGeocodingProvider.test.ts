@@ -16,6 +16,7 @@
 import { afterEach, describe, expect, it, spyOn } from 'bun:test'
 import { GEOCODE_PRECISION } from '@/modules/shared/address/Address.schema'
 import { NominatimGeocodingProvider } from '@/infra/nominatim/NominatimGeocodingProvider'
+import { GEOCODE_OUTCOME_KIND } from '@/modules/shared/address/GeocodingProvider.interface'
 import { Logger } from '@/shared/logger'
 
 const originalFetch = globalThis.fetch
@@ -69,7 +70,8 @@ const RESPOSTA_MUNICIPIO = [
 describe('NominatimGeocodingProvider', () => {
   it('classifica CEP com bairro como precisão de CEP', async () => {
     stubFetch(RESPOSTA_BAIRRO)
-    const result = await new NominatimGeocodingProvider().geocodeByCep('01310-100')
+    const outcome = await new NominatimGeocodingProvider().geocodeByCep('01310-100')
+    const result = outcome.kind === GEOCODE_OUTCOME_KIND.FOUND ? outcome.coordinate : undefined
 
     expect(result?.latitude).toBeCloseTo(-23.5649659, 6)
     expect(result?.longitude).toBeCloseTo(-46.6518144, 6)
@@ -79,13 +81,15 @@ describe('NominatimGeocodingProvider', () => {
 
   it('trata city_district como equivalente a suburb', async () => {
     stubFetch(RESPOSTA_DISTRITO)
-    const result = await new NominatimGeocodingProvider().geocodeByCep('01415-000')
+    const outcome = await new NominatimGeocodingProvider().geocodeByCep('01415-000')
+    const result = outcome.kind === GEOCODE_OUTCOME_KIND.FOUND ? outcome.coordinate : undefined
     expect(result?.precision).toBe(GEOCODE_PRECISION.POSTAL_CODE)
   })
 
   it('classifica CEP genérico como cidade — é o que suprime a previsão de horário', async () => {
     stubFetch(RESPOSTA_MUNICIPIO)
-    const result = await new NominatimGeocodingProvider().geocodeByCep('37925-000')
+    const outcome = await new NominatimGeocodingProvider().geocodeByCep('37925-000')
+    const result = outcome.kind === GEOCODE_OUTCOME_KIND.FOUND ? outcome.coordinate : undefined
     expect(result?.precision).toBe(GEOCODE_PRECISION.CITY)
   })
 
@@ -106,24 +110,53 @@ describe('NominatimGeocodingProvider', () => {
     expect(calls[0]?.url).toContain('postalcode=01310-100')
   })
 
-  it('devolve undefined para lista vazia, coordenada não numérica e CEP curto', async () => {
-    const provider = new NominatimGeocodingProvider()
+  it('devolve not_found para lista vazia, coordenada não numérica e CEP curto', async () => {
+    const provider = new NominatimGeocodingProvider({ now: () => 0, sleep: async () => {} })
 
     stubFetch([])
-    expect(await provider.geocodeByCep('99999-999')).toBeUndefined()
+    expect(await provider.geocodeByCep('99999-999')).toEqual({ kind: GEOCODE_OUTCOME_KIND.NOT_FOUND })
 
     stubFetch([{ lat: 'não-é-número', lon: '-46.6', address: { suburb: 'X' } }])
-    expect(await provider.geocodeByCep('01310-100')).toBeUndefined()
+    expect(await provider.geocodeByCep('01310-100')).toEqual({ kind: GEOCODE_OUTCOME_KIND.NOT_FOUND })
 
-    expect(await provider.geocodeByCep('123')).toBeUndefined()
+    expect(await provider.geocodeByCep('123')).toEqual({ kind: GEOCODE_OUTCOME_KIND.NOT_FOUND })
   })
 
-  it('devolve undefined em vez de lançar quando a rede falha', async () => {
+  it('devolve transient_error em vez de lançar quando a rede falha', async () => {
     globalThis.fetch = (async () => {
       throw new Error('network down')
     }) as typeof fetch
 
-    expect(await new NominatimGeocodingProvider().geocodeByCep('01310-100')).toBeUndefined()
+    expect(await new NominatimGeocodingProvider().geocodeByCep('01310-100')).toEqual({
+      kind: GEOCODE_OUTCOME_KIND.TRANSIENT_ERROR,
+    })
+  })
+
+  it('429 e 5xx são transitórios; 400 é not_found', async () => {
+    const provider = new NominatimGeocodingProvider({ now: () => 0, sleep: async () => {} })
+    const stubStatus = (status: number): void => {
+      globalThis.fetch = (async () => ({ ok: false, status, json: async () => [] })) as unknown as typeof fetch
+    }
+
+    stubStatus(429)
+    expect((await provider.geocodeByCep('01310-100')).kind).toBe(GEOCODE_OUTCOME_KIND.TRANSIENT_ERROR)
+    stubStatus(503)
+    expect((await provider.geocodeByCep('01310-100')).kind).toBe(GEOCODE_OUTCOME_KIND.TRANSIENT_ERROR)
+    stubStatus(400)
+    expect((await provider.geocodeByCep('01310-100')).kind).toBe(GEOCODE_OUTCOME_KIND.NOT_FOUND)
+  })
+
+  it('manda AbortSignal de timeout no fetch; abortado vira transient_error', async () => {
+    let receivedSignal: AbortSignal | undefined
+    globalThis.fetch = (async (_url: string, init?: { signal?: AbortSignal }) => {
+      receivedSignal = init?.signal
+      throw new DOMException('The operation timed out.', 'TimeoutError')
+    }) as unknown as typeof fetch
+
+    const outcome = await new NominatimGeocodingProvider().geocodeByCep('01310-100')
+
+    expect(receivedSignal).toBeInstanceOf(AbortSignal)
+    expect(outcome.kind).toBe(GEOCODE_OUTCOME_KIND.TRANSIENT_ERROR)
   })
 })
 
@@ -138,7 +171,7 @@ describe('NominatimGeocodingProvider — log sem CEP em claro (LGPD)', () => {
       const result = await new NominatimGeocodingProvider().geocodeByCep('14010-000')
       const logged = JSON.stringify(logSpy.mock.calls)
 
-      expect(result).toBeUndefined()
+      expect(result.kind).toBe(GEOCODE_OUTCOME_KIND.TRANSIENT_ERROR)
       expect(logged).toContain('geocode_failed')
       expect(logged).toContain('140*****')
       expect(logged).not.toContain('14010')

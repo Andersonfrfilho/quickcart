@@ -62,6 +62,7 @@ export class ProcessReceiptJobUseCase {
       items: orderData.items,
       totalInCents: orderData.totalInCents,
       deliveryFeeInCents: orderData.deliveryFeeInCents,
+      deliveryTierMaxKm: orderData.deliveryTierMaxKm,
       deliveryType: orderData.deliveryType,
       paymentMethod: orderData.paymentMethod,
       address: orderData.address,

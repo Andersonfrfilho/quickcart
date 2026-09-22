@@ -82,6 +82,7 @@ const ADMIN_SECTIONS: NavSection[] = [
     items: [
       { label: 'Equipe', path: '/admin/equipe', icon: '👥', roles: ADMIN_ONLY },
       { label: 'Cadastro de clientes', path: '/admin/customer-settings', icon: '⚙️', roles: ADMIN_ONLY },
+      { label: 'Faixas de entrega', path: '/admin/delivery-fees', icon: '🚚', roles: ADMIN_ONLY },
     ],
   },
 ]

@@ -19,10 +19,13 @@ import type {
   GeocodedAddressRepositoryInterface,
   SaveGeocodedAddressParams,
 } from '@/modules/shared/address/GeocodedAddressRepository.interface'
-import type {
-  GeocodeResult,
-  GeocodingProviderInterface,
+import {
+  GEOCODE_OUTCOME_KIND,
+  type GeocodeOutcome,
+  type GeocodeResult,
+  type GeocodingProviderInterface,
 } from '@/modules/shared/address/GeocodingProvider.interface'
+import type { DeliveryFeeTier, DeliveryFeeTierRepositoryInterface } from '@/modules/order/domain/DeliveryFeeTierRepository.interface'
 import { ResolveCepCoordinateUseCase } from '@/modules/shared/address/ResolveCepCoordinate.use-case'
 import { ResolveOrderDeliveryEstimateUseCase } from '@/modules/order/application/use-cases/ResolveOrderDeliveryEstimate.use-case'
 import type { OrderRecord } from '@/modules/order/domain/OrderRepository.interface'
@@ -67,22 +70,43 @@ class InMemoryGeocodedAddressRepository implements GeocodedAddressRepositoryInte
 }
 
 class MapGeocodingProvider implements GeocodingProviderInterface {
-  async geocodeByCep(cep: string): Promise<GeocodeResult | undefined> {
-    return COORDINATES[cep.replace(/\D/g, '')]
+  async geocodeByCep(cep: string): Promise<GeocodeOutcome> {
+    const coordinate = COORDINATES[cep.replace(/\D/g, '')]
+    return coordinate ? { kind: GEOCODE_OUTCOME_KIND.FOUND, coordinate } : { kind: GEOCODE_OUTCOME_KIND.NOT_FOUND }
   }
 }
 
-function buildUseCase(overrides: { readonly storeCep?: string | undefined; readonly deliveryRadiusKm?: number } = {}) {
+class InMemoryDeliveryFeeTierRepository implements DeliveryFeeTierRepositoryInterface {
+  constructor(private readonly tiers: readonly DeliveryFeeTier[]) {}
+
+  async listOrdered(): Promise<readonly DeliveryFeeTier[]> {
+    return this.tiers
+  }
+
+  async replaceAll(): Promise<void> {
+    throw new Error('not implemented')
+  }
+
+  async hasBeenConfigured(): Promise<boolean> {
+    return true
+  }
+
+  async markConfigured(): Promise<void> {}
+}
+
+function buildUseCase(overrides: { readonly storeCep?: string | undefined; readonly maxDeliveryRadiusKm?: number } = {}) {
   return new ResolveOrderDeliveryEstimateUseCase({
     resolveCepCoordinateUseCase: new ResolveCepCoordinateUseCase({
       geocodedAddressRepository: new InMemoryGeocodedAddressRepository(),
       geocodingProvider: new MapGeocodingProvider(),
     }),
+    deliveryFeeTierRepository: new InMemoryDeliveryFeeTierRepository([
+      { maxDistanceKm: overrides.maxDeliveryRadiusKm ?? 8, feeInCents: 0 },
+    ]),
     storeCep: 'storeCep' in overrides ? overrides.storeCep : STORE_CEP,
     detourFactor: 1.35,
     averageSpeedKmh: 25,
     preparationMinutes: 20,
-    deliveryRadiusKm: overrides.deliveryRadiusKm ?? 8,
   })
 }
 
@@ -119,14 +143,12 @@ describe('ResolveOrderDeliveryEstimateUseCase', () => {
   it('calcula distância e faixa de horário para entrega com endereço estruturado', async () => {
     const estimate = await buildUseCase().execute({ order: buildOrder() })
 
-    expect(estimate).toBeDefined()
-    // ~1,4 km em linha reta × 1,35 de desvio — ordem de grandeza, não número cravado.
-    expect(estimate!.distanceKm).toBeGreaterThan(1)
-    expect(estimate!.distanceKm).toBeLessThan(3)
-    expect(estimate!.minMinutes).toBeDefined()
-    expect(estimate!.maxMinutes).toBeGreaterThan(estimate!.minMinutes!)
-    expect(estimate!.isApproximate).toBe(false)
-    expect(estimate!.isOutsideRadius).toBe(false)
+    // ~1,45 km em linha reta × 1,35 de desvio.
+    expect(estimate?.distanceKm).toBeCloseTo(1.96, 2)
+    expect(estimate?.minMinutes).toBe(15)
+    expect(estimate?.maxMinutes).toBe(30)
+    expect(estimate?.isApproximate).toBe(false)
+    expect(estimate?.isOutsideRadius).toBe(false)
   })
 
   it('não calcula nada para retirada — o cliente vem até a loja', async () => {
@@ -169,10 +191,11 @@ describe('ResolveOrderDeliveryEstimateUseCase', () => {
   })
 
   it('avisa fora do raio sem impedir nada — a decisão é da pessoa (spec §8 Q2)', async () => {
-    const apertado = await buildUseCase({ deliveryRadiusKm: 0.5 }).execute({ order: buildOrder() })
+    const apertado = await buildUseCase({ maxDeliveryRadiusKm: 0.5 }).execute({ order: buildOrder() })
 
     expect(apertado?.isOutsideRadius).toBe(true)
     // O aviso não apaga a estimativa: quem decide atender ainda quer saber quanto tempo leva.
-    expect(apertado?.minMinutes).toBeDefined()
+    expect(apertado?.minMinutes).toBe(15)
+    expect(apertado?.maxMinutes).toBe(30)
   })
 })

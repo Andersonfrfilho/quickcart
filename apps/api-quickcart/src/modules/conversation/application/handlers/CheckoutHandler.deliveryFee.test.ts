@@ -7,9 +7,9 @@
  *
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  *
- * Taxa de entrega no WhatsApp (T2.1, spec §3.4): cotada UMA vez, quando o tipo de entrega é escolhido, e
- * gravada no contexto. O pedido usa esse valor, não a env relida — senão o troco já validado podia ficar
- * menor que o cobrado depois de uma troca de `DELIVERY_FEE_CENTS` no meio do checkout.
+ * Taxa de entrega no WhatsApp (T3.1, spec §3.4): cotada pela faixa quando o ENDEREÇO fica pronto — o
+ * clique em "Entrega" não cota — e gravada no contexto. O pedido usa essa cotação, sem recotar: o troco
+ * já foi validado contra ela.
  */
 
 import { describe, expect, it } from 'bun:test'
@@ -22,7 +22,7 @@ import { DELIVERY_TYPE, PAYMENT_METHOD, RECEIPT_PREFERENCE } from '@/modules/ord
 import { CheckoutHandler, type CheckoutHandlerDependencies } from './CheckoutHandler'
 
 const PHONE = '5511988887777'
-const CONFIGURED_FEE_IN_CENTS = 800
+const QUOTED_FEE_IN_CENTS = 800
 
 function buildSession(overrides: Partial<ConversationSession> = {}): ConversationSession {
   return {
@@ -38,7 +38,8 @@ function buildSession(overrides: Partial<ConversationSession> = {}): Conversatio
   }
 }
 
-function buildDependencies(configuredDeliveryFeeInCents: number) {
+function buildDependencies() {
+  let quoteCalls = 0
   const texts: string[] = []
   const stateUpdates: { currentState: string; context: Record<string, unknown> }[] = []
   const createOrderCalls: Record<string, unknown>[] = []
@@ -81,10 +82,15 @@ function buildDependencies(configuredDeliveryFeeInCents: number) {
     resolveOrderDeliveryEstimateUseCase: {},
     addressLookupProvider: {},
     storePreparationMinutes: 20,
-    configuredDeliveryFeeInCents,
+    quoteDeliveryFeeUseCase: {
+      async execute() {
+        quoteCalls += 1
+        throw new Error('o clique em Entrega/Retirada e a confirmação não cotam')
+      },
+    },
   } as unknown as CheckoutHandlerDependencies
 
-  return { dependencies, texts, stateUpdates, createOrderCalls }
+  return { dependencies, texts, stateUpdates, createOrderCalls, getQuoteCalls: () => quoteCalls }
 }
 
 function pressButton(buttonId: string) {
@@ -92,8 +98,8 @@ function pressButton(buttonId: string) {
 }
 
 describe('CheckoutHandler — taxa de entrega cotada no contexto', () => {
-  it('entrega grava a taxa configurada no contexto', async () => {
-    const { dependencies, stateUpdates } = buildDependencies(CONFIGURED_FEE_IN_CENTS)
+  it('clique em Entrega não cota: pede o endereço, sem taxa no contexto', async () => {
+    const { dependencies, stateUpdates, texts, getQuoteCalls } = buildDependencies()
 
     await new CheckoutHandler(dependencies).handle({
       session: buildSession(),
@@ -101,11 +107,14 @@ describe('CheckoutHandler — taxa de entrega cotada no contexto', () => {
       message: pressButton(DELIVERY_TYPE_BUTTON_ID.DELIVERY),
     })
 
-    expect(stateUpdates[0]?.context.checkoutDeliveryFeeInCents).toBe(CONFIGURED_FEE_IN_CENTS)
+    expect(stateUpdates[0]?.currentState).toBe(CONVERSATION_STATE.AWAITING_ADDRESS)
+    expect(stateUpdates[0]?.context).toEqual({ checkoutDeliveryType: DELIVERY_TYPE.DELIVERY })
+    expect(texts).toEqual([MESSAGES.CHECKOUT_ASK_ADDRESS])
+    expect(getQuoteCalls()).toBe(0)
   })
 
-  it('retirada grava taxa 0 mesmo com taxa configurada', async () => {
-    const { dependencies, stateUpdates } = buildDependencies(CONFIGURED_FEE_IN_CENTS)
+  it('retirada grava taxa 0 direto, sem cotar', async () => {
+    const { dependencies, stateUpdates, getQuoteCalls } = buildDependencies()
 
     await new CheckoutHandler(dependencies).handle({
       session: buildSession(),
@@ -114,18 +123,23 @@ describe('CheckoutHandler — taxa de entrega cotada no contexto', () => {
     })
 
     expect(stateUpdates[0]?.context.checkoutDeliveryFeeInCents).toBe(0)
+    expect(stateUpdates[0]?.currentState).toBe(CONVERSATION_STATE.AWAITING_PAYMENT)
+    expect(getQuoteCalls()).toBe(0)
   })
 
-  it('confirmar usa a taxa do contexto, não a configurada agora, e mostra itens + taxa como total', async () => {
-    // A env mudou para R$ 12,00 depois que o cliente viu R$ 8,00: vale o que ele viu.
-    const { dependencies, texts, createOrderCalls } = buildDependencies(1200)
+  it('confirmar passa a cotação do contexto ao pedido, sem recotar, e mostra itens + taxa como total', async () => {
+    const { dependencies, texts, createOrderCalls, getQuoteCalls } = buildDependencies()
 
     await new CheckoutHandler(dependencies).handle({
       session: buildSession({
         currentState: CONVERSATION_STATE.CONFIRMING,
         context: {
           checkoutDeliveryType: DELIVERY_TYPE.DELIVERY,
-          checkoutDeliveryFeeInCents: CONFIGURED_FEE_IN_CENTS,
+          checkoutDeliveryFeeInCents: QUOTED_FEE_IN_CENTS,
+          checkoutDeliveryDistanceKm: 2.4,
+          checkoutDeliveryTierMaxKm: 3,
+          checkoutDeliveryTierFeeInCents: QUOTED_FEE_IN_CENTS,
+          checkoutDeliveryLocationSource: 'cep',
           checkoutPaymentMethod: PAYMENT_METHOD.PIX,
           checkoutReceiptPreference: RECEIPT_PREFERENCE.WHATSAPP,
         },
@@ -134,7 +148,14 @@ describe('CheckoutHandler — taxa de entrega cotada no contexto', () => {
       message: pressButton(CONFIRMING_BUTTON_ID.CONFIRM),
     })
 
-    expect(createOrderCalls[0]?.quotedDeliveryFeeInCents).toBe(CONFIGURED_FEE_IN_CENTS)
+    expect(createOrderCalls[0]).toMatchObject({
+      quotedDeliveryFeeInCents: QUOTED_FEE_IN_CENTS,
+      quotedDeliveryDistanceKm: 2.4,
+      quotedDeliveryTierMaxKm: 3,
+      quotedDeliveryTierFeeInCents: QUOTED_FEE_IN_CENTS,
+      quotedDeliveryLocationSource: 'cep',
+    })
+    expect(getQuoteCalls()).toBe(0)
     expect(texts[0]).toContain(MESSAGES.ORDER_CONFIRMED_TOTAL_LINE.replace('{total}', formatPriceInCents(14050)))
   })
 })

@@ -21,12 +21,15 @@ import {
   RECEIPT_PREFERENCE_BUTTONS,
 } from '@/modules/conversation/shared/Messages.constant'
 import { formatAddressLine } from '@/modules/shared/address/formatAddressLine'
+import { formatDistanceKm } from '@/shared/formatDistanceKm'
+import { DELIVERY_LOCATION_SOURCE } from '@/modules/order/shared/DeliveryFeeQuote.constant'
 import { CHANNEL } from '@/modules/shared/shared.constant'
 import type { UpdateConversationSessionStateByPhoneParams } from '@/modules/webhook/domain/ConversationSessionRepository.interface'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import { amountDueInCents } from '@/modules/order/shared/amountDue'
 import { resolveCheckoutDeliveryFeeInCents } from '@/modules/conversation/shared/resolveCheckoutDeliveryFeeInCents'
 import { DELIVERY_TYPE } from '@/modules/order/shared/Order.constant'
+import { returnToAddressForMissingQuote } from '@/modules/conversation/application/handlers/support/returnToAddressForMissingQuote'
 
 type InteractiveButtonOption = { readonly id: string; readonly title: string }
 
@@ -46,8 +49,6 @@ export type EnterConfirmingDependencies = {
     sendText(phone: string, text: string): Promise<unknown>
     sendInteractiveButtons(phone: string, bodyText: string, buttons: ReadonlyArray<InteractiveButtonOption>): Promise<unknown>
   }
-  /** `DELIVERY_FEE_CENTS`: só usada quando a sessão é anterior à chave `checkoutDeliveryFeeInCents`. */
-  readonly configuredDeliveryFeeInCents: number
 }
 
 export type EnterConfirmingParams = {
@@ -61,7 +62,37 @@ function describeSelection(buttons: ReadonlyArray<InteractiveButtonOption>, id: 
   return buttons.find((button) => button.id === id)?.title ?? ''
 }
 
-async function buildConfirmingSummary(dependencies: EnterConfirmingDependencies, cartId: string, checkoutContext: ConversationContext): Promise<string> {
+/**
+ * Prefixo da linha de taxa (spec §3.4): com faixa conhecida, mostra o teto e a distância; na
+ * precisão de cidade (D3), só o teto, marcado como estimativa. Sem faixa no contexto (sessão
+ * anterior a esta task, embora já cotada), cai no rótulo simples de sempre.
+ */
+function buildDeliveryFeePrefix(checkoutContext: ConversationContext): string {
+  const tierMaxKm = checkoutContext.checkoutDeliveryTierMaxKm
+  if (tierMaxKm === undefined) return MESSAGES.CONFIRMING_SUMMARY_DELIVERY_FEE_PREFIX
+
+  if (checkoutContext.checkoutDeliveryLocationSource === DELIVERY_LOCATION_SOURCE.CEP_APPROXIMATE) {
+    return MESSAGES.CONFIRMING_SUMMARY_DELIVERY_FEE_APPROXIMATE_PREFIX.replace('{limite}', formatDistanceKm(tierMaxKm))
+  }
+
+  const distanceKm = checkoutContext.checkoutDeliveryDistanceKm
+  if (distanceKm === undefined) return MESSAGES.CONFIRMING_SUMMARY_DELIVERY_FEE_PREFIX
+
+  return MESSAGES.CONFIRMING_SUMMARY_DELIVERY_FEE_QUOTED_PREFIX.replace('{limite}', formatDistanceKm(tierMaxKm)).replace(
+    '{distancia}',
+    formatDistanceKm(distanceKm),
+  )
+}
+
+type BuildConfirmingSummaryParams = {
+  readonly dependencies: EnterConfirmingDependencies
+  readonly cartId: string
+  readonly checkoutContext: ConversationContext
+  readonly deliveryFeeInCents: number
+}
+
+async function buildConfirmingSummary(params: BuildConfirmingSummaryParams): Promise<string> {
+  const { dependencies, cartId, checkoutContext, deliveryFeeInCents } = params
   const cartItems = await dependencies.cartRepository.listItems(cartId)
   const products = await Promise.all(cartItems.map((item) => dependencies.productRepository.findById(item.productId)))
 
@@ -73,15 +104,6 @@ async function buildConfirmingSummary(dependencies: EnterConfirmingDependencies,
     return `• ${item.quantity}x ${product?.name ?? item.productId} — ${formatPriceInCents(lineTotalInCents)}`
   })
 
-  /*
-   * A taxa vem do contexto do checkout (`checkoutDeliveryFeeInCents`), gravada pelo
-   * `CheckoutHandler` ao escolher entrega/retirada — não relida da env aqui: se a env mudar entre
-   * a escolha e a confirmação, o resumo continua batendo com o que será cobrado (t2.1-validacao).
-   */
-  const deliveryFeeInCents = resolveCheckoutDeliveryFeeInCents({
-    context: checkoutContext,
-    configuredFeeInCents: dependencies.configuredDeliveryFeeInCents,
-  })
   const isPickup = checkoutContext.checkoutDeliveryType === DELIVERY_TYPE.PICKUP
   const amountDue = amountDueInCents({ totalInCents, deliveryFeeInCents })
 
@@ -112,7 +134,7 @@ async function buildConfirmingSummary(dependencies: EnterConfirmingDependencies,
     ...(isPickup
       ? []
       : [
-          `${MESSAGES.CONFIRMING_SUMMARY_DELIVERY_FEE_PREFIX} ${
+          `${buildDeliveryFeePrefix(checkoutContext)} ${
             deliveryFeeInCents > 0 ? formatPriceInCents(deliveryFeeInCents) : MESSAGES.CONFIRMING_SUMMARY_DELIVERY_FEE_FREE
           }`,
         ]),
@@ -141,7 +163,17 @@ export async function enterConfirming(params: EnterConfirmingParams): Promise<vo
     return
   }
 
-  const summaryText = await buildConfirmingSummary(dependencies, cart.id, checkoutContext)
+  /*
+   * A taxa vem da cotação gravada no contexto quando o endereço ficou pronto — não recotada aqui: o
+   * resumo precisa bater com o que será cobrado e com o troco já validado. Sem cotação, volta ao endereço.
+   */
+  const deliveryFeeInCents = resolveCheckoutDeliveryFeeInCents(checkoutContext)
+  if (deliveryFeeInCents === undefined) {
+    await returnToAddressForMissingQuote({ dependencies, customerPhone, checkoutContext })
+    return
+  }
+
+  const summaryText = await buildConfirmingSummary({ dependencies, cartId: cart.id, checkoutContext, deliveryFeeInCents })
 
   await dependencies.conversationSessionRepository.updateStateByPhone({
     customerPhone,

@@ -226,7 +226,7 @@ O motivo pesa mais do que preferência de produto: a coordenada vem de CEP, e em
 legítima de cliente que mora a dois quarteirões da loja numa cidade pequena. **Errar liberando é
 recuperável; errar bloqueando é venda perdida sem ninguém ficar sabendo.**
 
-`STORE_DELIVERY_RADIUS_KM` continua existindo — só que alimenta um aviso, não uma trava.
+⚠️ **Atualização (spec `taxa-por-faixa`):** `STORE_DELIVERY_RADIUS_KM` foi removido. O raio máximo agora é definido pelo fim da última faixa de taxa no painel.
 
 **✅ Q3. Endereço da loja vira tabela.** `STORE_ADDRESS` (hoje `z.string().optional()` usada só no
 recibo) passa a ser registro com endereço estruturado e coordenada. O resto do schema já é

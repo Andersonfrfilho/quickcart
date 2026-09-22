@@ -10,14 +10,16 @@
 
 import type { Router } from '@/infra/http/router'
 import type { OrderController } from './Order.controller'
+import type { DeliveryFeeTiersController } from './DeliveryFeeTiers.controller'
 
 type RegisterOrderRoutesParams = {
   readonly router: Router
   readonly orderController: OrderController
+  readonly deliveryFeeTiersController: DeliveryFeeTiersController
 }
 
 export function registerOrderRoutes(params: RegisterOrderRoutesParams): void {
-  const { router, orderController } = params
+  const { router, orderController, deliveryFeeTiersController } = params
 
   router.post('/v1/orders', orderController.handleCreate)
   router.get('/v1/orders/:shortCode', orderController.handleGetByShortCode)
@@ -39,4 +41,8 @@ export function registerOrderRoutes(params: RegisterOrderRoutesParams): void {
   router.patch('/v1/admin/orders/:id/items/picked', orderController.handleSetItemPicked)
   // Aviso das faltas: uma mensagem com todas, quando quem separa termina de conferir.
   router.post('/v1/admin/orders/:id/unavailable-items/notify', orderController.handleNotifyUnavailableItems)
+
+  // Painel de faixas de entrega (spec §3.6): GET lista ordenada, PUT substitui a lista inteira.
+  router.get('/v1/admin/delivery-fee-tiers', deliveryFeeTiersController.handleList)
+  router.put('/v1/admin/delivery-fee-tiers', deliveryFeeTiersController.handleReplace)
 }

@@ -17,9 +17,14 @@
  * polling até o vencedor substituir o sentinela pelo `shortCode` real, ou expira em conflito.
  */
 
-import { OrderInsufficientStockError, OrderIdempotencyConflictError } from '@/shared/errors/OrderErrors'
+import {
+  OrderInsufficientStockError,
+  OrderIdempotencyConflictError,
+  DeliveryOutOfRangeError,
+  DeliveryFeeChangedError,
+  DeliveryUnavailableError,
+} from '@/shared/errors/OrderErrors'
 import { generateId } from '@/shared/id'
-import { resolveDeliveryFeeInCents } from '@/modules/order/shared/amountDue'
 import { buildPricedOrderItems } from '@/modules/order/shared/buildPricedOrderItems'
 import { CHANNEL } from '@/modules/shared/shared.constant'
 import {
@@ -28,20 +33,46 @@ import {
   ORDER_IDEMPOTENCY_PENDING_SENTINEL,
   ORDER_IDEMPOTENCY_POLL_INTERVAL_MS,
   ORDER_IDEMPOTENCY_POLL_TIMEOUT_MS,
+  DELIVERY_TYPE,
 } from '@/modules/order/shared/Order.constant'
+import {
+  DELIVERY_QUOTE_KIND,
+  CUSTOMER_LOCATION_KIND,
+  DELIVERY_UNAVAILABLE_REASON,
+} from '@/modules/order/shared/DeliveryFeeQuote.constant'
+import type { AddressInput } from '@/modules/shared/address/Address.schema'
+import type { AddressLookupProviderInterface } from '@/modules/shared/address/AddressLookupProvider.interface'
 import type { ProductRepositoryInterface } from '@/modules/catalog/domain/ProductRepository.interface'
 import type { CustomerRepositoryInterface } from '@/modules/webhook/domain/CustomerRepository.interface'
 import type { CacheProvider } from '@/shared/providers/CacheProvider.interface'
 import type { OrderRepositoryInterface, CreateOrderItemInput } from '@/modules/order/domain/OrderRepository.interface'
+import type { QuoteDeliveryFeeUseCase } from '@/modules/order/application/use-cases/QuoteDeliveryFee.use-case'
 import type { CreateWebOrderItemInput, CreateWebOrderParams, CreateWebOrderResult } from '../types/CreateWebOrder.types'
+
+type DeliveryQuoteSnapshot = {
+  readonly feeInCents: number
+  readonly distanceKm: number | null
+  readonly tierMaxKm: number | null
+  readonly tierFeeInCents: number | null
+  readonly locationSource: string | null
+}
 
 type CreateWebOrderUseCaseDependencies = {
   readonly orderRepository: OrderRepositoryInterface
   readonly productRepository: ProductRepositoryInterface
   readonly customerRepository: CustomerRepositoryInterface
   readonly cacheProvider: CacheProvider
-  /** `DELIVERY_FEE_CENTS`. A web não tem etapa anterior que congele a taxa, então lê na criação. */
-  readonly configuredDeliveryFeeInCents: number
+  /**
+   * A web não confia no navegador (spec §3.5): recota pelo CEP do endereço a cada criação, e não lê
+   * uma taxa fixa da env. Se a taxa mudou desde a cotação que o cliente viu, `DeliveryFeeChangedError`
+   * (409); fora do raio, `DeliveryOutOfRangeError` (422); sem como calcular, `DeliveryUnavailableError`.
+   */
+  readonly quoteDeliveryFeeUseCase: Pick<QuoteDeliveryFeeUseCase, 'execute'>
+  /**
+   * A taxa é cotada pelo CEP; se rua/bairro/cidade/UF viessem do navegador, o cliente pagaria a faixa
+   * de um CEP perto e receberia noutro endereço. Os campos saem do ViaCEP do mesmo CEP.
+   */
+  readonly addressLookupProvider: AddressLookupProviderInterface
 }
 
 export class CreateWebOrderUseCase {
@@ -89,6 +120,9 @@ export class CreateWebOrderUseCase {
 
   private async createOrder(params: CreateWebOrderParams, cacheKey: string): Promise<CreateWebOrderResult> {
     try {
+      const address = await this.resolveDeliveryAddress(params)
+      const quote = await this.quoteDelivery(params, address)
+
       const customer = await this.dependencies.customerRepository.upsertByPhone({
         phone: params.customer.phone,
         name: params.customer.name,
@@ -101,14 +135,15 @@ export class CreateWebOrderUseCase {
         customerId: customer.id,
         channel: CHANNEL.WEB,
         deliveryType: params.deliveryType,
-        address: params.address,
+        address,
         paymentMethod: params.paymentMethod,
         receiptPreference: params.receiptPreference,
         notes: params.notes,
-        deliveryFeeInCents: resolveDeliveryFeeInCents({
-          deliveryType: params.deliveryType,
-          configuredFeeInCents: this.dependencies.configuredDeliveryFeeInCents,
-        }),
+        deliveryFeeInCents: quote.feeInCents,
+        deliveryDistanceKm: quote.distanceKm,
+        deliveryTierMaxKm: quote.tierMaxKm,
+        deliveryTierFeeInCents: quote.tierFeeInCents,
+        deliveryLocationSource: quote.locationSource,
         items,
       })
 
@@ -121,6 +156,80 @@ export class CreateWebOrderUseCase {
       await this.dependencies.cacheProvider.del(cacheKey)
       throw error
     }
+  }
+
+  /** Retirada devolve o endereço como veio (o schema já o exige ausente); entrega sobrescreve pelo ViaCEP. */
+  private async resolveDeliveryAddress(params: CreateWebOrderParams): Promise<AddressInput | undefined> {
+    if (params.deliveryType !== DELIVERY_TYPE.DELIVERY) return params.address
+    // O schema já exige endereço na entrega; sem ele, não há o que cotar.
+    if (!params.address) throw new DeliveryUnavailableError(DELIVERY_UNAVAILABLE_REASON.NO_CUSTOMER_LOCATION)
+
+    const lookup = await this.dependencies.addressLookupProvider.lookupByCep(params.address.cep)
+    if (!lookup) throw new DeliveryUnavailableError(DELIVERY_UNAVAILABLE_REASON.CEP_NOT_FOUND)
+
+    return {
+      ...params.address,
+      street: lookup.street,
+      neighborhood: lookup.neighborhood,
+      city: lookup.city,
+      state: lookup.state,
+    }
+  }
+
+  /** Recota pelo CEP do endereço de entrega (spec §3.5) — nunca confia na taxa que o navegador mandou. */
+  private async quoteDelivery(
+    params: CreateWebOrderParams,
+    address: AddressInput | undefined,
+  ): Promise<DeliveryQuoteSnapshot> {
+    if (params.deliveryType !== DELIVERY_TYPE.DELIVERY || !address) {
+      this.assertFeeMatchesExpectation(params, 0)
+      return { feeInCents: 0, distanceKm: null, tierMaxKm: null, tierFeeInCents: null, locationSource: null }
+    }
+
+    const cep = address.cep
+    const quote = await this.dependencies.quoteDeliveryFeeUseCase.execute({
+      deliveryType: params.deliveryType,
+      location: { kind: CUSTOMER_LOCATION_KIND.CEP, cep },
+    })
+
+    if (quote.kind === DELIVERY_QUOTE_KIND.OUT_OF_RANGE) {
+      throw new DeliveryOutOfRangeError({ distanceKm: quote.distanceKm, maxDistanceKm: quote.maxDistanceKm })
+    }
+    if (quote.kind === DELIVERY_QUOTE_KIND.UNAVAILABLE) {
+      throw new DeliveryUnavailableError(quote.reason)
+    }
+
+    if (quote.kind === DELIVERY_QUOTE_KIND.APPROXIMATE_MAX_TIER) {
+      this.assertFeeMatchesExpectation(params, quote.feeInCents)
+      return {
+        feeInCents: quote.feeInCents,
+        distanceKm: null,
+        tierMaxKm: quote.tier.maxDistanceKm,
+        tierFeeInCents: quote.tier.feeInCents,
+        locationSource: quote.source,
+      }
+    }
+
+    // `pickup` só sai de deliveryType PICKUP, que retornou antes — trata como 0 para o tipo fechar sem ramo morto.
+    if (quote.kind === DELIVERY_QUOTE_KIND.PICKUP) {
+      this.assertFeeMatchesExpectation(params, 0)
+      return { feeInCents: 0, distanceKm: null, tierMaxKm: null, tierFeeInCents: null, locationSource: null }
+    }
+
+    this.assertFeeMatchesExpectation(params, quote.feeInCents)
+    return {
+      feeInCents: quote.feeInCents,
+      distanceKm: quote.distanceKm,
+      tierMaxKm: quote.tier.maxDistanceKm,
+      tierFeeInCents: quote.tier.feeInCents,
+      locationSource: quote.source,
+    }
+  }
+
+  private assertFeeMatchesExpectation(params: CreateWebOrderParams, currentFeeInCents: number): void {
+    const expected = params.expectedDeliveryFeeInCents
+    if (expected === undefined || expected === currentFeeInCents) return
+    throw new DeliveryFeeChangedError({ previousFeeInCents: expected, currentFeeInCents })
   }
 
   private async buildOrderItems(requestedItems: ReadonlyArray<CreateWebOrderItemInput>): Promise<CreateOrderItemInput[]> {

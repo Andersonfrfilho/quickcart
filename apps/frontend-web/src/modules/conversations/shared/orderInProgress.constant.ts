@@ -16,8 +16,12 @@ export const ORDER_IN_PROGRESS_REFETCH_INTERVAL_MS = 15_000
 export const ORDER_IN_PROGRESS_TEXT = {
   TITLE: '🛒 Pedido em andamento',
   SUBTOTAL: 'Subtotal',
+  /** Rótulo do total quando a entrega AINDA NÃO tem cotação por faixa (spec §3.6, T3.3). */
+  SUBTOTAL_WITHOUT_DELIVERY: 'Subtotal (sem entrega)',
   DELIVERY_FEE: 'Taxa de entrega',
   FREE_DELIVERY: 'grátis',
+  /** Entrega sem cotação (endereço ainda não informado): nunca mostrar R$ 0,00 no lugar. */
+  DELIVERY_FEE_TO_CALCULATE: 'a calcular',
   AMOUNT_DUE: 'Total',
   NOT_CHOSEN: 'a definir',
   DELIVERY_TYPE: 'Recebimento',
@@ -25,6 +29,13 @@ export const ORDER_IN_PROGRESS_TEXT = {
   CASH_CHANGE_FOR: 'Troco para',
   NO_CASH_CHANGE: 'sem troco',
 } as const
+
+/** Fonte da cotação de entrega (spec §3.6): como o card explica de onde veio a distância. */
+export const DELIVERY_LOCATION_SOURCE_LABELS: Record<string, string> = {
+  whatsapp_location: 'pela localização',
+  cep: 'pelo CEP',
+  cep_approximate: 'estimativa pela cidade',
+}
 
 /**
  * Chaves do contexto da sessão que o card mostra, já formatadas. Escondidas da coluna lateral para o

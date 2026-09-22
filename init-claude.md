@@ -71,13 +71,11 @@ Diferença: lá o fluxo conversacional fica no n8n; **aqui o motor de conversa v
 - **Colunas novas em `orders`**: `cash_change_for_in_cents` (nulável; `null` = "não precisa" —
   diferente de ausente = "ainda não perguntado", só existe em `ConversationContext`) e
   `delivery_fee_in_cents` (`not null default 0`; retirada sempre grava `0`).
-- **`DELIVERY_FEE_CENTS`** (env da api, inteiro ≥ 0, padrão `0`): taxa de entrega fixa. **Fica
-  FORA de `orders.total_in_cents`** — a NFC-e usa `total_in_cents` como valor pago e não admite
-  frete (`modFrete = 9`); somar a taxa quebraria a nota. O valor cobrado do cliente é sempre
-  `amountDueInCents(order)` (`modules/order/shared/amountDue.ts`, espelhada em
+- **Taxa de entrega**: **Substituída por taxa por faixa de distância** (spec `taxa-por-faixa`).
+  A taxa **fica FORA de `orders.total_in_cents`** — a NFC-e usa `total_in_cents` como valor pago e
+  não admite frete (`modFrete = 9`); somar a taxa quebraria a nota. O valor cobrado do cliente é
+  sempre `amountDueInCents(order)` (`modules/order/shared/amountDue.ts`, espelhada em
   `worker-quickcart/src/shared/amountDue.ts`) — **nenhum outro lugar soma itens + taxa**.
-  Antes de ligar `DELIVERY_FEE_CENTS > 0` em produção, confirmar com o contador como a taxa é
-  documentada no fiscal.
 - **`requiresCardMachine(order)`** (`modules/order/shared/requiresCardMachine.ts`): única função
   que decide se o pedido exige levar a maquininha (`payment_method = card_on_delivery` **e**
   `delivery_type = delivery`); consumida pelo DTO do painel (`Order.controller.ts`) e pelo bot.
@@ -90,6 +88,21 @@ Diferença: lá o fluxo conversacional fica no n8n; **aqui o motor de conversa v
 - **Palavra-chave global de atendente** (`isHumanHandoffRequest.ts`): "atendente"/"humano"/
   "pessoa"/frases curtas equivalentes, em qualquer estado, via `GlobalHandler`, casamento por
   mensagem inteira (não substring). Não cala o bot — só marca a fila de espera.
+
+### Taxa de entrega por faixa de distância (`.specs/features/taxa-por-faixa/`)
+
+- **Tabela `delivery_fee_tiers`**: máximo de distância (km) e taxa (centavos) por faixa.
+  O painel substitui a **lista inteira** em `PUT /v1/admin/delivery-fee-tiers`.
+- **Cotação única** (`QuoteDeliveryFeeUseCase`): consumida pelo bot (após endereço), cotação web
+  pública (`POST /v1/store/checkout-quote`), `CreateWebOrder` (recotação) e seed.
+  Localização do cliente vem de: WhatsApp (coordenada exata) > CEP digitado (exato ou centroide
+  de município) > indisponível (sem entrega).
+- **`ResolveOrderDeliveryEstimate`**: usa fim da última faixa como raio máximo (substitui env).
+- **Colunas novas em `orders`**: `delivery_distance_km`, `delivery_tier_max_km`,
+  `delivery_tier_fee_in_cents`, `delivery_location_source` (snapshot — retirada/pedidos antigos
+  ficam nulos).
+- **Painel** (`/admin/delivery-fees`): edita as faixas (só admin) com validação da lista inteira.
+  Trilha de auditoria: ator, lista antiga e nova. Detalhe do pedido mostra faixa e distância.
 
 ## Comandos
 

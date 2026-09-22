@@ -150,15 +150,30 @@ export type CheckoutQuoteItem = {
   readonly unitPriceInCents: number
   readonly lineTotalInCents: number
 }
+/** Espelha `DELIVERY_QUOTE_KIND` do backend — nunca coordenada nem CEP (spec §3.5, T4.1). */
+export type DeliveryQuoteTier = {
+  readonly maxDistanceKm: number
+  readonly feeInCents: number
+}
+export type CheckoutDeliveryQuote =
+  | { readonly kind: 'pickup' }
+  | { readonly kind: 'quoted'; readonly distanceKm: number; readonly tier: DeliveryQuoteTier }
+  | { readonly kind: 'approximate_max_tier'; readonly tier: DeliveryQuoteTier }
+  | { readonly kind: 'out_of_range'; readonly distanceKm: number; readonly maxDistanceKm: number }
+  | { readonly kind: 'unavailable' }
 export type CheckoutQuote = {
   readonly subtotalInCents: number
   readonly deliveryFeeInCents: number
   readonly amountDueInCents: number
   readonly items: readonly CheckoutQuoteItem[]
+  readonly deliveryQuote: CheckoutDeliveryQuote
+  readonly isDeliveryAvailable: boolean
 }
 export type CheckoutQuoteInput = {
   readonly items: ReadonlyArray<{ readonly productId: string; readonly quantity: number }>
   readonly deliveryType: DeliveryType
+  /** 8 dígitos, obrigatório quando `deliveryType` é `delivery` (spec §3.5). */
+  readonly cep?: string | undefined
 }
 export type PaymentMethod = 'pix' | 'card_on_delivery' | 'cash'
 export type ReceiptPreference = 'whatsapp' | 'email' | 'both'
@@ -195,6 +210,23 @@ export type Order = {
    * tela só desenha o que ela permite.
    */
   readonly allowedNextStatuses: readonly string[]
+  /**
+   * Snapshot da cotação de entrega (spec §3.7): `null` nos quatro campos em retirada e em pedido
+   * anterior a esta coluna. Lido do PEDIDO, nunca da configuração atual — a faixa é substituída a
+   * cada PUT do painel, então recalcular pela config vigente mentiria sobre o que foi cobrado.
+   */
+  readonly deliveryDistanceKm: number | null
+  readonly deliveryTierMaxKm: number | null
+  readonly deliveryTierFeeInCents: number | null
+  readonly deliveryLocationSource: DeliveryLocationSource | null
+}
+
+export type DeliveryLocationSource = 'whatsapp_location' | 'cep' | 'cep_approximate'
+
+/** "Até X km, cobra Y" — a faixa i cobre (X[i-1], X[i]] (spec §3.1). */
+export type DeliveryFeeTier = {
+  readonly maxDistanceKm: number
+  readonly feeInCents: number
 }
 
 export type OrderItem = {
@@ -311,7 +343,13 @@ export type ConversationCheckoutContext = {
   readonly items: ReadonlyArray<{ readonly name: string; readonly quantity: number; readonly lineTotalInCents: number }>
   readonly subtotalInCents: number
   readonly deliveryType: 'delivery' | 'pickup' | null
-  readonly deliveryFeeInCents: number
+  /** `null` = entrega ainda sem cotação por faixa (endereço não informado) — nunca "grátis" (T3.3). */
+  readonly deliveryFeeInCents: number | null
+  /** Só em cotação `quoted` — a aproximada pela cidade (D3) não calcula a distância da casa. */
+  readonly deliveryDistanceKm: number | null
+  readonly deliveryTierMaxKm: number | null
+  /** `whatsapp_location` | `cep` | `cep_approximate` — nunca a coordenada nem o CEP em si. */
+  readonly deliveryLocationSource: 'whatsapp_location' | 'cep' | 'cep_approximate' | null
   readonly amountDueInCents: number
   readonly address: string | null
   readonly paymentMethod: string | null
