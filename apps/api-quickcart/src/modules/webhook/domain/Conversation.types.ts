@@ -21,6 +21,14 @@ export type ConversationSession = {
   readonly currentState: string
   readonly context: Record<string, unknown>
   readonly mode: string
+  /**
+   * Nulo/ausente enquanto ninguém pediu atendente; marca a fila de espera (T3.1).
+   *
+   * Opcional (e não só nulo) para não obrigar cada `buildSession` de teste já escrito contra este
+   * tipo a ganhar o campo — a leitura real (`DrizzleConversationSessionRepository`) sempre o
+   * preenche.
+   */
+  readonly humanRequestedAt?: Date | null
   readonly lastInteractionAt: Date
   readonly createdAt: Date
   readonly updatedAt: Date

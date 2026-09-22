@@ -551,7 +551,14 @@ function buildWebhookModule(
       readonly orderRepository: OrderRepositoryInterface
     },
 ): WebhookModule {
-  const { cacheProvider, customerRepository, whatsAppSender, conversationEngine, repeatLastOrderUseCase } = params
+  const {
+    cacheProvider,
+    customerRepository,
+    conversationSessionRepository,
+    whatsAppSender,
+    conversationEngine,
+    repeatLastOrderUseCase,
+  } = params
 
   // Amarração circular resolvida por referência tardia: o driver precisa do interpretador que
   // esta fábrica cria, e a fábrica precisa saber chamar o driver.
@@ -624,6 +631,7 @@ function buildWebhookModule(
       sessionRepository: metaWhatsApp.conversations.repository,
       whatsAppSender,
       customerRepository,
+      conversationSessionRepository,
       repeatLastOrderUseCase,
       categoryRepository: params.categoryRepository,
       cartRepository: params.cartRepository,

@@ -115,6 +115,22 @@ export const GLOBAL_TRIGGER = {
 } as const
 
 /**
+ * Frases que pedem gente de verdade, em QUALQUER estado (spec §3.5, T3.1).
+ *
+ * Casamento é por mensagem inteira ou pelo prefixo "falar com" (ver `isHumanHandoffRequest`),
+ * nunca substring — "o atendente de ontem errou meu pedido" não é pedido de transferência.
+ */
+export const HUMAN_HANDOFF_PHRASES = [
+  'atendente',
+  'humano',
+  'pessoa',
+  'falar com atendente',
+  'falar com alguém',
+  'falar com uma pessoa',
+  'quero um atendente',
+] as const
+
+/**
  * A decisão do cliente sobre um pedido com item em falta. O id carrega o pedido: `order_continue:<uuid>`.
  *
  * Carrega porque a pergunta pode ficar sem resposta por horas, e nesse meio-tempo a pessoa conversa sobre
@@ -202,6 +218,13 @@ export const MESSAGES = {
    * aparecer, e com a loja fechada isso é a madrugada inteira. Fila marcada, atendimento seguindo.
    */
   AGENT_REQUESTED: '💬 Já avisei a equipe — alguém vai te responder por aqui. Enquanto isso posso seguir te ajudando.',
+  /**
+   * Pedido repetido enquanto a conversa já está na fila (ou já em atendimento humano).
+   *
+   * Sem esta checagem, cada "atendente" novo reiniciaria a fila (`humanRequestedAt` vira "agora"),
+   * empurrando quem já esperava para o fim da lista de espera do atendente.
+   */
+  AGENT_ALREADY_WAITING: 'Já avisei a equipe, alguém vai te responder em breve 💬',
   /**
    * Aviso de item que acabou. Diz o produto, o total novo e devolve a decisão ao cliente.
    *

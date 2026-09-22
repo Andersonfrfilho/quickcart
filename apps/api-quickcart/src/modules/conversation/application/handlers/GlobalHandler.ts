@@ -27,6 +27,8 @@ import type {
 } from '@/modules/conversation/application/handlers/ConversationHandler.interface'
 import { looksLikeShoppingList } from '@/modules/conversation/application/looksLikeShoppingList'
 import { sendCartSummary } from '@/modules/conversation/application/handlers/support/CartSummary'
+import { requestHumanHandoff } from '@/modules/conversation/application/handlers/support/requestHumanHandoff'
+import { isHumanHandoffRequest } from '@/modules/conversation/shared/isHumanHandoffRequest'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import { GLOBAL_TRIGGER, MENU_BUTTON_ID, MESSAGES } from '@/modules/conversation/shared/Messages.constant'
 import {
@@ -93,6 +95,23 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
         context: {},
       })
       await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.GOODBYE)
+      return true
+    }
+
+    /**
+     * Pedido de atendente (spec §3.5, T3.1): mesma ideia do "sair" acima — intenção do cliente, não
+     * resposta ao estado —, e por isso checado ANTES do parser de lista de compras logo abaixo. Sem
+     * essa ordem, "atendente" sozinho em `awaiting_list` viraria (sem casar produto nenhum) uma
+     * tentativa de montar carrinho, em vez de chamar a fila de espera.
+     */
+    if (message.kind === 'text' && isHumanHandoffRequest(message.body)) {
+      await requestHumanHandoff(
+        {
+          conversationSessionRepository: this.dependencies.conversationSessionRepository,
+          whatsAppSender: this.dependencies.whatsAppSender,
+        },
+        session.customerPhone,
+      )
       return true
     }
 

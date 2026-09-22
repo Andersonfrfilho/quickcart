@@ -646,3 +646,76 @@ literal, mesmo padrão do resto do arquivo):
 
 **Números.** Baseline antes desta correção: 372 testes passando, 0 falhas. Depois: **381 testes
 passando, 0 falhas** (9 novos: 5 + 4 acima). `bun run typecheck` limpo.
+
+## T3.1 — Palavra-chave de atendente
+
+**Arquivos novos:**
+- `apps/api-quickcart/src/modules/conversation/shared/isHumanHandoffRequest.ts` — função pura.
+  Normaliza (minúsculas, NFD sem diacríticos, remove pontuação, colapsa espaços) e casa a
+  **mensagem inteira** contra `HUMAN_HANDOFF_PHRASES`, ou contra o prefixo "quero falar com" /
+  "preciso falar com" / "falar com" seguido de artigo opcional (um/uma/o/a) + `atendente` /
+  `humano` / `pessoa` / `alguém`.
+- `apps/api-quickcart/src/modules/conversation/application/handlers/support/requestHumanHandoff.ts`
+  — ação compartilhada: se `findByPhone` mostrar `humanRequestedAt` já preenchido, responde
+  `MESSAGES.AGENT_ALREADY_WAITING` e não toca no banco; caso contrário chama
+  `conversationSessionRepository.requestHuman` e responde `MESSAGES.AGENT_REQUESTED`. Usada por:
+  - `registerQuickCartFlowActions.ts` (ação `quickcart_request_human`, antes linha 176-180 —
+    chamava `sessionRepository.requestHuman` + `sendText` direto, agora delega aqui).
+  - `GlobalHandler.tryHandle` (novo bloco, ver abaixo).
+
+**Arquivos alterados:**
+- `Messages.constant.ts`: `HUMAN_HANDOFF_PHRASES` (`atendente`, `humano`, `pessoa`,
+  `falar com atendente`, `falar com alguém`, `falar com uma pessoa`, `quero um atendente`) e
+  `MESSAGES.AGENT_ALREADY_WAITING`.
+- `webhook/domain/Conversation.types.ts`: `ConversationSession.humanRequestedAt?: Date | null`
+  (opcional para não obrigar os `buildSession` de teste já escritos a ganhar o campo).
+- `webhook/domain/ConversationSessionRepository.interface.ts`: `requestHuman?(customerPhone)`
+  (opcional pelo mesmo motivo — dublês de teste cobrem um método por vez).
+- `webhook/infra/database/DrizzleConversationSessionRepository.ts`: mapeia `humanRequestedAt` no
+  `toDomain` e implementa `requestHuman` delegando ao `SessionRepository` do
+  `@adatechnology/meta-whatsapp-module` — não muda `mode` (spec §3.5: calar o bot está errado).
+- `registerQuickCartFlowActions.ts`: novo dependency `conversationSessionRepository`; a ação
+  `REQUEST_HUMAN` agora só chama `requestHumanHandoff`.
+- `infra/container/index.ts`: passa `conversationSessionRepository` (já existente no escopo de
+  `buildWebhookModule`) para `registerQuickCartFlowActions`.
+- `GlobalHandler.ts`: novo bloco `isHumanHandoffRequest(message.body)` → `requestHumanHandoff`.
+
+**Ordem de precedência no `GlobalHandler.tryHandle`** (documentada inline no código):
+1. "sair"/"cancelar" (`isExitWord`) — sai da conversa.
+2. **Pedido de atendente (`isHumanHandoffRequest`) — NOVO, logo em seguida.**
+3. Botões de decisão de pedido (`order_continue:` / `order_cancel:` / troca de item).
+4. Botão/list "repetir pedido".
+5. Parser de lista de compras solta (`shouldHandleAsShoppingList`).
+
+Atendente entra **antes** do parser de lista (item 5) de propósito — é o requisito explícito da
+task: sem essa ordem, "atendente" sozinho em `awaiting_list`/`cart_review` cairia no parser de
+lista (que casaria contra o catálogo, sem achar produto) em vez de chamar a fila de espera. Entra
+**depois** de "sair" porque os dois são checagens de mensagem inteira independentes — nenhuma
+mensagem real pode casar as duas —, e antes dos itens 3-4 porque estes só reagem a `button_reply`/
+`list_reply`, nunca a texto puro, então a ordem relativa entre eles e o atendente não afeta nenhum
+caso real.
+
+**Não cala o bot** (spec §3.5): `requestHuman` do módulo só marca `humanRequestedAt = now()`,
+sem tocar `mode` — a conversa segue em `mode: 'bot'`, respondendo normalmente até um atendente
+assumir (`takeover`). Confirmado lendo `SessionRepository.requestHuman` em
+`node_modules/@adatechnology/meta-whatsapp-module` (dist/index.js:444-449).
+
+**Testes novos**, sem `as never` (dublês tipados via `Pick<Interface, 'metodo'>`/objeto literal
+com os métodos usados, ou `as unknown as <Dependencies>` para os testes de handler que já seguiam
+esse padrão no arquivo):
+- `isHumanHandoffRequest.test.ts` (10 casos): positivos (`atendente`, `Quero falar com um
+  atendente!`, `falar com alguém`, `ATENDENTE?`, `humano`, `preciso falar com uma pessoa`);
+  negativos (`o atendente de ontem errou meu pedido`, `humanos erram`, `pessoa física`,
+  `2 atendente`).
+- `support/requestHumanHandoff.test.ts` (3 casos): marca a fila e avisa quando ninguém tinha
+  pedido; não duplica quando `humanRequestedAt` já setado; não duplica quando `mode: 'human'` +
+  `humanRequestedAt` setado (atendimento humano em curso).
+- `GlobalHandler.test.ts` (7 casos): dispara em `AWAITING_LIST`, `CART_REVIEW`,
+  `AWAITING_PAYMENT` e `CONFIRMING` (mesma ação — `requestHuman` + `AGENT_REQUESTED`); não
+  duplica quando já aguardando; roda ANTES do `listHandler` em `AWAITING_LIST` (parser de lista
+  não é chamado); mensagem que não é pedido de atendente não é engolida (`handled === false`,
+  segue para o handler do estado).
+
+**Números.** Baseline antes desta task: 381 testes passando, 0 falhas. Depois: **401 testes
+passando, 0 falhas** (20 novos: 10 + 3 + 7 acima). `bun run typecheck` limpo (banco de teste
+`quickcart-test-postgres`/`quickcart-test-redis` de pé, migrado). Frontend não tocado.
