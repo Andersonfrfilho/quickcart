@@ -27,6 +27,7 @@ import type { WhatsAppSender } from '@/modules/webhook/infra/whatsapp/WhatsAppSe
 import type { ConversationHandlerContext, ConversationHandlerInterface } from '@/modules/conversation/application/handlers/ConversationHandler.interface'
 import type { ConversationContext } from '@/modules/conversation/shared/ConversationContext.types'
 import { sendCartSummary } from '@/modules/conversation/application/handlers/support/CartSummary'
+import { requiresCardMachine } from '@/modules/order/shared/requiresCardMachine'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInCents'
 import {
@@ -290,11 +291,12 @@ export class CheckoutHandler implements ConversationHandlerInterface {
     }
 
     /*
-     * A maquininha só existe na entrega: quem retira na loja paga no caixa, sem entregador
-     * (spec §3.2). `requiresCardMachine` é quem decide isso no painel e no motorista; aqui, antes
-     * de o pedido existir, a checagem é direta pelo tipo de entrega já escolhido no checkout.
+     * A maquininha só existe na entrega: quem retira na loja paga no caixa, sem entregador (spec
+     * §3.2). É a MESMA função do selo no painel — o pedido ainda não existe aqui, mas os ids dos
+     * botões já são os valores de domínio (`confirmOrder` os grava direto), então não há tradução
+     * nem uma segunda cópia da regra, que é como as duas acabariam divergindo.
      */
-    if (message.buttonId === PAYMENT_METHOD_BUTTON_ID.CARD_ON_DELIVERY && checkoutContext.checkoutDeliveryType === DELIVERY_TYPE_BUTTON_ID.DELIVERY) {
+    if (requiresCardMachine({ paymentMethod: message.buttonId, deliveryType: checkoutContext.checkoutDeliveryType ?? '' })) {
       await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_CARD_ON_DELIVERY_MACHINE_NOTICE)
     }
 
