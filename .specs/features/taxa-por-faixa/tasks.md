@@ -21,7 +21,8 @@ com `quickcart-test-postgres` e `quickcart-test-redis` de pé e **todas** as mig
 ## Fase 0 — Pré-requisito: pacote com mensagem de localização
 > 🤖 Modelo: `sonnet` — **só verifica**
 
-### T0.1 — Conferir o pacote publicado
+### T0.1 — Conferir o pacote publicado ✅
+- **Feito pelo #32** (`9354def`): `meta-whatsapp-contracts`/`-module` 0.4.0 no api e no worker, uma cópia só do módulo. A task passa a só **conferir** isso no `main` rebaseado.
 - O `@adatechnology/meta-whatsapp-contracts` publicado tem `location` em `whatsAppMessageSchema`
   (`npm view @adatechnology/meta-whatsapp-contracts version` + conferir o `.d.ts` da versão).
 - **Se não estiver:** **PARAR e perguntar** — publicar pacote é outra cadeia (PR no repositório de
