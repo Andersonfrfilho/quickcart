@@ -15,30 +15,48 @@ import { BrowseHandler, type BrowseHandlerDependencies } from '@/modules/convers
 import type { ConversationHandlerContext } from '@/modules/conversation/application/handlers/ConversationHandler.interface'
 import type { ConversationContext } from '@/modules/conversation/shared/ConversationContext.types'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
-import { BROWSE_ROW_ID, BROWSE_ROW_PREFIX, MESSAGES } from '@/modules/conversation/shared/Messages.constant'
+import {
+  BROWSE_POST_ADD_BUTTON_ID,
+  BROWSE_ROW_ID,
+  BROWSE_ROW_PREFIX,
+  MESSAGES,
+} from '@/modules/conversation/shared/Messages.constant'
 import type { ParsedInboundMessage } from '@/modules/webhook/application/types/WhatsAppWebhookPayload.types'
 
 const CUSTOMER_PHONE = '5511999990000'
 
 type SentList = { readonly bodyText: string; readonly rowIds: readonly string[] }
+type SentButtons = { readonly bodyText: string; readonly buttonIds: readonly string[] }
+
+type HarnessOverrides = {
+  readonly cartDraft?: ConversationContext['cartDraft']
+  readonly cartId?: string
+  readonly openCartId?: string
+}
 
 type Harness = {
   readonly handler: BrowseHandler
   readonly sentTexts: string[]
   readonly sentLists: SentList[]
+  readonly sentButtons: SentButtons[]
   readonly searchedTerms: string[]
   readonly updatedContexts: ConversationContext[]
+  readonly listedCategories: number
+  readonly addedCartItems: string[]
 }
 
 function buildSearchResult(overrides: Partial<ProductSearchResult>): ProductSearchResult {
   return { id: 'product-1', name: 'Arroz Tio João 5kg', brand: null, unitSize: null, priceInCents: 2990, score: 0.9, ...overrides }
 }
 
-function buildHarness(searchResults: readonly ProductSearchResult[]): Harness {
+function buildHarness(searchResults: readonly ProductSearchResult[], overrides: HarnessOverrides = {}): Harness {
   const sentTexts: string[] = []
   const sentLists: SentList[] = []
+  const sentButtons: SentButtons[] = []
   const searchedTerms: string[] = []
   const updatedContexts: ConversationContext[] = []
+  const addedCartItems: string[] = []
+  let listedCategories = 0
 
   const dependencies = {
     conversationSessionRepository: {
@@ -49,6 +67,9 @@ function buildHarness(searchResults: readonly ProductSearchResult[]): Harness {
     whatsAppSender: {
       sendText: async (_to: string, body: string) => {
         sentTexts.push(body)
+      },
+      sendInteractiveButtons: async (_to: string, bodyText: string, buttons: readonly { id: string }[]) => {
+        sentButtons.push({ bodyText, buttonIds: buttons.map((button) => button.id) })
       },
       sendInteractiveList: async (
         _to: string,
@@ -64,12 +85,39 @@ function buildHarness(searchResults: readonly ProductSearchResult[]): Harness {
         searchedTerms.push(term)
         return [...searchResults]
       },
+      findById: async (id: string) => ({ id, name: 'Arroz Tio João 5kg', priceInCents: 2990 }),
+      list: async () => ({ items: [{ id: 'product-2', name: 'Feijão Carioca 1kg', priceInCents: 890 }], total: 1 }),
     },
-    cartRepository: {},
-    addCartItemUseCase: {},
+    categoryRepository: {
+      list: async () => {
+        listedCategories += 1
+        return [{ id: 'category-1', name: 'Mercearia', emoji: '🛒' }]
+      },
+    },
+    cartRepository: {
+      findOpenByCustomer: async () => (overrides.openCartId ? { id: overrides.openCartId } : undefined),
+      listItems: async () => (overrides.cartDraft ?? []).map((item) => ({ productId: item.productId, quantity: item.quantity })),
+    },
+    addCartItemUseCase: {
+      execute: async (params: { productId: string }) => {
+        addedCartItems.push(params.productId)
+        return { cart: { id: overrides.cartId ?? 'cart-1' } }
+      },
+    },
   } as unknown as BrowseHandlerDependencies
 
-  return { handler: new BrowseHandler(dependencies), sentTexts, sentLists, searchedTerms, updatedContexts }
+  return {
+    handler: new BrowseHandler(dependencies),
+    sentTexts,
+    sentLists,
+    sentButtons,
+    searchedTerms,
+    updatedContexts,
+    get listedCategories() {
+      return listedCategories
+    },
+    addedCartItems,
+  }
 }
 
 function buildContext(message: ParsedInboundMessage, context: ConversationContext = {}): ConversationHandlerContext {
@@ -88,8 +136,20 @@ function buildListReply(listId: string): ParsedInboundMessage {
   return { kind: 'list_reply', from: CUSTOMER_PHONE, waMessageId: 'wamid-3', listId, listTitle: listId }
 }
 
+function buildButtonReply(buttonId: string): ParsedInboundMessage {
+  return { kind: 'button_reply', from: CUSTOMER_PHONE, waMessageId: 'wamid-4', buttonId, buttonTitle: buttonId }
+}
+
 function buildManySearchResults(count: number): ProductSearchResult[] {
   return Array.from({ length: count }, (_, index) => buildSearchResult({ id: `rice-${index}`, name: `Arroz ${index}` }))
+}
+
+function buildAwaitingQuantityContext(message: ParsedInboundMessage, context: ConversationContext): ConversationHandlerContext {
+  return {
+    session: { customerPhone: CUSTOMER_PHONE, currentState: CONVERSATION_STATE.AWAITING_QUANTITY, context },
+    customer: { id: 'customer-1' },
+    message,
+  } as unknown as ConversationHandlerContext
 }
 
 describe('BrowseHandler — texto livre ao navegar', () => {
@@ -175,5 +235,161 @@ describe('BrowseHandler — texto livre ao navegar', () => {
     )
 
     expect(harness.sentLists.at(-1)?.rowIds).toEqual(firstPageRowIds)
+  })
+})
+
+describe('BrowseHandler — depois de adicionar um produto', () => {
+  it('envia os 3 botões de "e agora?" e NÃO reenvia a lista de produtos', async () => {
+    const harness = buildHarness([])
+
+    await harness.handler.handle(
+      buildAwaitingQuantityContext(buildTextMessage('3'), {
+        awaitingQuantityProduct: { productId: 'product-1', name: 'Arroz Tio João 5kg', priceInCents: 2990 },
+        browsingCategoryId: 'category-1',
+        browsingPage: 2,
+      }),
+    )
+
+    expect(harness.sentLists).toEqual([])
+    expect(harness.sentButtons).toHaveLength(1)
+    expect(harness.sentButtons[0]?.bodyText).toBe('✅ Adicionado: 3× Arroz Tio João 5kg. E agora?')
+    expect(harness.sentButtons[0]?.buttonIds).toEqual([
+      BROWSE_POST_ADD_BUTTON_ID.MORE_CATEGORY,
+      BROWSE_POST_ADD_BUTTON_ID.OTHER_CATEGORY,
+      BROWSE_POST_ADD_BUTTON_ID.VIEW_CART,
+    ])
+  })
+
+  it('mantém o contexto de navegação (categoria/página) e o carrinho no rascunho', async () => {
+    const harness = buildHarness([])
+
+    await harness.handler.handle(
+      buildAwaitingQuantityContext(buildTextMessage('3'), {
+        awaitingQuantityProduct: { productId: 'product-1', name: 'Arroz Tio João 5kg', priceInCents: 2990 },
+        browsingCategoryId: 'category-1',
+        browsingPage: 2,
+        rememberedCheckout: { deliveryType: 'delivery', paymentMethod: 'pix', receiptPreference: 'none' },
+      }),
+    )
+
+    expect(harness.updatedContexts.at(-1)).toMatchObject({
+      browsingCategoryId: 'category-1',
+      browsingPage: 2,
+      rememberedCheckout: { deliveryType: 'delivery', paymentMethod: 'pix', receiptPreference: 'none' },
+      cartDraft: [
+        {
+          productId: 'product-1',
+          name: 'Arroz Tio João 5kg',
+          priceInCents: 2990,
+          quantity: 3,
+          matchType: 'manual',
+          originalTerm: 'Arroz Tio João 5kg',
+        },
+      ],
+    })
+  })
+})
+
+describe('BrowseHandler — botões pós-adição', () => {
+  it('"Mais desta categoria" reenvia a lista da MESMA página em que o cliente estava', async () => {
+    const harness = buildHarness([])
+
+    await harness.handler.handle(
+      buildContext(buildButtonReply(BROWSE_POST_ADD_BUTTON_ID.MORE_CATEGORY), {
+        browsingCategoryId: 'category-1',
+        browsingPage: 2,
+      }),
+    )
+
+    expect(harness.sentLists).toHaveLength(1)
+    expect(harness.sentLists[0]?.bodyText).toBe(MESSAGES.BROWSE_PICK_PRODUCT)
+    expect(harness.listedCategories).toBe(0)
+  })
+
+  it('"Outra categoria" envia a lista de categorias', async () => {
+    const harness = buildHarness([])
+
+    await harness.handler.handle(buildContext(buildButtonReply(BROWSE_POST_ADD_BUTTON_ID.OTHER_CATEGORY)))
+
+    expect(harness.listedCategories).toBe(1)
+    expect(harness.sentLists).toHaveLength(1)
+    expect(harness.sentLists[0]?.bodyText).toBe(MESSAGES.BROWSE_PICK_CATEGORY)
+  })
+
+  it('"Ver carrinho" chama o MESMO caminho do gatilho de texto "carrinho"', async () => {
+    const cartDraftItem = {
+      productId: 'product-1',
+      name: 'Arroz Tio João 5kg',
+      priceInCents: 2990,
+      quantity: 3,
+      matchType: 'manual' as const,
+      originalTerm: 'Arroz Tio João 5kg',
+    }
+
+    const viaButton = buildHarness([], { cartDraft: [cartDraftItem] })
+    await viaButton.handler.handle(
+      buildContext(buildButtonReply(BROWSE_POST_ADD_BUTTON_ID.VIEW_CART), { cartDraft: [cartDraftItem] }),
+    )
+
+    const viaTrigger = buildHarness([], { cartDraft: [cartDraftItem] })
+    await viaTrigger.handler.handle(buildContext(buildTextMessage('carrinho'), { cartDraft: [cartDraftItem] }))
+
+    expect(viaButton.addedCartItems).toEqual(['product-1'])
+    expect(viaButton.addedCartItems).toEqual(viaTrigger.addedCartItems)
+    expect(viaButton.sentButtons).toEqual(viaTrigger.sentButtons)
+    expect(viaButton.updatedContexts.at(-1)).toEqual(viaTrigger.updatedContexts.at(-1))
+  })
+
+  it('carrinho vazio + "Ver carrinho": mesmo aviso do gatilho "carrinho" hoje', async () => {
+    const viaButton = buildHarness([])
+    await viaButton.handler.handle(buildContext(buildButtonReply(BROWSE_POST_ADD_BUTTON_ID.VIEW_CART)))
+
+    const viaTrigger = buildHarness([])
+    await viaTrigger.handler.handle(buildContext(buildTextMessage('carrinho')))
+
+    expect(viaButton.sentTexts).toEqual([MESSAGES.CART_EMPTY])
+    expect(viaButton.sentTexts).toEqual(viaTrigger.sentTexts)
+  })
+})
+
+describe('BrowseHandler — frases de encerramento levam ao carrinho (relato do cliente preso em "Não")', () => {
+  const CART_DONE_PHRASES = ['Não', 'não', 'pronto', 'Só isso!', 'é só isso', 'finalizar', 'concluir', 'fechar pedido']
+
+  for (const phrase of CART_DONE_PHRASES) {
+    it(`"${phrase}" leva ao carrinho, e não à busca de produto`, async () => {
+      const harness = buildHarness([])
+
+      await harness.handler.handle(buildContext(buildTextMessage(phrase)))
+
+      expect(harness.searchedTerms).toEqual([])
+      expect(harness.sentTexts).toEqual([MESSAGES.CART_EMPTY])
+    })
+  }
+
+  it('"não tem arroz integral?" continua sendo busca de produto, não é engolido pelo encerramento', async () => {
+    const harness = buildHarness([buildSearchResult({ id: 'rice-1' })])
+
+    await harness.handler.handle(buildContext(buildTextMessage('não tem arroz integral?')))
+
+    expect(harness.searchedTerms).toEqual(['não tem arroz integral?'])
+    expect(harness.sentTexts).toEqual([])
+  })
+
+  it('reproduz o cenário do relato: produto → 3 → "Não" → resumo do carrinho, sem "Não encontrei \'Não\'"', async () => {
+    const harness = buildHarness([])
+
+    await harness.handler.handle(
+      buildContext(buildListReply(`${BROWSE_ROW_PREFIX.PRODUCT}product-1`), { browsingCategoryId: 'category-1', browsingPage: 1 }),
+    )
+    const contextAfterPick = harness.updatedContexts.at(-1) as ConversationContext
+
+    await harness.handler.handle(buildAwaitingQuantityContext(buildTextMessage('3'), contextAfterPick))
+    const contextAfterAdd = harness.updatedContexts.at(-1) as ConversationContext
+
+    await harness.handler.handle(buildContext(buildTextMessage('Não'), contextAfterAdd))
+
+    expect(harness.sentTexts.some((text) => text.includes('Não encontrei'))).toBe(false)
+    expect(harness.sentTexts.at(-1)).toBe(MESSAGES.CART_EMPTY)
+    expect(harness.searchedTerms).toEqual([])
   })
 })
