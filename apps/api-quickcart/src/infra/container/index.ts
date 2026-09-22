@@ -214,6 +214,7 @@ type OrderModule = {
   readonly remindCustomerDecisionUseCase: RemindCustomerDecisionUseCase
   readonly listOrdersUseCase: ListOrdersUseCase
   readonly orderController: OrderController
+  readonly resolveOrderDeliveryEstimateUseCase: ResolveOrderDeliveryEstimateUseCase
 }
 
 function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
@@ -343,6 +344,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     remindCustomerDecisionUseCase,
     listOrdersUseCase,
     orderController,
+    resolveOrderDeliveryEstimateUseCase,
   }
 }
 
@@ -386,6 +388,7 @@ type ConversationModuleDependencies = {
   readonly removeCartItemUseCase: RemoveCartItemUseCase
   readonly updateCartItemQuantityUseCase: UpdateCartItemQuantityUseCase
   readonly createOrderFromCartUseCase: CreateOrderFromCartUseCase
+  readonly resolveOrderDeliveryEstimateUseCase: ResolveOrderDeliveryEstimateUseCase
   readonly repeatLastOrderUseCase: RepeatLastOrderUseCase
   readonly resolveCustomerDecisionUseCase: ResolveCustomerDecisionUseCase
   readonly resolveItemSubstitutionUseCase: ResolveItemSubstitutionUseCase
@@ -409,6 +412,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     removeCartItemUseCase,
     updateCartItemQuantityUseCase,
     createOrderFromCartUseCase,
+    resolveOrderDeliveryEstimateUseCase,
     repeatLastOrderUseCase,
     resolveCustomerDecisionUseCase,
     resolveItemSubstitutionUseCase,
@@ -474,7 +478,9 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     productRepository,
     customerRepository,
     createOrderFromCartUseCase,
+    resolveOrderDeliveryEstimateUseCase,
     addressLookupProvider,
+    storePreparationMinutes: environment.STORE_PREPARATION_MINUTES,
   })
   const cashChangeHandler = new CashChangeHandler({
     conversationSessionRepository,
@@ -728,6 +734,7 @@ const conversationModule = buildConversationModule({
   removeCartItemUseCase: cartModule.removeCartItemUseCase,
   updateCartItemQuantityUseCase: cartModule.updateCartItemQuantityUseCase,
   createOrderFromCartUseCase: orderModule.createOrderFromCartUseCase,
+  resolveOrderDeliveryEstimateUseCase: orderModule.resolveOrderDeliveryEstimateUseCase,
   repeatLastOrderUseCase: orderModule.repeatLastOrderUseCase,
   resolveCustomerDecisionUseCase: orderModule.resolveCustomerDecisionUseCase,
   resolveItemSubstitutionUseCase: orderModule.resolveItemSubstitutionUseCase,

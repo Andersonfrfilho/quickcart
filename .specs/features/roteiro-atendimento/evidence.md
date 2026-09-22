@@ -117,3 +117,76 @@ O bot reimplementava a regra da maquininha em vez de chamar `requiresCardMachine
 que o pedido ainda não existe no checkout. A função já aceita `{ paymentMethod, deliveryType }`, e os
 ids dos botões são os próprios valores de domínio, então o bot passou a usar a função. Suíte: 322
 verdes; typecheck limpo.
+
+## T1.3 — Previsão de entrega na confirmação
+
+### Arquivos alterados
+
+- `apps/api-quickcart/src/modules/conversation/application/handlers/CheckoutHandler.ts` —
+  `confirmOrder` chama `buildDeliveryEstimateLine(order)` **depois** de `createOrderFromCartUseCase.execute`
+  e acrescenta a linha (se houver) na confirmação, junto com a de troco. Novo método privado
+  `buildDeliveryEstimateLine`: retirada usa `STORE_PREPARATION_MINUTES` direto, sem chamar a
+  estimativa de rota; entrega chama `ResolveOrderDeliveryEstimateUseCase.execute({ order })` dentro de
+  `try/catch` — **só** essa chamada fica protegida, nada mais no método. Sem estimativa, com
+  `isOutsideRadius`, ou sem `minMinutes`/`maxMinutes`, a linha não aparece. Erro é logado com
+  `checkoutLog.warn('delivery_estimate_unavailable', { orderId: order.id, error: serializeError(error) })`
+  — só o `orderId`, nunca telefone/endereço/CEP.
+- `apps/api-quickcart/src/modules/conversation/shared/Messages.constant.ts` — novas strings
+  `ORDER_CONFIRMED_DELIVERY_ESTIMATE_LINE` ("Previsão de entrega: entre {min} e {max} minutos.") e
+  `ORDER_CONFIRMED_PICKUP_ESTIMATE_LINE` ("Pronto para retirada em cerca de {minutos} minutos.").
+- `apps/api-quickcart/src/infra/container/index.ts` — `ResolveOrderDeliveryEstimateUseCase` (já
+  instanciado em `buildOrderModule` para o painel) passou a ser exposto no retorno do módulo
+  (`OrderModule.resolveOrderDeliveryEstimateUseCase`), propagado por `ConversationModuleDependencies`
+  e injetado no `CheckoutHandler`, junto com `storePreparationMinutes: environment.STORE_PREPARATION_MINUTES`
+  — acesso pelo módulo de config validado, nunca `process.env` direto no handler.
+- `apps/api-quickcart/src/modules/conversation/application/handlers/CheckoutHandler.deliveryEstimate.test.ts`
+  (novo) — 5 casos: com `minMinutes`/`maxMinutes` a linha aparece; `undefined` some a linha; erro
+  lançado não derruba a confirmação (e some a linha); fora do raio some a linha; retirada mostra a
+  linha própria e **não** chama a estimativa de rota.
+
+### Decisões
+
+- `buildDeliveryEstimateLine` recebe `OrderRecord` (o pedido recém-criado), não recalcula nada do
+  pedido — é o mesmo objeto que `createOrderFromCartUseCase.execute` devolveu.
+- Dependência injetada **por interface**, no construtor do `CheckoutHandler`
+  (`CheckoutHandlerDependencies.resolveOrderDeliveryEstimateUseCase`), sem `new` acoplado — a
+  instância já existe no container (compartilhada com o painel via `GetAdminOrderDetailUseCase`).
+- `storePreparationMinutes` entra como valor primitivo já resolvido do `environment.ts`, não como o
+  módulo de config inteiro — o handler não precisa saber de mais nenhuma env.
+- Retirada não passa pelo `try/catch` da estimativa porque não há chamada nenhuma a proteger: o
+  número vem só da env.
+
+### Chamadas externas por confirmação (auditoria da T4.1, registrado agora)
+
+- `ResolveOrderDeliveryEstimateUseCase.execute` geocodifica **dois** CEPs por chamada: o da loja
+  (`STORE_CEP`) e o do cliente. Cada geocodificação passa por `ResolveCepCoordinateUseCase`, que
+  cacheia o resultado em Postgres via `DrizzleGeocodedAddressRepository` (mesmo comentário em
+  `GetAdminOrderDetail.use-case.ts:51-53`: "só no primeiro pedido de cada CEP — depois vem do
+  cache").
+- Na prática: o CEP da loja é sempre o mesmo, então só a **primeira** confirmação do processo paga
+  a geocodificação dele — as seguintes vêm do cache. O CEP do cliente paga geocodificação só na
+  primeira vez que aquele CEP aparece (endereço novo).
+- **Pior caso por confirmação:** até 2 chamadas ao provider de geocodificação (Nominatim), 0 no
+  caso comum de loja já cacheada e cliente repetindo CEP. Nenhum cache foi adicionado nesta task —
+  o que já existe (Postgres) é suficiente para o volume de uma confirmação e a decisão de ir além
+  (ex.: cache em memória do CEP da loja) fica para a auditoria da T4.1.
+
+### Typecheck
+
+- `cd apps/api-quickcart && bun run typecheck` → `tsc --noEmit`, sem erros.
+
+### Testes
+
+- Baseline antes da T1.3: **322 testes passando, 0 falhas**.
+- Depois da T1.3: **327 testes passando, 0 falhas** — 5 testes novos (`CheckoutHandler.deliveryEstimate.test.ts`).
+
+### Migration no banco de teste
+
+Nenhuma migration nova nesta task (T1.3 não adiciona coluna). `quickcart-test-postgres` e
+`quickcart-test-redis` já estavam de pé e migrados até `0020`.
+
+### Desvios da spec
+
+Nenhum. O escopo foi implementado como descrito: previsão calculada depois de criar o pedido, linha
+ausente sem estimativa/fora do raio/sem `STORE_CEP`, retirada com `STORE_PREPARATION_MINUTES`, e
+falha na estimativa isolada por `try/catch` sem derrubar a confirmação.

@@ -336,6 +336,10 @@ export const MESSAGES = {
   ORDER_CONFIRMED_PREFIX: '✅ Pedido confirmado! Código:',
   /** Linha de troco na confirmação final. `{valor}` é o valor com que o cliente vai pagar. */
   ORDER_CONFIRMED_CASH_CHANGE_LINE: 'Troco para {valor}.',
+  /** Roteiro §12. Ausente sempre que não dá para responder com honestidade — nunca inventar. */
+  ORDER_CONFIRMED_DELIVERY_ESTIMATE_LINE: 'Previsão de entrega: entre {min} e {max} minutos.',
+  /** Retirada usa `STORE_PREPARATION_MINUTES`, não a estimativa de rota. */
+  ORDER_CONFIRMED_PICKUP_ESTIMATE_LINE: 'Pronto para retirada em cerca de {minutos} minutos.',
   ORDER_CANCELLED: 'Pedido cancelado. Seu carrinho continua salvo — quando quiser é só chamar de novo!',
   ORDER_INSUFFICIENT_STOCK: '😕 Alguns itens não têm estoque suficiente no momento. Vamos revisar seu carrinho.',
   ORDER_CART_EMPTY_ERROR: 'Seu carrinho está vazio, não dá pra fechar o pedido ainda.',

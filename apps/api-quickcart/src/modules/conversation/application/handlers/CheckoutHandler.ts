@@ -20,7 +20,9 @@ import type { Customer } from '@/infra/database/schema'
 import type { ConversationSession } from '@/modules/webhook/domain/Conversation.types'
 import type { CartRepositoryInterface } from '@/modules/cart/domain/CartRepository.interface'
 import type { ProductRepositoryInterface } from '@/modules/catalog/domain/ProductRepository.interface'
+import type { OrderRecord } from '@/modules/order/domain/OrderRepository.interface'
 import type { CreateOrderFromCartUseCase } from '@/modules/order/application/use-cases/CreateOrderFromCart.use-case'
+import type { ResolveOrderDeliveryEstimateUseCase } from '@/modules/order/application/use-cases/ResolveOrderDeliveryEstimate.use-case'
 import type { ConversationSessionRepositoryInterface } from '@/modules/webhook/domain/ConversationSessionRepository.interface'
 import type { CustomerRepositoryInterface } from '@/modules/webhook/domain/CustomerRepository.interface'
 import type { WhatsAppSender } from '@/modules/webhook/infra/whatsapp/WhatsAppSender'
@@ -28,8 +30,11 @@ import type { ConversationHandlerContext, ConversationHandlerInterface } from '@
 import type { ConversationContext } from '@/modules/conversation/shared/ConversationContext.types'
 import { sendCartSummary } from '@/modules/conversation/application/handlers/support/CartSummary'
 import { requiresCardMachine } from '@/modules/order/shared/requiresCardMachine'
+import { DELIVERY_TYPE } from '@/modules/order/shared/Order.constant'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInCents'
+import { logger } from '@/shared/logger'
+import { serializeError } from '@/shared/serializeError'
 import {
   CASH_CHANGE_BUTTONS,
   CONFIRMING_BUTTON_ID,
@@ -50,6 +55,7 @@ import { CHANNEL } from '@/modules/shared/shared.constant'
 import { OrderEmptyCartError, OrderInsufficientStockError } from '@/shared/errors/OrderErrors'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const checkoutLog = logger.child('CheckoutHandler')
 
 type InteractiveButtonOption = { readonly id: string; readonly title: string }
 
@@ -60,7 +66,9 @@ export type CheckoutHandlerDependencies = {
   readonly productRepository: ProductRepositoryInterface
   readonly customerRepository: CustomerRepositoryInterface
   readonly createOrderFromCartUseCase: CreateOrderFromCartUseCase
+  readonly resolveOrderDeliveryEstimateUseCase: ResolveOrderDeliveryEstimateUseCase
   readonly addressLookupProvider: AddressLookupProviderInterface
+  readonly storePreparationMinutes: number
 }
 
 /**
@@ -420,11 +428,14 @@ export class CheckoutHandler implements ConversationHandlerInterface {
         currentState: CONVERSATION_STATE.GREETING,
         context: {},
       })
+      const deliveryEstimateLine = await this.buildDeliveryEstimateLine(order)
+
       const confirmationLines = [
         `${MESSAGES.ORDER_CONFIRMED_PREFIX} ${order.shortCode}`,
         ...(order.cashChangeForInCents !== null
           ? [MESSAGES.ORDER_CONFIRMED_CASH_CHANGE_LINE.replace('{valor}', formatPriceInCents(order.cashChangeForInCents))]
           : []),
+        ...(deliveryEstimateLine ? [deliveryEstimateLine] : []),
       ]
       await this.dependencies.whatsAppSender.sendText(session.customerPhone, confirmationLines.join('\n'))
     } catch (error) {
@@ -461,6 +472,37 @@ export class CheckoutHandler implements ConversationHandlerInterface {
     }
 
     throw error
+  }
+
+  /**
+   * Roteiro §12. Calculada DEPOIS de criar o pedido; nunca atrasa nem derruba a confirmação.
+   *
+   * `try/catch` só em volta desta chamada (fallback gracioso, code-standart.md §7): sem `STORE_CEP`,
+   * sem coordenada do cliente, fora do raio ou com o serviço de mapa fora do ar, a linha some e o
+   * log carrega só o `orderId` — nunca telefone, endereço ou CEP (security.md §1).
+   */
+  private async buildDeliveryEstimateLine(order: OrderRecord): Promise<string | undefined> {
+    if (order.deliveryType === DELIVERY_TYPE.PICKUP) {
+      return MESSAGES.ORDER_CONFIRMED_PICKUP_ESTIMATE_LINE.replace(
+        '{minutos}',
+        String(this.dependencies.storePreparationMinutes),
+      )
+    }
+
+    try {
+      const estimate = await this.dependencies.resolveOrderDeliveryEstimateUseCase.execute({ order })
+      if (!estimate || estimate.isOutsideRadius || estimate.minMinutes === undefined || estimate.maxMinutes === undefined) {
+        return undefined
+      }
+
+      return MESSAGES.ORDER_CONFIRMED_DELIVERY_ESTIMATE_LINE.replace('{min}', String(estimate.minMinutes)).replace(
+        '{max}',
+        String(estimate.maxMinutes),
+      )
+    } catch (error: unknown) {
+      checkoutLog.warn('delivery_estimate_unavailable', { orderId: order.id, error: serializeError(error) })
+      return undefined
+    }
   }
 
   private async enterConfirming(session: ConversationSession, customerId: string, checkoutContext: ConversationContext): Promise<void> {
