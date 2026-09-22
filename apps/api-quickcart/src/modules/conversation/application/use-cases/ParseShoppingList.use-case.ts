@@ -24,7 +24,14 @@ import { logger } from '@/shared/logger'
 import { serializeError } from '@/shared/serializeError'
 
 const BULLET_OR_NUMBERING_PREFIX = /^\s*(?:[-*•]|\d+[.)])\s*/
-const SEGMENT_SEPARATOR = /\s*(?:(?<!\d),(?!\d)|;|\se\s)\s*/
+/**
+ * Separadores de item. O ponto final entra porque a transcrição de fala termina frase no meio da
+ * lista ("feijão de 2 kg. Também quero sal") — sem ele, os dois itens viravam um termo só.
+ * Os lookarounds preservam o número decimal ditado ("1,5kg", "1.5kg").
+ */
+const SEGMENT_SEPARATOR = /\s*(?:(?<!\d)[,.](?!\d)|[;!?]|\se\s)\s*/
+// Conjunção que sobra quando a vírgula já cortou o item: ", e açúcar" virava o termo `e acucar`.
+const LEADING_CONJUNCTION = /^(?:e|ou)\s+/
 
 /**
  * Listas de unidade compartilhadas entre as regexes "com produto" (LEADING) e as
@@ -46,7 +53,18 @@ const SPELLED_NUMBER_PATTERN =
 
 const WEIGHT_UNIT_LEADING = new RegExp(`^(\\d+[.,]?\\d*)\\s*(${WEIGHT_UNIT_PATTERN})\\s+(.+)$`, 'i')
 const COUNT_UNIT_LEADING = new RegExp(`^(\\d+)\\s*(${COUNT_UNIT_PATTERN})\\s+(.+)$`, 'i')
-const WEIGHT_UNIT_TRAILING = /^(.+?)\s+(\d+[.,]?\d*)\s*(kg|g|l|ml|un)$/i
+// O `de` opcional é de "arroz DE 5kg": sem ele, a preposição ficava colada no fim do termo.
+const WEIGHT_UNIT_TRAILING = /^(.+?)\s+(?:de\s+)?(\d+[.,]?\d*)\s*(kg|g|l|ml|un)$/i
+/**
+ * Fim de item sem separador: "arroz de 5kg feijao". Quem fala não pontua, e a transcrição sai sem a
+ * vírgula entre um item e outro — sem este corte, "arroz de 5kg feijao" virava um termo só. Peso com
+ * unidade seguido de mais palavra fecha o item da esquerda. Só com produto ANTES do número, e nunca
+ * antes de "de": "5 kg de feijao" e "5kg arroz" são um item só.
+ */
+const QUANTITY_ENDS_ITEM = new RegExp(
+  `(?<=\\p{L}\\s+(?:de\\s+)?\\d+(?:[.,]\\d+)?\\s*(?:${WEIGHT_UNIT_PATTERN}))\\s+(?!(?:de|do|da)\\s)(?=\\p{L})`,
+  'iu',
+)
 /**
  * Números por extenso, de um a doze.
  *
@@ -133,6 +151,7 @@ function segmentText(normalizedText: string): readonly string[] {
     .map((line) => line.replace(BULLET_OR_NUMBERING_PREFIX, '').trim())
     .filter((line) => line.length > 0)
     .flatMap((line) => line.split(SEGMENT_SEPARATOR))
+    .flatMap((segment) => segment.split(QUANTITY_ENDS_ITEM))
     .map((segment) => segment.trim())
     .filter((segment) => segment.length > 0)
 }
@@ -153,10 +172,11 @@ function segmentText(normalizedText: string): readonly string[] {
  * "queijo" não vira "jo" — e o `$` cobre o segmento que é só o verbo, como em "quero, 2 litros de leite".
  */
 const LEADING_INTENT_PHRASE =
-  /^(?:eu\s+)?(?:quero\s+comprar|vou\s+querer|me\s+manda|me\s+ve|gostaria|preciso|precisava|quero|queria|manda|mande|traz|traga|coloca|adiciona|poe|bota)(?:\s+de|\s+comprar)?(?:\s+|$)/
+  // "tambem" antes do verbo é comum em fala ("Também quero sal") e derrubava o reconhecimento.
+  /^(?:tambem\s+)?(?:eu\s+)?(?:quero\s+comprar|vou\s+querer|me\s+manda|me\s+ve|gostaria|preciso|precisava|quero|queria|manda|mande|traz|traga|coloca|adiciona|poe|bota)(?:\s+de|\s+comprar)?(?:\s+|$)/
 
 function stripLeadingIntent(segment: string): string {
-  return segment.replace(LEADING_INTENT_PHRASE, '').trim()
+  return segment.replace(LEADING_CONJUNCTION, '').replace(LEADING_INTENT_PHRASE, '').trim()
 }
 
 function parseQuantity(rawQuantity: string): number {
