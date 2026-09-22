@@ -389,6 +389,7 @@ function buildWebhookRepositories(): WebhookRepositories {
 }
 
 type ConversationModuleDependencies = {
+  readonly cacheProvider: CacheProvider
   readonly productRepository: ProductRepositoryInterface
   readonly addressLookupProvider: AddressLookupProviderInterface
   readonly categoryRepository: CategoryRepositoryInterface
@@ -413,6 +414,7 @@ type ConversationModule = {
 
 function buildConversationModule(dependencies: ConversationModuleDependencies): ConversationModule {
   const {
+    cacheProvider,
     productRepository,
     addressLookupProvider,
     categoryRepository,
@@ -509,6 +511,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
   const globalHandler = new GlobalHandler({
     conversationSessionRepository,
     whatsAppSender,
+    cacheProvider,
     cartRepository,
     productRepository,
     repeatLastOrderUseCase,
@@ -680,6 +683,7 @@ function buildWebhookModule(
       whatsAppSender,
       customerRepository,
       conversationSessionRepository,
+      cacheProvider,
       repeatLastOrderUseCase,
       categoryRepository: params.categoryRepository,
       cartRepository: params.cartRepository,
@@ -786,6 +790,7 @@ const orderModule = buildOrderModule({
   resolveOrderStatusNotifier: () => webhookModule.orderStatusNotifier,
 })
 const conversationModule = buildConversationModule({
+  cacheProvider: webhookRepositories.cacheProvider,
   productRepository: catalogModule.productRepository,
   addressLookupProvider: webhookRepositories.addressLookupProvider,
   categoryRepository: catalogModule.categoryRepository,
