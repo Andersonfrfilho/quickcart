@@ -140,11 +140,25 @@ export type DeliveryFailureReason = (typeof DELIVERY_FAILURE_REASON)[keyof typeo
 export type DeliveryType = 'delivery' | 'pickup'
 
 /**
- * `GET /v1/store/checkout-config`. A taxa vem da api — um `VITE_` duplicado divergiria do que o pedido
- * cobra — e já resolvida por tipo de entrega: a tela consulta, não reimplementa "retirada = 0".
+ * `POST /v1/store/checkout-quote` (T2.2). Preço, taxa e total sempre calculados pelo servidor a
+ * partir dos preços ATUAIS do banco — o carrinho web guarda preço no navegador, que pode estar
+ * velho. Substitui o antigo `GET /v1/store/checkout-config`, que só devolvia a taxa por tipo de
+ * entrega e não o total cobrado.
  */
-export type CheckoutConfig = {
-  readonly deliveryFeeInCentsByDeliveryType: Readonly<Record<DeliveryType, number>>
+export type CheckoutQuoteItem = {
+  readonly productId: string
+  readonly unitPriceInCents: number
+  readonly lineTotalInCents: number
+}
+export type CheckoutQuote = {
+  readonly subtotalInCents: number
+  readonly deliveryFeeInCents: number
+  readonly amountDueInCents: number
+  readonly items: readonly CheckoutQuoteItem[]
+}
+export type CheckoutQuoteInput = {
+  readonly items: ReadonlyArray<{ readonly productId: string; readonly quantity: number }>
+  readonly deliveryType: DeliveryType
 }
 export type PaymentMethod = 'pix' | 'card_on_delivery' | 'cash'
 export type ReceiptPreference = 'whatsapp' | 'email' | 'both'

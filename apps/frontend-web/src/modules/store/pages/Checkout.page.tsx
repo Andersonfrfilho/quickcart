@@ -9,7 +9,7 @@ export function CheckoutPage() {
   const {
     items,
     totalInCents,
-    deliveryFeeInCents,
+    quote,
     name,
     setName,
     email,
@@ -64,21 +64,35 @@ export function CheckoutPage() {
             <span>{((item.priceInCents * item.quantity) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
           </div>
         ))}
-        <div className="flex justify-between font-semibold text-lg mt-3 pt-3 border-t">
+        <div className="flex justify-between text-sm pt-1">
           <span>Subtotal</span>
-          <span className="text-primary">{(totalInCents() / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+          {/*
+           * Subtotal da COTAÇÃO do servidor, não a soma local do carrinho: se o preço do banco
+           * divergir do que o carrinho guardou, é o do servidor que será cobrado (spec §3.4).
+           */}
+          <span>
+            {((quote?.subtotalInCents ?? totalInCents()) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+          </span>
         </div>
-        {/* A taxa vem da api, já resolvida para o tipo de entrega; na retirada a linha some. */}
-        {deliveryType === 'delivery' && deliveryFeeInCents !== undefined && (
+        {/* Ausente na retirada: a cotação resolve a taxa por tipo de entrega, igual ao pedido. */}
+        {deliveryType === 'delivery' && quote !== undefined && (
           <div className="flex justify-between text-sm pt-1">
             <span>{DELIVERY_FEE_LABEL}</span>
             <span>
-              {deliveryFeeInCents > 0
-                ? (deliveryFeeInCents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+              {quote.deliveryFeeInCents > 0
+                ? (quote.deliveryFeeInCents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
                 : FREE_DELIVERY_FEE_LABEL}
             </span>
           </div>
         )}
+        <div className="flex justify-between font-semibold text-lg mt-3 pt-3 border-t">
+          <span>Total</span>
+          <span className="text-primary">
+            {quote !== undefined
+              ? (quote.amountDueInCents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+              : '—'}
+          </span>
+        </div>
       </Card>
 
       <form onSubmit={handleSubmit} className="space-y-4">
