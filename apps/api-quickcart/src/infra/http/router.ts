@@ -22,8 +22,15 @@ import { MetaWhatsAppError } from '@adatechnology/meta-whatsapp-contracts'
 import { DomainError } from '@/shared/errors/DomainError'
 import { INTERNAL_ERROR, NOT_FOUND, REQUEST_TIMEOUT, INVALID_JSON_BODY, PAYLOAD_TOO_LARGE } from '@/shared/errors/codes'
 import { captureError } from '@/infra/observability/sentry'
-import { getAllowedOrigins } from '@/infra/config/environment'
+import { environment, getAllowedOrigins } from '@/infra/config/environment'
 import { serializeError } from '@/shared/serializeError'
+
+import {
+  HTTPS_FORWARDED_PROTO,
+  SECURITY_HEADERS,
+  STRICT_TRANSPORT_SECURITY_HEADER,
+  STRICT_TRANSPORT_SECURITY_VALUE,
+} from './securityHeaders.constant'
 
 const BODY_READ_TIMEOUT_MS = 10_000
 const CORS_ALLOWED_METHODS = 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
@@ -159,9 +166,32 @@ function buildErrorPayload(error: AppError): { error: { code: string; message: s
   return { error: { code: error.code, message: error.message, ...(details ? { details } : {}) } }
 }
 
-function buildCorsHeaders(origin: string | undefined): Headers {
+/** O que a resposta precisa saber da requisição para montar os headers base (CORS + segurança). */
+type ResponseHeaderContext = {
+  readonly origin: string | undefined
+  readonly isSecureTransport: boolean
+}
+
+function resolveResponseHeaderContext(request: Request): ResponseHeaderContext {
+  const forwardedProto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim()
+  return {
+    origin: request.headers.get('origin') ?? undefined,
+    isSecureTransport: forwardedProto === HTTPS_FORWARDED_PROTO || new URL(request.url).protocol === 'https:',
+  }
+}
+
+function applySecurityHeaders(headers: Headers, isSecureTransport: boolean): void {
+  for (const [key, value] of Object.entries(SECURITY_HEADERS)) headers.set(key, value)
+  // HSTS em http local faria o navegador forçar https no localhost de desenvolvimento.
+  if (environment.NODE_ENV === 'production' || isSecureTransport) {
+    headers.set(STRICT_TRANSPORT_SECURITY_HEADER, STRICT_TRANSPORT_SECURITY_VALUE)
+  }
+}
+
+function buildCorsHeaders(context: ResponseHeaderContext): Headers {
   const headers = new Headers()
-  const corsOrigin = resolveCorsOrigin(origin)
+  applySecurityHeaders(headers, context.isSecureTransport)
+  const corsOrigin = resolveCorsOrigin(context.origin)
   if (corsOrigin) {
     headers.set('Access-Control-Allow-Origin', corsOrigin)
     headers.set('Vary', 'Origin')
@@ -180,11 +210,10 @@ function buildCorsHeaders(origin: string | undefined): Headers {
   return headers
 }
 
-function buildResponseHelper(params: { readonly origin: string | undefined }): {
+function buildResponseHelper(headerContext: ResponseHeaderContext): {
   readonly helper: ResponseHelper
   readonly responsePromise: Promise<Response>
 } {
-  const { origin } = params
   let resolveResponse!: (response: Response) => void
   const responsePromise = new Promise<Response>((resolve) => {
     resolveResponse = resolve
@@ -202,7 +231,7 @@ function buildResponseHelper(params: { readonly origin: string | undefined }): {
   const BODYLESS_STATUS_CODES = new Set([204, 205, 304])
 
   function json(statusCode: number, payload: unknown, extraHeaders?: Record<string, string>): void {
-    const headers = buildCorsHeaders(origin)
+    const headers = buildCorsHeaders(headerContext)
     if (extraHeaders) {
       for (const [key, value] of Object.entries(extraHeaders)) headers.set(key, value)
     }
@@ -217,13 +246,13 @@ function buildResponseHelper(params: { readonly origin: string | undefined }): {
   }
 
   function text(statusCode: number, body: string): void {
-    const headers = buildCorsHeaders(origin)
+    const headers = buildCorsHeaders(headerContext)
     headers.set('Content-Type', 'text/plain')
     resolveResponse(new Response(body, { status: statusCode, headers }))
   }
 
   function binary(statusCode: number, body: Uint8Array, extraHeaders: Record<string, string>): void {
-    const headers = buildCorsHeaders(origin)
+    const headers = buildCorsHeaders(headerContext)
     for (const [key, value] of Object.entries(extraHeaders)) headers.set(key, value)
     headers.set('Content-Length', String(body.byteLength))
     resolveResponse(new Response(body, { status: statusCode, headers }))
@@ -254,7 +283,7 @@ function buildResponseHelper(params: { readonly origin: string | undefined }): {
   }
 
   function stream(streamParams: StreamResponseParams): void {
-    const headers = buildCorsHeaders(origin)
+    const headers = buildCorsHeaders(headerContext)
     headers.set('Content-Type', streamParams.contentType)
     // Sem estes dois um proxy reverso costuma bufferizar o corpo e a inbox só recebe os
     // eventos em blocos, ou nunca — o sintoma clássico de "o SSE funciona local e não em prod".
@@ -400,10 +429,10 @@ export class Router {
   }
 
   async handle(request: Request): Promise<Response> {
-    const origin = request.headers.get('origin') ?? undefined
+    const headerContext = resolveResponseHeaderContext(request)
 
     if (this.corsPreflightEnabled && request.method === 'OPTIONS') {
-      const headers = buildCorsHeaders(origin)
+      const headers = buildCorsHeaders(headerContext)
       headers.set('Access-Control-Allow-Methods', CORS_ALLOWED_METHODS)
       headers.set('Access-Control-Allow-Headers', CORS_ALLOWED_HEADERS)
       return new Response(null, { status: 204, headers })
@@ -423,9 +452,18 @@ export class Router {
       for (const moduleRouter of this.mounted) {
         if (!moduleRouter.match(request)) continue
 
-        const moduleResponse = await moduleRouter.handle(request)
+        let moduleResponse: Response
+        try {
+          moduleResponse = await moduleRouter.handle(request)
+        } catch (caughtError) {
+          // O módulo trata os próprios erros; o que escapa vem de guarda do host (ex.: rate limit).
+          logErrorAndReport({ method: request.method, url: url.pathname, durationMs: 0, error: caughtError })
+          const { helper, responsePromise } = buildResponseHelper(headerContext)
+          helper.error(caughtError)
+          return responsePromise
+        }
         const headers = new Headers(moduleResponse.headers)
-        for (const [key, value] of buildCorsHeaders(origin)) headers.set(key, value)
+        for (const [key, value] of buildCorsHeaders(headerContext)) headers.set(key, value)
 
         return new Response(moduleResponse.body, {
           status: moduleResponse.status,
@@ -434,8 +472,8 @@ export class Router {
         })
       }
 
-      if (!this.notFoundHandlerRegistered) return new Response(null, { status: 404 })
-      const { helper, responsePromise } = buildResponseHelper({ origin })
+      if (!this.notFoundHandlerRegistered) return new Response(null, { status: 404, headers: buildCorsHeaders(headerContext) })
+      const { helper, responsePromise } = buildResponseHelper(headerContext)
       helper.error(new AppError('Route not found', 404, NOT_FOUND))
       return responsePromise
     }
@@ -447,7 +485,7 @@ export class Router {
     })
 
     const startedAt = Date.now()
-    const { helper, responsePromise } = buildResponseHelper({ origin })
+    const { helper, responsePromise } = buildResponseHelper(headerContext)
 
     await runWithContext(async () => {
       httpLog.debug(LOG_EVENTS.REQUEST, { method: request.method, url: url.pathname })
