@@ -27,6 +27,7 @@ import { CONVERSATION_STATE, SESSION_EXPIRY_MS, type ConversationState } from '@
 import { MESSAGES } from '@/modules/conversation/shared/Messages.constant'
 import { LOG_EVENTS } from '@/shared/constants/log-events.constant'
 import { logger } from '@/shared/logger'
+import { maskPhone } from '@/shared/maskPhone'
 
 const engineLog = logger.child('conversation', 'engine')
 
@@ -44,7 +45,7 @@ export class ConversationEngine {
   async handle(message: ParsedInboundMessage): Promise<void> {
     const customer = await this.dependencies.customerRepository.findByPhone(message.from)
     if (!customer) {
-      engineLog.warn(LOG_EVENTS.CONVERSATION_CUSTOMER_NOT_FOUND, { from: message.from })
+      engineLog.warn(LOG_EVENTS.CONVERSATION_CUSTOMER_NOT_FOUND, { from: maskPhone(message.from) })
       return
     }
 

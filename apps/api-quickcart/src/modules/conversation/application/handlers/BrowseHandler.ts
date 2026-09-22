@@ -27,9 +27,10 @@ import type { CartDraftItem, ConversationContext } from '@/modules/conversation/
 import { buildProductSection } from '@/modules/conversation/application/handlers/support/InteractiveListBuilders'
 import { enterCartReview } from '@/modules/conversation/application/handlers/support/enterCartReview'
 import type { UnmatchedDemandRepositoryInterface } from '@/modules/conversation/domain/UnmatchedDemandRepository.interface'
+import { paginateRows } from '@/modules/conversation/application/handlers/support/paginateRows'
 import { parseQuantityInput } from '@/modules/conversation/application/handlers/support/parseQuantityInput'
 import { BROWSE_PRODUCTS_PER_PAGE } from '@/modules/conversation/shared/Browse.constant'
-import { MATCH_MIN_THRESHOLD } from '@/modules/conversation/shared/Matcher.constant'
+import { MATCH_MAX_AMBIGUOUS_CANDIDATES, MATCH_MIN_THRESHOLD } from '@/modules/conversation/shared/Matcher.constant'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import { BROWSE_ROW_ID, BROWSE_ROW_PREFIX, BROWSE_TRIGGER, MESSAGES } from '@/modules/conversation/shared/Messages.constant'
 import { CHANNEL } from '@/modules/shared/shared.constant'
@@ -85,7 +86,7 @@ export class BrowseHandler implements ConversationHandlerInterface {
     }
 
     if (message.kind === 'text') {
-      await this.sendSearchResults(session, message.body)
+      await this.sendSearchResults({ session, term: message.body.trim(), page: FIRST_PAGE })
       return
     }
 
@@ -107,6 +108,15 @@ export class BrowseHandler implements ConversationHandlerInterface {
         session,
         categoryId: browseContext.browsingCategoryId,
         page: (browseContext.browsingPage ?? FIRST_PAGE) + 1,
+      })
+      return
+    }
+
+    if (message.listId === BROWSE_ROW_ID.NEXT_SEARCH_PAGE && browseContext.browsingSearchTerm) {
+      await this.sendSearchResults({
+        session,
+        term: browseContext.browsingSearchTerm,
+        page: (browseContext.browsingSearchPage ?? FIRST_PAGE) + 1,
       })
       return
     }
@@ -147,9 +157,9 @@ export class BrowseHandler implements ConversationHandlerInterface {
    * As linhas usam o mesmo prefixo da página da categoria, então o toque cai no fluxo de quantidade
    * de sempre. A página da categoria continua no contexto: "próxima página" segue funcionando.
    */
-  private async sendSearchResults(session: ConversationSession, rawTerm: string): Promise<void> {
-    const term = rawTerm.trim()
-    const results = await this.dependencies.productRepository.searchByTerm(term, BROWSE_PRODUCTS_PER_PAGE)
+  private async sendSearchResults(params: { session: ConversationSession; term: string; page: number }): Promise<void> {
+    const { session, term, page } = params
+    const results = await this.dependencies.productRepository.searchByTerm(term, MATCH_MAX_AMBIGUOUS_CANDIDATES)
     const matches = results.filter((result) => result.score >= MATCH_MIN_THRESHOLD)
 
     if (matches.length === 0) {
@@ -157,7 +167,16 @@ export class BrowseHandler implements ConversationHandlerInterface {
       return
     }
 
-    const section = buildProductSection(matches, false)
+    const { pageItems, hasNextPage } = paginateRows({ items: matches, page, itemsPerPage: BROWSE_PRODUCTS_PER_PAGE })
+    const existingContext = (session.context ?? {}) as ConversationContext
+
+    await this.dependencies.conversationSessionRepository.updateStateByPhone({
+      customerPhone: session.customerPhone,
+      currentState: CONVERSATION_STATE.BROWSING_CATEGORIES,
+      context: { ...existingContext, browsingSearchTerm: term, browsingSearchPage: page },
+    })
+
+    const section = buildProductSection(pageItems, hasNextPage, BROWSE_ROW_ID.NEXT_SEARCH_PAGE)
     await this.dependencies.whatsAppSender.sendInteractiveList(
       session.customerPhone,
       MESSAGES.BROWSE_SEARCH_RESULTS.replace('{termo}', term),

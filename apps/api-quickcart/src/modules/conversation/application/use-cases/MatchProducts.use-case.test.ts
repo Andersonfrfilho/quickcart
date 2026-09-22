@@ -22,7 +22,7 @@ import type {
   UpdateProductRecordParams,
 } from '@/modules/catalog/domain/ProductRepository.interface'
 import type { Product } from '@/infra/database/schema'
-import { MATCH_TYPE } from '@/modules/conversation/shared/Matcher.constant'
+import { MATCH_MAX_AMBIGUOUS_CANDIDATES, MATCH_TYPE } from '@/modules/conversation/shared/Matcher.constant'
 import { MatchProductsUseCase } from './MatchProducts.use-case'
 
 class FakeProductRepository implements ProductRepositoryInterface {
@@ -181,6 +181,6 @@ describe('MatchProductsUseCase', () => {
 
     await useCase.execute({ item: { term: 'feijao carioca', quantity: 1, unit: 'un' } })
 
-    expect(repository.searchCalls).toEqual([{ term: 'feijao carioca', limit: 10 }])
+    expect(repository.searchCalls).toEqual([{ term: 'feijao carioca', limit: MATCH_MAX_AMBIGUOUS_CANDIDATES }])
   })
 })

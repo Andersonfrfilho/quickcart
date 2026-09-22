@@ -20,7 +20,7 @@ import type { MatchCandidate, MatchProductsParams, MatchProductsResult } from '@
 import {
   MATCH_AUTO_THRESHOLD,
   MATCH_GAP_THRESHOLD,
-  MATCH_MAX_CANDIDATES,
+  MATCH_MAX_AMBIGUOUS_CANDIDATES,
   MATCH_MIN_THRESHOLD,
   MATCH_TYPE,
 } from '@/modules/conversation/shared/Matcher.constant'
@@ -29,7 +29,7 @@ export class MatchProductsUseCase {
   constructor(private readonly productRepository: ProductRepositoryInterface) {}
 
   async execute(params: MatchProductsParams): Promise<MatchProductsResult> {
-    const searchResults = await this.productRepository.searchByTerm(params.item.term, MATCH_MAX_CANDIDATES)
+    const searchResults = await this.productRepository.searchByTerm(params.item.term, MATCH_MAX_AMBIGUOUS_CANDIDATES)
     const candidates: readonly MatchCandidate[] = searchResults
       .filter((result) => result.score >= MATCH_MIN_THRESHOLD)
       .map((result) => ({
