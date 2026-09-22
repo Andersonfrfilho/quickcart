@@ -228,3 +228,54 @@ pass / 0 fail (base 20 + 1 novo, rótulo "(até N km)").
 - `withoutDeliveryQuote` no "Alterar": o contexto novo já nasce só com `rememberedCheckout`, então a cotação some por construção; a função é usada nos caminhos que preservam o contexto.
 - **Pendente para T3.2/T3.3/Fase 4:** `enterConfirming` ainda não recota sessão antiga (volta ao endereço); o card (`GetConversationCheckoutContext`) mostra taxa 0 para entrega ainda sem cotação e não mostra a faixa; `resolveDeliveryFeeInCents` e `DELIVERY_FEE_CENTS` seguem só em `Store.controller.ts`/`server.ts` (cotação web, Fase 4); a previsão de entrega (`ResolveOrderDeliveryEstimate`) lê o CEP do pedido, então pedido por localização fica sem a linha de previsão; o painel ainda não tem link de mapa para o endereço por localização. `CheckoutHandler.ts` passou de 651 para ~850 linhas — dívida de tamanho de arquivo já existente, não dividida aqui para não misturar refatoração com a máquina de estados.
 - O transcript de mensagens recebidas é gravado pelo pacote `meta-whatsapp-module` (fora deste repositório); o código do QuickCart não loga coordenada em ponto nenhum.
+
+## T3.2 — Resumo, troco e mensagens
+
+**Contexto:** conferi o que a T3.1 já deixou pronto antes de mexer, para não duplicar.
+`resolveCheckoutDeliveryFeeInCents.ts` já não tem fallback de env (lê só o contexto, `undefined`
+sem `checkoutDeliveryLocationSource`). `enterConfirming.ts` já volta ao endereço quando a entrega
+não tem cotação, sem inventar taxa (`CHECKOUT_DELIVERY_QUOTE_MISSING`, coberto por
+`enterConfirming.test.ts`). `CashChangeHandler.acceptCashChangeAmount` já valida o troco contra
+`resolveCheckoutDeliveryFeeInCents` (a taxa da faixa gravada no contexto, não uma taxa fixa) — o
+caso "cobre os itens mas não itens + taxa" já tinha teste (`CashChangeHandler.test.ts:208`). Restava
+só o formato do resumo (spec §3.4/§3.6): a linha da taxa não mostrava a faixa nem a distância.
+
+**Arquivos** (em `apps/api-quickcart/src/`):
+- `modules/conversation/shared/Messages.constant.ts` — dois textos novos:
+  `CONFIRMING_SUMMARY_DELIVERY_FEE_QUOTED_PREFIX` ("Taxa de entrega (até {limite} km · {distancia} km):")
+  e `CONFIRMING_SUMMARY_DELIVERY_FEE_APPROXIMATE_PREFIX` ("Taxa de entrega (estimativa pela cidade, até
+  {limite} km):"). `CONFIRMING_SUMMARY_DELIVERY_FEE_PREFIX` (o rótulo simples de sempre) fica como
+  reserva para contexto sem os campos de faixa.
+- `modules/conversation/application/handlers/support/enterConfirming.ts` — `buildDeliveryFeePrefix`
+  (nova função): sem `checkoutDeliveryTierMaxKm` no contexto, usa o rótulo simples; com
+  `checkoutDeliveryLocationSource === cep_approximate`, usa o prefixo de estimativa (só o teto,
+  sem distância — D3 nunca calcula a distância da casa); senão, com `checkoutDeliveryDistanceKm`
+  presente, usa o prefixo com faixa e distância; sem distância (não deveria acontecer fora de D3,
+  mas por segurança), cai no rótulo simples. Reusa `formatDistanceKm` de `deliveryQuoteMessages.ts`
+  (mesma formatação com vírgula da mensagem que já sai antes do pagamento — resumo e aviso nunca
+  divergem no formato do número).
+- `modules/conversation/application/handlers/support/enterConfirming.test.ts` — 3 casos novos:
+  cotação com faixa e distância (2,4 → "6,4 km" arredondado a 1 casa) mostra
+  "Taxa de entrega (até 8 km · 6,4 km): R$ 10,00"; aproximada mostra
+  "Taxa de entrega (estimativa pela cidade, até 8 km): R$ 10,00" sem "·" (sem distância); retirada
+  com campos de faixa presentes no contexto (não deveria acontecer, mas por segurança) continua sem
+  nenhuma linha de taxa nem "km".
+
+**Decisões:**
+- Nenhuma mudança em `resolveCheckoutDeliveryFeeInCents.ts` nem em `CashChangeHandler.ts`: já
+  estavam corretos pela T3.1, e mexer neles sem motivo ia contra o escopo da task.
+- O rótulo simples (`CONFIRMING_SUMMARY_DELIVERY_FEE_PREFIX`) não foi removido: os testes existentes
+  da T3.1 (`entrega com taxa`, `entrega grátis`) montam o contexto sem `checkoutDeliveryTierMaxKm` e
+  continuam passando sem alteração — comportamento de fallback para contexto sem os campos novos,
+  não um caminho novo a testar.
+- `enterConfirming` já não recota sessão antiga (retorna ao endereço) — a task pedia só *confirmar*
+  isso e cobrir com teste, não implementar recotação ali; o teste
+  `sessão anterior ao deploy (...): não mostra resumo, volta ao endereço` já existia da T3.1 e prova
+  exatamente isso (nenhuma taxa inventada, nenhum resumo mostrado).
+
+**Rebase:** `git fetch origin` trouxe `63cca6a` (#33, exatamente o PR anunciado: `AWAITING_ADDRESS_NUMBER`
+virou `Record` completo no mapa de handlers). Conflito em `container/index.ts` na linha do mapa —
+resolvido mantendo as duas entradas (`AWAITING_ADDRESS_NUMBER` do #33 e `AWAITING_OUT_OF_RANGE_DECISION`
+da T3.1), como orientado.
+
+**Números:** typecheck limpo. `bun run test`: 638 pass / 0 fail (93 arquivos) — base 635 + 3 testes novos.

@@ -447,6 +447,10 @@ export const MESSAGES = {
   CONFIRMING_SUMMARY_SUBTOTAL_PREFIX: 'Subtotal:',
   /** `{valor}` é a taxa formatada; ausente por completo na retirada (taxa 0 não basta — a linha não aparece). */
   CONFIRMING_SUMMARY_DELIVERY_FEE_PREFIX: 'Taxa de entrega:',
+  /** Cotação com distância conhecida (T3.2, spec §3.4/§3.6): mostra a faixa e a distância no resumo. */
+  CONFIRMING_SUMMARY_DELIVERY_FEE_QUOTED_PREFIX: 'Taxa de entrega (até {limite} km · {distancia} km):',
+  /** Precisão de cidade (D3): sem distância da casa, só a faixa cobrada. */
+  CONFIRMING_SUMMARY_DELIVERY_FEE_APPROXIMATE_PREFIX: 'Taxa de entrega (estimativa pela cidade, até {limite} km):',
   /** Taxa configurada em zero: mostra "grátis" em vez de "R$ 0,00". */
   CONFIRMING_SUMMARY_DELIVERY_FEE_FREE: 'grátis',
   /** `{valor}` = itens + taxa (`amountDueInCents`) — o que será cobrado, nunca só o total dos itens. */

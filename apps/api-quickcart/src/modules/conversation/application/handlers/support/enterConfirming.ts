@@ -21,6 +21,8 @@ import {
   RECEIPT_PREFERENCE_BUTTONS,
 } from '@/modules/conversation/shared/Messages.constant'
 import { formatAddressLine } from '@/modules/shared/address/formatAddressLine'
+import { formatDistanceKm } from '@/modules/conversation/application/handlers/support/deliveryQuoteMessages'
+import { DELIVERY_LOCATION_SOURCE } from '@/modules/order/shared/DeliveryFeeQuote.constant'
 import { CHANNEL } from '@/modules/shared/shared.constant'
 import type { UpdateConversationSessionStateByPhoneParams } from '@/modules/webhook/domain/ConversationSessionRepository.interface'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
@@ -58,6 +60,28 @@ export type EnterConfirmingParams = {
 
 function describeSelection(buttons: ReadonlyArray<InteractiveButtonOption>, id: string | undefined): string {
   return buttons.find((button) => button.id === id)?.title ?? ''
+}
+
+/**
+ * Prefixo da linha de taxa (spec §3.4): com faixa conhecida, mostra o teto e a distância; na
+ * precisão de cidade (D3), só o teto, marcado como estimativa. Sem faixa no contexto (sessão
+ * anterior a esta task, embora já cotada), cai no rótulo simples de sempre.
+ */
+function buildDeliveryFeePrefix(checkoutContext: ConversationContext): string {
+  const tierMaxKm = checkoutContext.checkoutDeliveryTierMaxKm
+  if (tierMaxKm === undefined) return MESSAGES.CONFIRMING_SUMMARY_DELIVERY_FEE_PREFIX
+
+  if (checkoutContext.checkoutDeliveryLocationSource === DELIVERY_LOCATION_SOURCE.CEP_APPROXIMATE) {
+    return MESSAGES.CONFIRMING_SUMMARY_DELIVERY_FEE_APPROXIMATE_PREFIX.replace('{limite}', formatDistanceKm(tierMaxKm))
+  }
+
+  const distanceKm = checkoutContext.checkoutDeliveryDistanceKm
+  if (distanceKm === undefined) return MESSAGES.CONFIRMING_SUMMARY_DELIVERY_FEE_PREFIX
+
+  return MESSAGES.CONFIRMING_SUMMARY_DELIVERY_FEE_QUOTED_PREFIX.replace('{limite}', formatDistanceKm(tierMaxKm)).replace(
+    '{distancia}',
+    formatDistanceKm(distanceKm),
+  )
 }
 
 type BuildConfirmingSummaryParams = {
@@ -110,7 +134,7 @@ async function buildConfirmingSummary(params: BuildConfirmingSummaryParams): Pro
     ...(isPickup
       ? []
       : [
-          `${MESSAGES.CONFIRMING_SUMMARY_DELIVERY_FEE_PREFIX} ${
+          `${buildDeliveryFeePrefix(checkoutContext)} ${
             deliveryFeeInCents > 0 ? formatPriceInCents(deliveryFeeInCents) : MESSAGES.CONFIRMING_SUMMARY_DELIVERY_FEE_FREE
           }`,
         ]),

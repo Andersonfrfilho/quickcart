@@ -175,6 +175,87 @@ describe('enterConfirming — resumo antes de confirmar', () => {
     expect(summary).toContain('Entrega: Retirada na loja')
   })
 
+  it('entrega cotada com faixa e distância: mostra "Taxa de entrega (até N km · X km): R$ Y" (T3.2, spec §3.4)', async () => {
+    const { dependencies, buttonMessages } = buildDependencies()
+
+    await enterConfirming({
+      dependencies,
+      customerPhone: PHONE,
+      customerId: CUSTOMER_ID,
+      checkoutContext: {
+        checkoutDeliveryType: DELIVERY_TYPE_BUTTON_ID.DELIVERY,
+        checkoutDeliveryFeeInCents: 1000,
+        checkoutDeliveryDistanceKm: 6.4,
+        checkoutDeliveryTierMaxKm: 8,
+        checkoutDeliveryLocationSource: DELIVERY_LOCATION_SOURCE.CEP,
+        checkoutAddress: {
+          street: 'Rua X',
+          number: '123',
+          neighborhood: 'Bairro',
+          city: 'São Paulo',
+          state: 'SP',
+        },
+        checkoutPaymentMethod: PAYMENT_METHOD_BUTTON_ID.PIX,
+        checkoutReceiptPreference: RECEIPT_PREFERENCE_BUTTON_ID.WHATSAPP,
+      },
+    })
+
+    const summary = buttonMessages[0]?.body ?? ''
+    expect(summary).toContain(`Taxa de entrega (até 8 km · 6,4 km): ${formatPriceInCents(1000)}`)
+  })
+
+  it('entrega aproximada pela cidade (D3): mostra "Taxa de entrega (estimativa pela cidade, até N km): R$ Y", sem distância', async () => {
+    const { dependencies, buttonMessages } = buildDependencies()
+
+    await enterConfirming({
+      dependencies,
+      customerPhone: PHONE,
+      customerId: CUSTOMER_ID,
+      checkoutContext: {
+        checkoutDeliveryType: DELIVERY_TYPE_BUTTON_ID.DELIVERY,
+        checkoutDeliveryFeeInCents: 1000,
+        checkoutDeliveryTierMaxKm: 8,
+        checkoutDeliveryLocationSource: DELIVERY_LOCATION_SOURCE.CEP_APPROXIMATE,
+        checkoutAddress: {
+          street: 'Rua X',
+          number: '123',
+          neighborhood: 'Bairro',
+          city: 'São Paulo',
+          state: 'SP',
+        },
+        checkoutPaymentMethod: PAYMENT_METHOD_BUTTON_ID.PIX,
+        checkoutReceiptPreference: RECEIPT_PREFERENCE_BUTTON_ID.WHATSAPP,
+      },
+    })
+
+    const summary = buttonMessages[0]?.body ?? ''
+    expect(summary).toContain(`Taxa de entrega (estimativa pela cidade, até 8 km): ${formatPriceInCents(1000)}`)
+    expect(summary).not.toMatch(/· \d/)
+  })
+
+  it('retirada com faixa no contexto (não deveria ter, mas por segurança): continua sem linha de taxa nem faixa', async () => {
+    const { dependencies, buttonMessages } = buildDependencies()
+
+    await enterConfirming({
+      dependencies,
+      customerPhone: PHONE,
+      customerId: CUSTOMER_ID,
+      checkoutContext: {
+        checkoutDeliveryType: DELIVERY_TYPE_BUTTON_ID.PICKUP,
+        checkoutDeliveryFeeInCents: 0,
+        checkoutDeliveryTierMaxKm: 8,
+        checkoutDeliveryDistanceKm: 3,
+        checkoutDeliveryLocationSource: DELIVERY_LOCATION_SOURCE.CEP,
+        checkoutPaymentMethod: PAYMENT_METHOD_BUTTON_ID.PIX,
+        checkoutReceiptPreference: RECEIPT_PREFERENCE_BUTTON_ID.WHATSAPP,
+      },
+    })
+
+    const summary = buttonMessages[0]?.body ?? ''
+    expect(summary).not.toContain('Taxa de entrega')
+    expect(summary).not.toContain('km')
+  })
+
   it('dinheiro com troco: mostra a linha de pagamento com o valor do troco', async () => {
     const { dependencies, buttonMessages } = buildDependencies()
 
