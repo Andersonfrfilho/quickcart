@@ -389,3 +389,113 @@ nada muda no fiscal. Nenhum env commitado liga a taxa.
   architect marca o carrinho como itens, e a troca de rótulo acompanha o resumo da T2.2.
 - `GET /v1/store/checkout-config` sem teste de controller dedicado (a regra que ele usa é testada em
   `amountDue.test.ts`).
+
+## T2.2 — Resumo completo
+
+### Arquivos
+
+**api-quickcart**
+- `src/modules/conversation/shared/Messages.constant.ts` — `CART_SUMMARY_TOTAL_PREFIX` vira
+  "Subtotal:" (pendência da T2.1); novas constantes `CONFIRMING_SUMMARY_ITEMS_LABEL`,
+  `CONFIRMING_SUMMARY_SUBTOTAL_PREFIX`, `CONFIRMING_SUMMARY_DELIVERY_FEE_PREFIX`,
+  `CONFIRMING_SUMMARY_DELIVERY_FEE_FREE`, `CONFIRMING_SUMMARY_TOTAL_PREFIX`,
+  `CONFIRMING_SUMMARY_DELIVERY_PREFIX`, `CONFIRMING_SUMMARY_PICKUP_LABEL`,
+  `CONFIRMING_SUMMARY_PAYMENT_PREFIX`, `CONFIRMING_SUMMARY_RECEIPT_PREFIX`.
+- `conversation/application/handlers/support/enterConfirming.ts` — `buildConfirmingSummary`
+  reescrita no formato exato da spec §3.4: Itens, Subtotal, Taxa de entrega ("grátis" quando 0,
+  ausente na retirada), Total (`amountDueInCents`), Entrega/Retirada, Pagamento (com troco),
+  Recibo. Taxa lida de `checkoutContext.checkoutDeliveryFeeInCents` (gravada pela T2.1), nunca da
+  env.
+- `conversation/application/handlers/support/enterConfirming.test.ts` (novo) — 4 casos: entrega com
+  taxa, entrega grátis, retirada (sem linha de taxa), dinheiro com troco.
+- `conversation/application/handlers/support/CartSummary.test.ts` (novo) — confirma "Subtotal:" e
+  ausência de "Total:" no carrinho.
+- `order/shared/buildPricedOrderItems.ts` (novo) — extraído de `CreateWebOrder.buildOrderItems`:
+  preço/validação de item SEMPRE do banco (nunca do corpo/carrinho local). Reaproveitado pela
+  cotação, em vez de duplicar a leitura.
+- `order/application/use-cases/CreateWebOrder.use-case.ts` — `buildOrderItems` delega para
+  `buildPricedOrderItems`; import de `ProductNotFoundError`/`CartProductUnavailableError` removido
+  (a função os lança).
+- `store/shared/Store.constant.ts` — `CHECKOUT_QUOTE_MAX_ITEMS = 100`.
+- `store/infra/http/schemas/CheckoutQuote.schema.ts` (novo) — `items` (1..100, `productId` uuid,
+  `quantity` positiva), `deliveryType` (enum).
+- `store/infra/http/Store.controller.ts` — `handleGetCheckoutConfig` **removido**;
+  `handleGetCheckoutQuote` (novo): lê preço do banco via `buildPricedOrderItems`, taxa via
+  `resolveDeliveryFeeInCents`, total via `amountDueInCents`; devolve
+  `{ subtotalInCents, deliveryFeeInCents, amountDueInCents, items[] }`. Pública, sem `requireSession`
+  (mesmo padrão do antigo `checkout-config`).
+- `store/infra/http/Store.controller.test.ts` (novo) — preço do banco (ignora o do corpo), taxa por
+  tipo de entrega, total = amountDue, produto inexistente (`ProductNotFoundError`), corpo inválido
+  (`ValidationError`), limite de itens (`ValidationError`).
+- `store/infra/http/StoreRoutes.ts` — `GET /v1/store/checkout-config` → `POST
+  /v1/store/checkout-quote`.
+- `infra/container/index.ts` — `storeRepositories.productRepository` (novo), reaproveitando
+  `catalogModule.productRepository` já montado.
+- `infra/http/server.ts` — `StoreController` recebe `productRepository` do container.
+
+**frontend-web**
+- `shared/api/api.types.ts` — `CheckoutConfig` removido; `CheckoutQuote`, `CheckoutQuoteItem`,
+  `CheckoutQuoteInput` novos.
+- `shared/api/client.ts` — `getCheckoutConfig` → `getCheckoutQuote(body)` (`POST`).
+- `store/shared/queries/useCheckoutConfig.query.ts` **removido**; `useCheckoutQuote.query.ts` (novo)
+  — chave inclui `deliveryType` + `items`, recota a cada mudança do carrinho ou do tipo de entrega.
+- `store/hooks/useCheckoutPage.hook.ts` — expõe `quote` (a cotação inteira) em vez de só
+  `deliveryFeeInCents`.
+- `store/pages/Checkout.page.tsx` — Subtotal, Taxa e **Total** vêm da cotação (`quote`); o subtotal
+  exibido é o do servidor (`quote.subtotalInCents`), não a soma local do carrinho, para nunca mostrar
+  um valor diferente do que será cobrado quando o preço do banco divergir do carrinho salvo no
+  navegador.
+
+### Decisões
+
+1. **`GET /v1/store/checkout-config` removido.** A cotação (`POST /v1/store/checkout-quote`) cobre o
+   mesmo caso — taxa por tipo de entrega, pela mesma `resolveDeliveryFeeInCents` — e resolve também o
+   requisito que faltava (mostrar o Total antes de confirmar). Manter os dois endpoints seria duas
+   fontes de taxa que poderiam divergir se um mudasse e o outro não; a task pediu para avaliar essa
+   sobreposição e decidir, e a decisão foi remover o mais antigo. Nenhum outro consumidor restou
+   (`useCheckoutConfigQuery` era o único).
+2. **Preço da cotação reaproveita `CreateWebOrder`, via `buildPricedOrderItems`.** A lógica de
+   "ler produto no banco, recusar inexistente/indisponível, calcular linha" era idêntica nos dois
+   lugares; extrair evita a leitura de preço divergir entre a prévia (cotação) e a criação real do
+   pedido — o próprio requisito da task ("verificar se a cotação reaproveita a mesma leitura").
+3. **Erros da cotação seguem os já existentes do domínio (`ProductNotFoundError` 404,
+   `CartProductUnavailableError` 409)**, em vez de introduzir 400/422 novos para o mesmo caso: o
+   `apis.md` já padroniza 404 para "não encontrado" e 409 para conflito de estado, e esses dois
+   erros já são o padrão do projeto para produto inexistente/indisponível (usados por
+   `CreateWebOrder`, `AddCartItem` etc.). Corpo malformado (schema Zod) continua caindo em
+   `ValidationError` → 400, que é o padrão para entrada inválida. Registrado aqui porque a task
+   sugeria 400/422 especificamente para produto recusado.
+4. **Limite de itens só por schema (`.max(100)`), sem limite de tamanho de corpo em bytes.** Não há
+   middleware de `bodyLimit` no projeto (nenhum outro endpoint declara um); criar um só para esta
+   rota seria inventar infraestrutura fora do escopo da task. Com 100 itens no máximo e payload por
+   item pequeno (dois campos), o corpo já fica limitado a um tamanho pequeno na prática.
+5. **`checkoutDeliveryFeeInCents` do contexto, nunca a env, no resumo do WhatsApp** — mesma regra do
+   risco 3 do architect na T2.1: se `DELIVERY_FEE_CENTS` mudar entre a escolha do tipo de entrega e a
+   confirmação, o resumo mostrado ao cliente e o valor cobrado em `confirmOrder` continuam batendo.
+6. **Formato do resumo segue a spec §3.4 literalmente** (`Itens:`, `Subtotal:`, `Taxa de entrega:`,
+   `Total:`, `Entrega:`/retirada, `Pagamento:`, `Recibo:`), diferente do formato anterior (sem
+   rótulos em "Entrega"/"Pagamento"/"Recibo", com 📍 solto). Os emojis dos botões (🚚/🏪, 💳/💵,
+   📱/📧) continuam aparecendo dentro da linha, como já faziam.
+
+### Typecheck
+
+- `cd apps/api-quickcart && bun run typecheck` → `tsc --noEmit`, sem erros.
+- `cd apps/frontend-web && bun run typecheck` → `tsc --noEmit && tsc --noEmit -p tsconfig.test.json`,
+  sem erros.
+
+### Testes
+
+- Baseline antes da T2.2: **351 passando** (api-quickcart), **12 passando** (frontend-web), **19
+  passando** (worker-quickcart, não tocado nesta task).
+- Depois da T2.2: **361 passando, 0 falhas** (api-quickcart) — 10 testes novos (4 `enterConfirming`,
+  1 `CartSummary`, 5 `Store.controller`/checkout-quote). **12 passando, 0 falhas** (frontend-web —
+  sem teste de componente novo: não havia harness de teste de página antes desta task, e criar um só
+  para isto seria escopo além do pedido). **19 passando** (worker-quickcart, inalterado).
+- Banco de teste: `quickcart-test-postgres`/`quickcart-test-redis` já estavam de pé e migrados até
+  0021 (herdado da T2.1); nenhuma migration nova nesta task.
+
+### Desvios da spec
+
+- Nenhum desvio de comportamento do resumo (formato bate com a spec §3.4 literalmente).
+- `GET /v1/store/checkout-config` removido em vez de mantido — decisão registrada acima, dentro do
+  que a task pediu para avaliar.
