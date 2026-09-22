@@ -4,6 +4,7 @@ import { useRouter } from '@/app/router'
 import { useCartStore } from '@/modules/store/shared/cartStore'
 import { useCreateOrderMutation } from '@/modules/store/shared/mutations/useCreateOrder.mutation'
 import { lookupAddressByCep } from '@/modules/store/shared/viaCepLookup'
+import { useCheckoutConfigQuery } from '@/modules/store/shared/queries/useCheckoutConfig.query'
 import type { DeliveryType, PaymentMethod, ReceiptPreference } from '@/shared/api/api.types'
 
 const SIGN_IN_PATH = '/entrar'
@@ -13,6 +14,7 @@ export function useCheckoutPage() {
   const { status, user } = useUser()
   const { items, totalInCents, clearCart } = useCartStore()
   const createOrderMutation = useCreateOrderMutation()
+  const checkoutConfigQuery = useCheckoutConfigQuery()
 
   /*
    * Navegar na loja é livre; FECHAR o pedido exige conta. A trava fica aqui, no checkout, e não na
@@ -52,6 +54,13 @@ export function useCheckoutPage() {
   const [addressState, setAddressState] = React.useState('')
   const [reference, setReference] = React.useState('')
   const [isLookingUpCep, setIsLookingUpCep] = React.useState(false)
+
+  /*
+   * A taxa que o pedido vai cobrar, como a api a resolve para o tipo escolhido. `undefined` enquanto
+   * carrega: a tela não mostra um valor que ainda não sabe. O total com a taxa é do resumo da T2.2 —
+   * somar aqui seria a segunda cópia de `amountDueInCents`.
+   */
+  const deliveryFeeInCents = checkoutConfigQuery.data?.data.deliveryFeeInCentsByDeliveryType[deliveryType]
 
   const [paymentMethod, setPaymentMethod] = React.useState<PaymentMethod>('pix')
   const [receiptPreference, setReceiptPreference] = React.useState<ReceiptPreference>('whatsapp')
@@ -114,6 +123,7 @@ export function useCheckoutPage() {
   return {
     items,
     totalInCents,
+    deliveryFeeInCents,
     name,
     setName,
     email,

@@ -5,6 +5,7 @@ import type {
   ApiItemResponse,
   ApiListResponse,
   Category,
+  CheckoutConfig,
   DeliveryType,
   Order,
   OrderSortableField,
@@ -109,6 +110,10 @@ export type ListAdminProductsParams = {
   categoryId?: string[]
   sortBy?: ProductSortableField
   sortDirection?: SortDirection
+}
+
+export async function getCheckoutConfig(): Promise<ApiItemResponse<CheckoutConfig>> {
+  return apiClient.get('/v1/store/checkout-config')
 }
 
 export async function getCategories(): Promise<ApiCollectionResponse<Category>> {

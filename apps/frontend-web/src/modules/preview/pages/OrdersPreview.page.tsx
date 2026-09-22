@@ -147,6 +147,8 @@ const ORDER_SAMPLES: readonly {
   },
 ]
 
+const PREVIEW_DELIVERY_FEE_IN_CENTS = 800
+
 function buildPreviewOrders(now: number): Order[] {
   return ORDER_SAMPLES.map((sample, index) => ({
     id: `preview-order-${index}`,
@@ -158,6 +160,9 @@ function buildPreviewOrders(now: number): Order[] {
     paymentMethod: 'pix' as Order['paymentMethod'],
     createdAt: new Date(now - sample.minutesAgo * MINUTE).toISOString(),
     totalInCents: sample.totalInCents,
+    // Vitrine: taxa de exemplo na entrega. Na tela real os dois valores vêm prontos do backend.
+    deliveryFeeInCents: sample.deliveryType === 'delivery' ? PREVIEW_DELIVERY_FEE_IN_CENTS : 0,
+    amountDueInCents: sample.totalInCents + (sample.deliveryType === 'delivery' ? PREVIEW_DELIVERY_FEE_IN_CENTS : 0),
     allowedNextStatuses: sample.allowedNextStatuses,
     // Fixture paga sempre no Pix — nunca precisa de maquininha.
     requiresCardMachine: false,

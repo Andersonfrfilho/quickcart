@@ -138,6 +138,14 @@ export const DELIVERY_FAILURE_REASON = {
 export type DeliveryFailureReason = (typeof DELIVERY_FAILURE_REASON)[keyof typeof DELIVERY_FAILURE_REASON]
 
 export type DeliveryType = 'delivery' | 'pickup'
+
+/**
+ * `GET /v1/store/checkout-config`. A taxa vem da api — um `VITE_` duplicado divergiria do que o pedido
+ * cobra — e já resolvida por tipo de entrega: a tela consulta, não reimplementa "retirada = 0".
+ */
+export type CheckoutConfig = {
+  readonly deliveryFeeInCentsByDeliveryType: Readonly<Record<DeliveryType, number>>
+}
 export type PaymentMethod = 'pix' | 'card_on_delivery' | 'cash'
 export type ReceiptPreference = 'whatsapp' | 'email' | 'both'
 
@@ -146,7 +154,12 @@ export type Order = {
   readonly shortCode: string
   readonly customerName: string | null
   readonly customerPhone: string
+  /** Só a soma dos itens (é o que a NFC-e registra). Para exibir o que o cliente paga, use `amountDueInCents`. */
   readonly totalInCents: number
+  /** Taxa de entrega, fora de `totalInCents` (spec §3.4). Retirada = 0. */
+  readonly deliveryFeeInCents: number
+  /** Valor cobrado (itens + taxa), calculado pelo BACKEND — a tela nunca soma os dois. */
+  readonly amountDueInCents: number
   readonly status: OrderStatus
   readonly deliveryType: DeliveryType
   readonly paymentMethod: PaymentMethod

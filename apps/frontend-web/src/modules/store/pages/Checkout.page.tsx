@@ -2,12 +2,14 @@ import React from 'react'
 import { useRouter } from '@/app/router'
 import { useCheckoutPage } from '@/modules/store/hooks/useCheckoutPage.hook'
 import { Card, Button, Input } from '@/components/ui'
+import { DELIVERY_FEE_LABEL, FREE_DELIVERY_FEE_LABEL } from '@/shared/order/deliveryFee.constant'
 
 export function CheckoutPage() {
   const { navigate } = useRouter()
   const {
     items,
     totalInCents,
+    deliveryFeeInCents,
     name,
     setName,
     email,
@@ -63,9 +65,20 @@ export function CheckoutPage() {
           </div>
         ))}
         <div className="flex justify-between font-semibold text-lg mt-3 pt-3 border-t">
-          <span>Total</span>
+          <span>Subtotal</span>
           <span className="text-primary">{(totalInCents() / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
         </div>
+        {/* A taxa vem da api, já resolvida para o tipo de entrega; na retirada a linha some. */}
+        {deliveryType === 'delivery' && deliveryFeeInCents !== undefined && (
+          <div className="flex justify-between text-sm pt-1">
+            <span>{DELIVERY_FEE_LABEL}</span>
+            <span>
+              {deliveryFeeInCents > 0
+                ? (deliveryFeeInCents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                : FREE_DELIVERY_FEE_LABEL}
+            </span>
+          </div>
+        )}
       </Card>
 
       <form onSubmit={handleSubmit} className="space-y-4">
