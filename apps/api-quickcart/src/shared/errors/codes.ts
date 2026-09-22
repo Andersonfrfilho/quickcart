@@ -48,6 +48,10 @@ export const ORDER_ITEM_NOT_SUBSTITUTABLE = 'ORDER_ITEM_NOT_SUBSTITUTABLE'
 export const ORDER_RECEIPT_ENQUEUE_FAILED = 'ORDER_RECEIPT_ENQUEUE_FAILED'
 export const IDEMPOTENCY_KEY_MISSING = 'IDEMPOTENCY_KEY_MISSING'
 
+export const DELIVERY_OUT_OF_RANGE = 'DELIVERY_OUT_OF_RANGE'
+export const DELIVERY_FEE_CHANGED = 'DELIVERY_FEE_CHANGED'
+export const DELIVERY_UNAVAILABLE = 'DELIVERY_UNAVAILABLE'
+
 // ── Conversation (motor de conversa/WhatsApp) ────────────────────────
 export const CONVERSATION_NOT_FOUND = 'CONVERSATION_NOT_FOUND'
 // Exclusão parcial: objeto ficou no storage, então a conversa foi preservada para repetir.

@@ -71,3 +71,16 @@
 - `maskCep` já cobria os logs existentes; os `warn` novos (`failure_not_cached`, `failure_not_cleared`) seguem o mesmo padrão — nenhum CEP em texto claro em log.
 
 **Números:** migration aplicada no banco de teste (`\d geocode_failures` confere PK). Typecheck limpo. `bun run test`: 597 pass / 0 fail (90 arquivos) — base 591 + 6 testes novos (4 cache negativo + 2 ritmo; `QuoteDeliveryFee` e `ResolveOrderDeliveryEstimate` seguem verdes sem alteração de comportamento).
+
+## T1.5 — Erros
+
+**Arquivos** (em `apps/api-quickcart/`):
+- `src/shared/errors/codes.ts` — `DELIVERY_OUT_OF_RANGE`, `DELIVERY_FEE_CHANGED`, `DELIVERY_UNAVAILABLE`.
+- `src/shared/errors/OrderErrors.ts` — `DeliveryOutOfRangeError` (422, `{ distanceKm, maxDistanceKm }`), `DeliveryFeeChangedError` (409, `{ previousFeeInCents, currentFeeInCents }`), `DeliveryUnavailableError` (422, `{ reason }`), todas estendendo `OrderError`/`DomainError`/`AppError` no mesmo padrão das existentes.
+- `tests/DeliveryFeeErrors.test.ts` — 3 casos.
+
+**Decisões:**
+- O router (`src/infra/http/router.ts`) já responde qualquer `AppError` genericamente por `instanceof` lendo `statusCode`/`code` (linha ~272) — não existe, e não precisa existir, um mapeamento por classe. Não há nenhum teste de nível HTTP para as classes de erro já existentes (`OrderNotFoundError` etc.) neste repositório; o teste que prova "o filtro responde o status e o código certos" verifica exatamente o que o filtro lê — `instanceof AppError`, `statusCode`, `code` — no mesmo nível das demais suítes de erro do projeto.
+- Nenhum consumidor ainda usa essas classes (ligação vem nas Fases 2 e 4, quando `CreateWebOrder` recota e a rota pública de cotação existir).
+
+**Números:** typecheck limpo. `bun run test`: 600 pass / 0 fail (91 arquivos) — base 597 + 3 testes novos.
