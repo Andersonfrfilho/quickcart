@@ -474,6 +474,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     productRepository,
     cartRepository,
     addCartItemUseCase,
+    categoryRepository,
     unmatchedDemandRepository,
   })
   const cartHandler = new CartHandler({

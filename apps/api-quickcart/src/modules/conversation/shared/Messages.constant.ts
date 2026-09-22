@@ -49,6 +49,17 @@ export const BROWSE_ROW_PREFIX = {
   PRODUCT: 'product:',
 } as const
 
+/**
+ * Botões enviados logo depois de adicionar um produto (spec: relato do cliente que ficou preso
+ * depois de dizer "Não" a "quer mais algum produto?"). Três, o teto do WhatsApp — nunca reenvia a
+ * lista de produtos sozinha, que era o que escondia a saída.
+ */
+export const BROWSE_POST_ADD_BUTTON_ID = {
+  MORE_CATEGORY: 'browse_more_category',
+  OTHER_CATEGORY: 'browse_other_category',
+  VIEW_CART: 'browse_view_cart',
+} as const
+
 export const RESOLVE_ROW_ID = {
   SKIP_ITEM: 'skip_item',
   /**
@@ -119,9 +130,29 @@ export const CONFIRMING_BUTTON_ID = {
   CANCEL: 'cancel_order',
 } as const
 
-export const BROWSE_TRIGGER = {
-  VIEW_CART_WORDS: ['ver carrinho', 'carrinho'],
-} as const
+/**
+ * Frases de encerramento digitadas durante a navegação (`browsing_categories`) — todas levam ao
+ * carrinho pelo MESMO caminho do gatilho "carrinho" de sempre (`enterCartReview`). Relato real: o
+ * cliente disse "Não" a "quer mais algum produto?" e caiu em "Não encontrei 'Não' 🤔", sem saída
+ * visível. Casamento é por FRASE INTEIRA depois de normalizar (minúsculas, sem acento, sem
+ * pontuação) — nunca substring: "não tem arroz integral?" continua sendo busca de produto
+ * (`isCartDoneRequest`).
+ */
+export const BROWSE_CART_DONE_WORDS = [
+  'nao',
+  'pronto',
+  'so isso',
+  'e so isso',
+  'finalizar',
+  'concluir',
+  'terminei',
+  'fechar',
+  'fechar pedido',
+  'acabou',
+  'nada',
+  'ver carrinho',
+  'carrinho',
+] as const
 
 export const GLOBAL_TRIGGER = {
   EXIT_WORDS: ['sair', 'cancelar'],
@@ -215,11 +246,16 @@ export const MESSAGES = {
   BROWSE_PICK_CATEGORY: '🛒 Escolha uma categoria:',
   BROWSE_PICK_PRODUCT: 'Escolha um produto:',
   BROWSE_ASK_QUANTITY: 'Quantos você quer? Pode mandar um número (ex.: "3") ou algo tipo "2kg".',
-  BROWSE_QUANTITY_INVALID: 'Não entendi a quantidade 🤔 Manda um número (ex.: "3") ou algo tipo "2kg", por favor.',
-  BROWSE_PRODUCT_ADDED: '✅ Adicionado ao carrinho! Quer escolher mais algum produto dessa categoria?',
+  BROWSE_QUANTITY_INVALID:
+    'Não entendi a quantidade 🤔 Manda um número (ex.: "3") ou algo tipo "2kg", por favor — ou escreva *carrinho* para ver o que já escolheu.',
+  /** `{quantidade}` e `{produto}` substituídos pelo item recém-adicionado. Vem antes dos 3 botões de "e agora?". */
+  BROWSE_PRODUCT_ADDED: '✅ Adicionado: {quantidade}× {produto}. E agora?',
+  BROWSE_POST_ADD_MORE_CATEGORY: '➕ Mais da categoria',
+  BROWSE_POST_ADD_OTHER_CATEGORY: '📂 Outra categoria',
+  BROWSE_POST_ADD_VIEW_CART: '🛒 Ver carrinho',
   BROWSE_EMPTY_CATEGORY: 'Essa categoria está sem produtos disponíveis no momento.',
   BROWSE_NO_CATEGORIES: 'Não há categorias disponíveis no momento.',
-  BROWSE_UNEXPECTED_INPUT: 'Por favor, escolha uma opção da lista acima ☝️',
+  BROWSE_UNEXPECTED_INPUT: 'Por favor, escolha uma opção da lista acima ☝️ ou escreva *carrinho* para ver o que já escolheu.',
   BROWSE_SEARCH_RESULTS: 'Encontrei estes para "{termo}":',
   BROWSE_SEARCH_NOT_FOUND: 'Não encontrei "{termo}" 🤔 Tenta outro nome ou escolha uma opção da lista acima ☝️',
   /**
