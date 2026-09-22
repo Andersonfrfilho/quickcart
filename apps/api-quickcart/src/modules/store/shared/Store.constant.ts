@@ -24,3 +24,7 @@ export const CHECKOUT_QUOTE_MAX_BODY_BYTES = 64 * 1024
 export const CHECKOUT_QUOTE_RATE_LIMIT_SCOPE = 'checkout-quote'
 export const CHECKOUT_QUOTE_RATE_LIMIT_PER_WINDOW = 60
 export const CHECKOUT_QUOTE_RATE_LIMIT_WINDOW_SECONDS = 60
+/** Cadastro público de cliente: mais duro que a cotação — ninguém se cadastra 10 vezes por minuto. */
+export const STORE_REGISTER_RATE_LIMIT_SCOPE = 'store-register'
+export const STORE_REGISTER_RATE_LIMIT_PER_WINDOW = 10
+export const STORE_REGISTER_RATE_LIMIT_WINDOW_SECONDS = 60
