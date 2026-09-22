@@ -32,7 +32,10 @@ export const orders = pgTable('orders', {
   // 32, e não 20: `awaiting_customer_decision` tem 26 e não cabia. Aumentar varchar no Postgres é
   // mudança só de catálogo, sem reescrever a tabela — o inverso não seria.
   status: varchar('status', { length: 32 }).default('pending_confirmation').notNull(),
+  /** Só a soma dos itens — a NFC-e usa este valor como pagamento. A taxa de entrega mora em `deliveryFeeInCents`. */
   totalInCents: integer('total_in_cents').notNull(),
+  /** Taxa de entrega (spec §3.4). Retirada = 0. O valor cobrado é `amountDueInCents` (order/shared/amountDue). */
+  deliveryFeeInCents: integer('delivery_fee_in_cents').default(0).notNull(),
   deliveryType: varchar('delivery_type', { length: 10 }).notNull(),
   address: jsonb('address'),
   /**
@@ -63,6 +66,12 @@ export const orders = pgTable('orders', {
   customerDecisionAskedAt: timestamp('customer_decision_asked_at', { withTimezone: true }),
   /** Cobrança única (a resposta escolhida na regra de fluxo). Preenchido = não cobra de novo. */
   customerDecisionRemindedAt: timestamp('customer_decision_reminded_at', { withTimezone: true }),
+  /**
+   * Troco no pagamento em dinheiro (roteiro §9). `null` = não precisa de troco, ou pagamento não é
+   * em dinheiro — os dois casos são a mesma ausência, e não um "zero" que se confundiria com troco
+   * de R$ 0,00.
+   */
+  cashChangeForInCents: integer('cash_change_for_in_cents'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })

@@ -20,18 +20,29 @@ import type { Customer } from '@/infra/database/schema'
 import type { ConversationSession } from '@/modules/webhook/domain/Conversation.types'
 import type { CartRepositoryInterface } from '@/modules/cart/domain/CartRepository.interface'
 import type { ProductRepositoryInterface } from '@/modules/catalog/domain/ProductRepository.interface'
+import type { OrderRecord } from '@/modules/order/domain/OrderRepository.interface'
 import type { CreateOrderFromCartUseCase } from '@/modules/order/application/use-cases/CreateOrderFromCart.use-case'
+import type { ResolveOrderDeliveryEstimateUseCase } from '@/modules/order/application/use-cases/ResolveOrderDeliveryEstimate.use-case'
 import type { ConversationSessionRepositoryInterface } from '@/modules/webhook/domain/ConversationSessionRepository.interface'
 import type { CustomerRepositoryInterface } from '@/modules/webhook/domain/CustomerRepository.interface'
 import type { WhatsAppSender } from '@/modules/webhook/infra/whatsapp/WhatsAppSender'
 import type { ConversationHandlerContext, ConversationHandlerInterface } from '@/modules/conversation/application/handlers/ConversationHandler.interface'
 import type { ConversationContext } from '@/modules/conversation/shared/ConversationContext.types'
 import { sendCartSummary } from '@/modules/conversation/application/handlers/support/CartSummary'
+import { enterConfirming } from '@/modules/conversation/application/handlers/support/enterConfirming'
+import { calculateCartTotalInCents } from '@/modules/conversation/application/handlers/support/cartTotal'
+import { resolveCheckoutDeliveryFeeInCents } from '@/modules/conversation/shared/resolveCheckoutDeliveryFeeInCents'
+import type { AskCashChangeAgainParams } from '@/modules/conversation/application/types/CheckoutHandler.types'
+import { requiresCardMachine } from '@/modules/order/shared/requiresCardMachine'
+import { amountDueInCents, resolveDeliveryFeeInCents } from '@/modules/order/shared/amountDue'
+import { DELIVERY_TYPE } from '@/modules/order/shared/Order.constant'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInCents'
+import { logger } from '@/shared/logger'
+import { serializeError } from '@/shared/serializeError'
 import {
+  CASH_CHANGE_BUTTONS,
   CONFIRMING_BUTTON_ID,
-  CONFIRMING_BUTTONS,
   REMEMBERED_CHECKOUT_BUTTON_ID,
   DELIVERY_TYPE_BUTTON_ID,
   DELIVERY_TYPE_BUTTONS,
@@ -42,14 +53,12 @@ import {
   RECEIPT_PREFERENCE_BUTTONS,
 } from '@/modules/conversation/shared/Messages.constant'
 import type { AddressLookupProviderInterface } from '@/modules/shared/address/AddressLookupProvider.interface'
-import { formatAddressLine } from '@/modules/shared/address/formatAddressLine'
 import { parseAddressNumberReply } from '@/modules/shared/address/parseAddressNumberReply'
 import { CHANNEL } from '@/modules/shared/shared.constant'
 import { OrderEmptyCartError, OrderInsufficientStockError } from '@/shared/errors/OrderErrors'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
-type InteractiveButtonOption = { readonly id: string; readonly title: string }
+const checkoutLog = logger.child('CheckoutHandler')
 
 export type CheckoutHandlerDependencies = {
   readonly conversationSessionRepository: ConversationSessionRepositoryInterface
@@ -58,7 +67,11 @@ export type CheckoutHandlerDependencies = {
   readonly productRepository: ProductRepositoryInterface
   readonly customerRepository: CustomerRepositoryInterface
   readonly createOrderFromCartUseCase: CreateOrderFromCartUseCase
+  readonly resolveOrderDeliveryEstimateUseCase: ResolveOrderDeliveryEstimateUseCase
   readonly addressLookupProvider: AddressLookupProviderInterface
+  readonly storePreparationMinutes: number
+  /** `DELIVERY_FEE_CENTS`. Lida só ao escolher a entrega; dali em diante vale a cotada no contexto. */
+  readonly configuredDeliveryFeeInCents: number
 }
 
 /**
@@ -101,6 +114,10 @@ export class CheckoutHandler implements ConversationHandlerInterface {
     }
   }
 
+  private quoteDeliveryFeeInCents(deliveryType: string): number {
+    return resolveDeliveryFeeInCents({ deliveryType, configuredFeeInCents: this.dependencies.configuredDeliveryFeeInCents })
+  }
+
   private async handleAwaitingDeliveryType({ session, customer, message }: ConversationHandlerContext): Promise<void> {
     const checkoutContext = (session.context ?? {}) as ConversationContext
 
@@ -112,20 +129,49 @@ export class CheckoutHandler implements ConversationHandlerInterface {
     const remembered = checkoutContext.rememberedCheckout
 
     /**
-     * "Isso mesmo": aplica em bloco o que o cliente ACABOU de ler e vai direto à confirmação final.
+     * "Isso mesmo": aplica em bloco o que o cliente ACABOU de ler e vai direto à confirmação final —
+     * EXCETO o troco (correção T1.1/T1.2): o troco depende do total DESTA compra, não da anterior,
+     * então dinheiro lembrado ainda precisa perguntar de novo, com tudo o mais já preenchido no
+     * contexto. Cartão na entrega lembrado passa pelo mesmo aviso da maquininha que o caminho longo.
      *
      * Os valores vêm do contexto, não de uma nova leitura do banco: entre a pergunta e a resposta ele
      * viu um resumo, e aplicar algo diferente do que estava na tela trairia a confirmação. Ele ainda
      * passa pela tela de confirmar/cancelar — este atalho corta as perguntas, não a última palavra.
      */
     if (remembered && message.buttonId === REMEMBERED_CHECKOUT_BUTTON_ID.SAME_AS_LAST) {
-      await this.enterConfirming(session, customer.id, {
+      const rememberedContext: ConversationContext = {
         ...withoutRememberedCheckout(checkoutContext),
         checkoutDeliveryType: remembered.deliveryType,
+        checkoutDeliveryFeeInCents: this.quoteDeliveryFeeInCents(remembered.deliveryType),
         ...(remembered.address !== undefined ? { checkoutAddress: remembered.address } : {}),
         checkoutPaymentMethod: remembered.paymentMethod,
         checkoutReceiptPreference: remembered.receiptPreference,
         ...(remembered.email ? { checkoutEmail: remembered.email } : {}),
+      }
+
+      if (remembered.paymentMethod === PAYMENT_METHOD_BUTTON_ID.CASH) {
+        await this.dependencies.conversationSessionRepository.updateStateByPhone({
+          customerPhone: session.customerPhone,
+          currentState: CONVERSATION_STATE.AWAITING_CASH_CHANGE,
+          context: rememberedContext,
+        })
+        await this.dependencies.whatsAppSender.sendInteractiveButtons(
+          session.customerPhone,
+          MESSAGES.CHECKOUT_ASK_CASH_CHANGE,
+          CASH_CHANGE_BUTTONS,
+        )
+        return
+      }
+
+      if (requiresCardMachine({ paymentMethod: remembered.paymentMethod, deliveryType: remembered.deliveryType })) {
+        await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_CARD_ON_DELIVERY_MACHINE_NOTICE)
+      }
+
+      await enterConfirming({
+        dependencies: this.dependencies,
+        customerPhone: session.customerPhone,
+        customerId: customer.id,
+        checkoutContext: rememberedContext,
       })
       return
     }
@@ -149,7 +195,11 @@ export class CheckoutHandler implements ConversationHandlerInterface {
       await this.dependencies.conversationSessionRepository.updateStateByPhone({
         customerPhone: session.customerPhone,
         currentState: CONVERSATION_STATE.AWAITING_ADDRESS,
-        context: { ...checkoutContext, checkoutDeliveryType: message.buttonId },
+        context: {
+          ...checkoutContext,
+          checkoutDeliveryType: message.buttonId,
+          checkoutDeliveryFeeInCents: this.quoteDeliveryFeeInCents(message.buttonId),
+        },
       })
       await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_ASK_ADDRESS)
       return
@@ -159,7 +209,11 @@ export class CheckoutHandler implements ConversationHandlerInterface {
       await this.dependencies.conversationSessionRepository.updateStateByPhone({
         customerPhone: session.customerPhone,
         currentState: CONVERSATION_STATE.AWAITING_PAYMENT,
-        context: { ...checkoutContext, checkoutDeliveryType: message.buttonId },
+        context: {
+          ...checkoutContext,
+          checkoutDeliveryType: message.buttonId,
+          checkoutDeliveryFeeInCents: this.quoteDeliveryFeeInCents(message.buttonId),
+        },
       })
       await this.dependencies.whatsAppSender.sendInteractiveButtons(
         session.customerPhone,
@@ -267,10 +321,41 @@ export class CheckoutHandler implements ConversationHandlerInterface {
       return
     }
 
+    const nextContext = { ...checkoutContext, checkoutPaymentMethod: message.buttonId }
+
+    /*
+     * Só dinheiro pergunta troco (roteiro §9). Os outros meios seguem direto para o recibo, como
+     * antes — o `CashChangeHandler` (arquivo próprio, spec/tasks.md T1.1) cuida do resto e devolve
+     * o cliente para `AWAITING_RECEIPT_PREFERENCE` sozinho.
+     */
+    if (message.buttonId === PAYMENT_METHOD_BUTTON_ID.CASH) {
+      await this.dependencies.conversationSessionRepository.updateStateByPhone({
+        customerPhone: session.customerPhone,
+        currentState: CONVERSATION_STATE.AWAITING_CASH_CHANGE,
+        context: nextContext,
+      })
+      await this.dependencies.whatsAppSender.sendInteractiveButtons(
+        session.customerPhone,
+        MESSAGES.CHECKOUT_ASK_CASH_CHANGE,
+        CASH_CHANGE_BUTTONS,
+      )
+      return
+    }
+
+    /*
+     * A maquininha só existe na entrega: quem retira na loja paga no caixa, sem entregador (spec
+     * §3.2). É a MESMA função do selo no painel — o pedido ainda não existe aqui, mas os ids dos
+     * botões já são os valores de domínio (`confirmOrder` os grava direto), então não há tradução
+     * nem uma segunda cópia da regra, que é como as duas acabariam divergindo.
+     */
+    if (requiresCardMachine({ paymentMethod: message.buttonId, deliveryType: checkoutContext.checkoutDeliveryType ?? '' })) {
+      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_CARD_ON_DELIVERY_MACHINE_NOTICE)
+    }
+
     await this.dependencies.conversationSessionRepository.updateStateByPhone({
       customerPhone: session.customerPhone,
       currentState: CONVERSATION_STATE.AWAITING_RECEIPT_PREFERENCE,
-      context: { ...checkoutContext, checkoutPaymentMethod: message.buttonId },
+      context: nextContext,
     })
     await this.dependencies.whatsAppSender.sendInteractiveButtons(
       session.customerPhone,
@@ -290,7 +375,7 @@ export class CheckoutHandler implements ConversationHandlerInterface {
     const nextContext: ConversationContext = { ...checkoutContext, checkoutReceiptPreference: message.buttonId }
 
     if (message.buttonId === RECEIPT_PREFERENCE_BUTTON_ID.WHATSAPP) {
-      await this.enterConfirming(session, customer.id, nextContext)
+      await enterConfirming({ dependencies: this.dependencies, customerPhone: session.customerPhone, customerId: customer.id, checkoutContext: nextContext })
       return
     }
 
@@ -317,7 +402,12 @@ export class CheckoutHandler implements ConversationHandlerInterface {
     }
 
     await this.dependencies.customerRepository.updateContactInfo({ customerId: customer.id, email })
-    await this.enterConfirming(session, customer.id, { ...checkoutContext, checkoutEmail: email })
+    await enterConfirming({
+      dependencies: this.dependencies,
+      customerPhone: session.customerPhone,
+      customerId: customer.id,
+      checkoutContext: { ...checkoutContext, checkoutEmail: email },
+    })
   }
 
   private async handleConfirming({ session, customer, message }: ConversationHandlerContext): Promise<void> {
@@ -343,7 +433,60 @@ export class CheckoutHandler implements ConversationHandlerInterface {
       return
     }
 
+    if (message.buttonId === CONFIRMING_BUTTON_ID.EDIT) {
+      await this.alterCheckout(session, customer, checkoutContext)
+      return
+    }
+
     await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CONFIRMING_UNEXPECTED_INPUT)
+  }
+
+  /**
+   * "Alterar" (T2.3, spec §3.4): volta ao carrinho sem descartar nada. O carrinho persistido não é
+   * tocado — só o estado da conversa muda — e a exibição reaproveita `sendCartSummary`, a mesma
+   * função que `CartHandler` usa para entrar em `cart_review`.
+   *
+   * O contexto de checkout já escolhido nesta sessão vira `rememberedCheckout` (mesmo formato do
+   * atalho lembrado de pedido anterior), para o "Isso mesmo" oferecer de novo entrega e pagamento
+   * ao fechar o pedido de novo — sem isso o `rememberedCheckout` só nasceria do ÚLTIMO PEDIDO
+   * confirmado no banco, que não existe ainda neste ponto (o cliente está alterando ANTES de
+   * confirmar). Ele passa pelo MESMO caminho do atalho lembrado
+   * (`handleAwaitingDeliveryType`), então troco é reperguntado e a taxa de entrega é recotada do
+   * contexto atual, nunca copiados direto do que já tinha sido escolhido (correção T1.1/T1.2).
+   */
+  private async alterCheckout(session: ConversationSession, customer: Customer, checkoutContext: ConversationContext): Promise<void> {
+    const { checkoutDeliveryType, checkoutAddress, checkoutPaymentMethod, checkoutReceiptPreference, checkoutEmail } = checkoutContext
+
+    const rememberedCheckout: ConversationContext['rememberedCheckout'] =
+      checkoutDeliveryType && checkoutPaymentMethod && checkoutReceiptPreference
+        ? {
+            deliveryType: checkoutDeliveryType,
+            ...(checkoutAddress !== undefined ? { address: checkoutAddress } : {}),
+            paymentMethod: checkoutPaymentMethod,
+            receiptPreference: checkoutReceiptPreference,
+            ...(checkoutEmail ? { email: checkoutEmail } : {}),
+          }
+        : undefined
+
+    await this.dependencies.conversationSessionRepository.updateStateByPhone({
+      customerPhone: session.customerPhone,
+      currentState: CONVERSATION_STATE.CART_REVIEW,
+      context: rememberedCheckout ? { rememberedCheckout } : {},
+    })
+
+    const cart = await this.dependencies.cartRepository.findOpenByCustomer(customer.id, CHANNEL.WHATSAPP)
+    if (!cart) {
+      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CART_EMPTY)
+      return
+    }
+
+    await sendCartSummary({
+      customerPhone: session.customerPhone,
+      cartId: cart.id,
+      cartRepository: this.dependencies.cartRepository,
+      productRepository: this.dependencies.productRepository,
+      whatsAppSender: this.dependencies.whatsAppSender,
+    })
   }
 
   private async confirmOrder(session: ConversationSession, customer: Customer, checkoutContext: ConversationContext): Promise<void> {
@@ -370,6 +513,12 @@ export class CheckoutHandler implements ConversationHandlerInterface {
       return
     }
 
+    const deliveryFeeInCents = resolveCheckoutDeliveryFeeInCents({
+      context: checkoutContext,
+      configuredFeeInCents: this.dependencies.configuredDeliveryFeeInCents,
+    })
+    if (await this.askCashChangeAgainIfTotalChanged({ session, cartId: cart.id, checkoutContext, deliveryFeeInCents })) return
+
     try {
       const { order } = await this.dependencies.createOrderFromCartUseCase.execute({
         cartId: cart.id,
@@ -379,6 +528,8 @@ export class CheckoutHandler implements ConversationHandlerInterface {
         address: checkoutContext.checkoutAddress,
         paymentMethod: checkoutPaymentMethod,
         receiptPreference: checkoutReceiptPreference,
+        cashChangeForInCents: checkoutContext.checkoutCashChangeForInCents,
+        quotedDeliveryFeeInCents: deliveryFeeInCents,
       })
 
       await this.dependencies.conversationSessionRepository.updateStateByPhone({
@@ -386,10 +537,50 @@ export class CheckoutHandler implements ConversationHandlerInterface {
         currentState: CONVERSATION_STATE.GREETING,
         context: {},
       })
-      await this.dependencies.whatsAppSender.sendText(session.customerPhone, `${MESSAGES.ORDER_CONFIRMED_PREFIX} ${order.shortCode}`)
+      const deliveryEstimateLine = await this.buildDeliveryEstimateLine(order)
+
+      const confirmationLines = [
+        `${MESSAGES.ORDER_CONFIRMED_PREFIX} ${order.shortCode}`,
+        MESSAGES.ORDER_CONFIRMED_TOTAL_LINE.replace('{total}', formatPriceInCents(amountDueInCents(order))),
+        ...(order.cashChangeForInCents !== null
+          ? [MESSAGES.ORDER_CONFIRMED_CASH_CHANGE_LINE.replace('{valor}', formatPriceInCents(order.cashChangeForInCents))]
+          : []),
+        ...(deliveryEstimateLine ? [deliveryEstimateLine] : []),
+      ]
+      await this.dependencies.whatsAppSender.sendText(session.customerPhone, confirmationLines.join('\n'))
     } catch (error) {
       await this.handleConfirmOrderError(session, cart.id, error)
     }
+  }
+
+  /**
+   * O troco foi validado contra o total da hora em que foi pedido; se um preço mudou enquanto o
+   * cliente estava em CONFIRMING, o pedido sairia com troco menor que o cobrado. Revalida aqui e,
+   * se não cobre mais, volta à pergunta do valor em vez de criar o pedido.
+   */
+  private async askCashChangeAgainIfTotalChanged(params: AskCashChangeAgainParams): Promise<boolean> {
+    const { session, cartId, checkoutContext, deliveryFeeInCents } = params
+    const cashChangeForInCents = checkoutContext.checkoutCashChangeForInCents
+    if (cashChangeForInCents === undefined || cashChangeForInCents === null) return false
+
+    const cartTotalInCents = await calculateCartTotalInCents({
+      cartId,
+      cartRepository: this.dependencies.cartRepository,
+      productRepository: this.dependencies.productRepository,
+    })
+    const currentAmountDueInCents = amountDueInCents({ totalInCents: cartTotalInCents, deliveryFeeInCents })
+    if (cashChangeForInCents > currentAmountDueInCents) return false
+
+    await this.dependencies.conversationSessionRepository.updateStateByPhone({
+      customerPhone: session.customerPhone,
+      currentState: CONVERSATION_STATE.AWAITING_CASH_CHANGE_AMOUNT,
+      context: checkoutContext,
+    })
+    await this.dependencies.whatsAppSender.sendText(
+      session.customerPhone,
+      MESSAGES.CHECKOUT_CASH_CHANGE_TOTAL_CHANGED.replace('{total}', formatPriceInCents(currentAmountDueInCents)),
+    )
+    return true
   }
 
   private async handleConfirmOrderError(session: ConversationSession, cartId: string, error: unknown): Promise<void> {
@@ -423,70 +614,35 @@ export class CheckoutHandler implements ConversationHandlerInterface {
     throw error
   }
 
-  private async enterConfirming(session: ConversationSession, customerId: string, checkoutContext: ConversationContext): Promise<void> {
-    const cart = await this.dependencies.cartRepository.findOpenByCustomer(customerId, CHANNEL.WHATSAPP)
-    if (!cart) {
-      await this.dependencies.conversationSessionRepository.updateStateByPhone({
-        customerPhone: session.customerPhone,
-        currentState: CONVERSATION_STATE.GREETING,
-        context: {},
-      })
-      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.ORDER_CART_EMPTY_ERROR)
-      return
+  /**
+   * Roteiro §12. Calculada DEPOIS de criar o pedido; nunca atrasa nem derruba a confirmação.
+   *
+   * `try/catch` só em volta desta chamada (fallback gracioso, code-standart.md §7): sem `STORE_CEP`,
+   * sem coordenada do cliente, fora do raio ou com o serviço de mapa fora do ar, a linha some e o
+   * log carrega só o `orderId` — nunca telefone, endereço ou CEP (security.md §1).
+   */
+  private async buildDeliveryEstimateLine(order: OrderRecord): Promise<string | undefined> {
+    if (order.deliveryType === DELIVERY_TYPE.PICKUP) {
+      return MESSAGES.ORDER_CONFIRMED_PICKUP_ESTIMATE_LINE.replace(
+        '{minutos}',
+        String(this.dependencies.storePreparationMinutes),
+      )
     }
 
-    const summaryText = await this.buildConfirmingSummary(cart.id, checkoutContext)
+    try {
+      const estimate = await this.dependencies.resolveOrderDeliveryEstimateUseCase.execute({ order })
+      if (!estimate || estimate.isOutsideRadius || estimate.minMinutes === undefined || estimate.maxMinutes === undefined) {
+        return undefined
+      }
 
-    await this.dependencies.conversationSessionRepository.updateStateByPhone({
-      customerPhone: session.customerPhone,
-      currentState: CONVERSATION_STATE.CONFIRMING,
-      context: checkoutContext,
-    })
-    await this.dependencies.whatsAppSender.sendInteractiveButtons(session.customerPhone, summaryText, CONFIRMING_BUTTONS)
-  }
-
-  private async buildConfirmingSummary(cartId: string, checkoutContext: ConversationContext): Promise<string> {
-    const cartItems = await this.dependencies.cartRepository.listItems(cartId)
-    const products = await Promise.all(cartItems.map((item) => this.dependencies.productRepository.findById(item.productId)))
-
-    let totalInCents = 0
-    const lines = cartItems.map((item, index) => {
-      const product = products[index]
-      const lineTotalInCents = Math.round((product?.priceInCents ?? 0) * item.quantity)
-      totalInCents += lineTotalInCents
-      return `• ${item.quantity}x ${product?.name ?? item.productId} — ${formatPriceInCents(lineTotalInCents)}`
-    })
-
-    const deliveryLine = this.describeSelection(DELIVERY_TYPE_BUTTONS, checkoutContext.checkoutDeliveryType)
-    /*
-     * `String(objeto)` virava "[object Object]" desde que o endereço passou a nascer estruturado
-     * (T2.2) — `formatAddressLine` entende os dois formatos, o novo e o texto livre de quem já
-     * estava no meio do checkout antes do deploy.
-     */
-    const formattedAddress = formatAddressLine(checkoutContext.checkoutAddress)
-    const addressLine = formattedAddress ? `📍 ${formattedAddress}` : undefined
-    const paymentLine = this.describeSelection(PAYMENT_METHOD_BUTTONS, checkoutContext.checkoutPaymentMethod)
-    const receiptLine = this.describeSelection(RECEIPT_PREFERENCE_BUTTONS, checkoutContext.checkoutReceiptPreference)
-
-    return [
-      MESSAGES.CONFIRMING_SUMMARY_HEADER,
-      ...lines,
-      '',
-      `${MESSAGES.CART_SUMMARY_TOTAL_PREFIX} ${formatPriceInCents(totalInCents)}`,
-      '',
-      deliveryLine,
-      ...(addressLine ? [addressLine] : []),
-      paymentLine,
-      receiptLine,
-      '',
-      MESSAGES.CONFIRMING_ASK,
-    ]
-      .filter((line) => line !== undefined)
-      .join('\n')
-  }
-
-  private describeSelection(buttons: ReadonlyArray<InteractiveButtonOption>, id: string | undefined): string {
-    return buttons.find((button) => button.id === id)?.title ?? ''
+      return MESSAGES.ORDER_CONFIRMED_DELIVERY_ESTIMATE_LINE.replace('{min}', String(estimate.minMinutes)).replace(
+        '{max}',
+        String(estimate.maxMinutes),
+      )
+    } catch (error: unknown) {
+      checkoutLog.warn('delivery_estimate_unavailable', { orderId: order.id, error: serializeError(error) })
+      return undefined
+    }
   }
 
   private isKnownButtonId(buttonIdMap: Record<string, string>, buttonId: string): boolean {

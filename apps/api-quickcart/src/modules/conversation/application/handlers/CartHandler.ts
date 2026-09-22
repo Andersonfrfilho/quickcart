@@ -24,6 +24,7 @@ import type { ConversationSessionRepositoryInterface } from '@/modules/webhook/d
 import type { WhatsAppSender } from '@/modules/webhook/infra/whatsapp/WhatsAppSender'
 import type { ConversationHandlerContext, ConversationHandlerInterface } from '@/modules/conversation/application/handlers/ConversationHandler.interface'
 import type { ConversationContext } from '@/modules/conversation/shared/ConversationContext.types'
+import { carryRememberedCheckout } from '@/modules/conversation/application/handlers/support/carryRememberedCheckout'
 import { sendCartSummary } from '@/modules/conversation/application/handlers/support/CartSummary'
 import { buildEditingCartSection, type EditingCartRow } from '@/modules/conversation/application/handlers/support/InteractiveListBuilders'
 import { parseQuantityInput } from '@/modules/conversation/application/handlers/support/parseQuantityInput'
@@ -107,7 +108,13 @@ export class CartHandler implements ConversationHandlerInterface {
     }
 
     if (message.buttonId === CART_REVIEW_BUTTON_ID.CHECKOUT) {
-      const remembered = await this.resolveRememberedCheckout(customer)
+      /*
+       * Prioriza o que a sessão já guardou (vindo do "Alterar", T2.3): ali ainda não existe pedido
+       * novo no banco para `resolveRememberedCheckout` achar, e o que o cliente acabou de escolher
+       * nesta conversa é mais recente que o último pedido confirmado.
+       */
+      const sessionContext = (session.context ?? {}) as ConversationContext
+      const remembered = sessionContext.rememberedCheckout ?? (await this.resolveRememberedCheckout(customer))
 
       if (remembered) {
         // Uma pergunta em vez de quatro. O estado continua o mesmo: o handler de entrega reconhece os
@@ -139,10 +146,11 @@ export class CartHandler implements ConversationHandlerInterface {
     }
 
     if (message.buttonId === CART_REVIEW_BUTTON_ID.ADD_MORE) {
+      const sessionContext = (session.context ?? {}) as ConversationContext
       await this.dependencies.conversationSessionRepository.updateStateByPhone({
         customerPhone: session.customerPhone,
         currentState: CONVERSATION_STATE.AWAITING_LIST,
-        context: {},
+        context: carryRememberedCheckout(sessionContext),
       })
       await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.AWAITING_LIST_PROMPT)
       return
@@ -238,12 +246,13 @@ export class CartHandler implements ConversationHandlerInterface {
   }
 
   private async sendEditingCartList(session: ConversationSession, customerId: string, page: number = 1): Promise<void> {
+    const sessionContext = (session.context ?? {}) as ConversationContext
     const cart = await this.dependencies.cartRepository.findOpenByCustomer(customerId, CHANNEL.WHATSAPP)
     if (!cart) {
       await this.dependencies.conversationSessionRepository.updateStateByPhone({
         customerPhone: session.customerPhone,
         currentState: CONVERSATION_STATE.CART_REVIEW,
-        context: {},
+        context: carryRememberedCheckout(sessionContext),
       })
       await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CART_EMPTY)
       return
@@ -254,7 +263,7 @@ export class CartHandler implements ConversationHandlerInterface {
     await this.dependencies.conversationSessionRepository.updateStateByPhone({
       customerPhone: session.customerPhone,
       currentState: CONVERSATION_STATE.EDITING_CART,
-      context: { editingCartPage: page },
+      context: { ...carryRememberedCheckout(sessionContext), editingCartPage: page },
     })
 
     const section = buildEditingCartSection(rows, page)
@@ -276,10 +285,11 @@ export class CartHandler implements ConversationHandlerInterface {
   }
 
   private async returnToCartReview(session: ConversationSession, customerId: string): Promise<void> {
+    const sessionContext = (session.context ?? {}) as ConversationContext
     await this.dependencies.conversationSessionRepository.updateStateByPhone({
       customerPhone: session.customerPhone,
       currentState: CONVERSATION_STATE.CART_REVIEW,
-      context: {},
+      context: carryRememberedCheckout(sessionContext),
     })
 
     const cart = await this.dependencies.cartRepository.findOpenByCustomer(customerId, CHANNEL.WHATSAPP)

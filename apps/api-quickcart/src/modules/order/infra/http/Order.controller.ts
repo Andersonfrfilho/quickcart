@@ -35,6 +35,8 @@ import { CUSTOMER_ONLY } from '@/modules/user/shared/User.constant'
 import { ForbiddenError } from '@/shared/errors/AppError.error'
 import { SESSION_ROLE_FORBIDDEN } from '@/shared/errors/codes'
 import type { CustomerRepositoryInterface } from '@/modules/webhook/domain/CustomerRepository.interface'
+import { requiresCardMachine } from '@/modules/order/shared/requiresCardMachine'
+import { amountDueInCents } from '@/modules/order/shared/amountDue'
 
 type OrderControllerDependencies = {
   readonly createWebOrderUseCase: CreateWebOrderUseCase
@@ -50,19 +52,32 @@ type OrderControllerDependencies = {
 }
 
 /**
- * Acrescenta ao pedido os próximos passos válidos.
+ * Acrescenta ao pedido os próximos passos válidos e o selo da maquininha.
  *
  * A tela precisa desenhar botões, e a única forma de não existirem duas esteiras (uma no servidor, outra no
  * front) é o servidor dizer quais são. Antes o front tinha o mapa próprio, e qualquer mudança de fluxo
  * precisava ser feita nos dois lugares — divergir era questão de tempo.
+ *
+ * Pela mesma razão, `requiresCardMachine` (spec §3.2) entra aqui: é o único ponto de serialização de
+ * pedido para fora da api, então nasce único também no DTO — nenhuma tela recalcula por conta própria.
+ * `amountDueInCents` (spec §3.4) idem: o valor cobrado sai daqui, e o frontend não soma itens + taxa.
  */
-function withAllowedTransitions<
+export function withAllowedTransitions<
   TOrder extends {
     readonly status: string
     readonly deliveryType: string
+    readonly paymentMethod: string
     readonly deliveryFailureReason?: string | null
+    readonly totalInCents: number
+    readonly deliveryFeeInCents: number
   },
->(order: TOrder): TOrder & { readonly allowedNextStatuses: readonly string[] } {
+>(
+  order: TOrder,
+): TOrder & {
+  readonly allowedNextStatuses: readonly string[]
+  readonly requiresCardMachine: boolean
+  readonly amountDueInCents: number
+} {
   return {
     ...order,
     allowedNextStatuses: allowedNextStatuses({
@@ -71,6 +86,8 @@ function withAllowedTransitions<
       // Numa ocorrência é o motivo que decide se ainda cabe outra tentativa ou só o cancelamento.
       deliveryFailureReason: order.deliveryFailureReason,
     }),
+    requiresCardMachine: requiresCardMachine(order),
+    amountDueInCents: amountDueInCents(order),
   }
 }
 

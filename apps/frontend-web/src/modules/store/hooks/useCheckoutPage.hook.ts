@@ -4,6 +4,7 @@ import { useRouter } from '@/app/router'
 import { useCartStore } from '@/modules/store/shared/cartStore'
 import { useCreateOrderMutation } from '@/modules/store/shared/mutations/useCreateOrder.mutation'
 import { lookupAddressByCep } from '@/modules/store/shared/viaCepLookup'
+import { useCheckoutQuoteQuery } from '@/modules/store/shared/queries/useCheckoutQuote.query'
 import type { DeliveryType, PaymentMethod, ReceiptPreference } from '@/shared/api/api.types'
 
 const SIGN_IN_PATH = '/entrar'
@@ -52,6 +53,18 @@ export function useCheckoutPage() {
   const [addressState, setAddressState] = React.useState('')
   const [reference, setReference] = React.useState('')
   const [isLookingUpCep, setIsLookingUpCep] = React.useState(false)
+
+  /*
+   * Subtotal, taxa e total SEMPRE calculados pelo servidor a partir dos preços atuais do banco
+   * (T2.2) — o carrinho web guarda preço no navegador, que pode estar velho, e é o valor do
+   * servidor que será cobrado se divergir do local. Recota a cada mudança de carrinho ou tipo de
+   * entrega (chave da query).
+   */
+  const checkoutQuoteQuery = useCheckoutQuoteQuery({
+    items: items.map((item) => ({ productId: item.productId, quantity: item.quantity })),
+    deliveryType,
+  })
+  const quote = checkoutQuoteQuery.data?.data
 
   const [paymentMethod, setPaymentMethod] = React.useState<PaymentMethod>('pix')
   const [receiptPreference, setReceiptPreference] = React.useState<ReceiptPreference>('whatsapp')
@@ -114,6 +127,7 @@ export function useCheckoutPage() {
   return {
     items,
     totalInCents,
+    quote,
     name,
     setName,
     email,

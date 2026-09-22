@@ -81,6 +81,8 @@ export interface ProductRepositoryInterface {
   create(params: CreateProductRecordParams): Promise<Product>
   update(id: string, params: UpdateProductRecordParams): Promise<Product>
   findById(id: string): Promise<Product | undefined>
+  /** Uma consulta para N ids. Ordem do resultado não é garantida; id inexistente simplesmente não volta. */
+  findByIds(ids: readonly string[]): Promise<Product[]>
   findByBarcode(barcode: string): Promise<Product | undefined>
   adjustStock(id: string, delta: number): Promise<Product | undefined>
   list(params: ListProductsRepositoryParams): Promise<ListProductsRepositoryResult>

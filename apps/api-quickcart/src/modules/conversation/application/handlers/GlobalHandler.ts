@@ -28,7 +28,12 @@ import type {
 } from '@/modules/conversation/application/handlers/ConversationHandler.interface'
 import { looksLikeShoppingList } from '@/modules/conversation/application/looksLikeShoppingList'
 import { sendCartSummary } from '@/modules/conversation/application/handlers/support/CartSummary'
+import { carryRememberedCheckout } from '@/modules/conversation/application/handlers/support/carryRememberedCheckout'
+import type { HandleRepeatOrderParams } from '@/modules/conversation/application/types/GlobalHandler.types'
+import { requestHumanHandoff } from '@/modules/conversation/application/handlers/support/requestHumanHandoff'
+import { isHumanHandoffRequest } from '@/modules/conversation/shared/isHumanHandoffRequest'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
+import type { ConversationContext } from '@/modules/conversation/shared/ConversationContext.types'
 import { MENU_BUTTON_ID, MESSAGES } from '@/modules/conversation/shared/Messages.constant'
 import {
   ORDER_DECISION,
@@ -38,6 +43,7 @@ import {
 import type { ResolveCustomerDecisionUseCase } from '@/modules/order/application/use-cases/ResolveCustomerDecision.use-case'
 import type { ResolveItemSubstitutionUseCase } from '@/modules/order/application/use-cases/ResolveItemSubstitution.use-case'
 import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInCents'
+import { amountDueInCents } from '@/modules/order/shared/amountDue'
 import { CHANNEL } from '@/modules/shared/shared.constant'
 import { OrderNoPreviousOrderError } from '@/shared/errors/OrderErrors'
 
@@ -97,6 +103,23 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
     }
 
     /**
+     * Pedido de atendente (spec §3.5, T3.1): mesma ideia do "sair" acima — intenção do cliente, não
+     * resposta ao estado —, e por isso checado ANTES do parser de lista de compras logo abaixo. Sem
+     * essa ordem, "atendente" sozinho em `awaiting_list` viraria (sem casar produto nenhum) uma
+     * tentativa de montar carrinho, em vez de chamar a fila de espera.
+     */
+    if (message.kind === 'text' && isHumanHandoffRequest(message.body)) {
+      await requestHumanHandoff(
+        {
+          conversationSessionRepository: this.dependencies.conversationSessionRepository,
+          whatsAppSender: this.dependencies.whatsAppSender,
+        },
+        session.customerPhone,
+      )
+      return true
+    }
+
+    /**
      * A resposta sobre item em falta vem antes de tudo, e vale em QUALQUER estado.
      *
      * Não virou estado de conversa de propósito: a pergunta pode ficar horas sem resposta, e nesse meio-tempo
@@ -133,7 +156,11 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
     }
 
     if (this.isRepeatOrderTrigger(message)) {
-      await this.handleRepeatOrder(session.customerPhone, customer.id)
+      await this.handleRepeatOrder({
+        customerPhone: session.customerPhone,
+        customerId: customer.id,
+        sessionContext: (session.context ?? {}) as ConversationContext,
+      })
       return true
     }
 
@@ -256,7 +283,7 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
         params.customerPhone,
         MESSAGES.ORDER_ITEM_SUBSTITUTED_ACK.replace('{substituto}', result.substituteName)
           .replace('{codigo}', result.detail.order.shortCode)
-          .replace('{total}', formatPriceInCents(result.detail.order.totalInCents)),
+          .replace('{total}', formatPriceInCents(amountDueInCents(result.detail.order))),
       )
       return
     }
@@ -275,7 +302,8 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
     )
   }
 
-  private async handleRepeatOrder(customerPhone: string, customerId: string): Promise<void> {
+  private async handleRepeatOrder(params: HandleRepeatOrderParams): Promise<void> {
+    const { customerPhone, customerId, sessionContext } = params
     try {
       const result = await this.dependencies.repeatLastOrderUseCase.execute({ customerId, channel: CHANNEL.WHATSAPP })
 
@@ -287,7 +315,8 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
       await this.dependencies.conversationSessionRepository.updateStateByPhone({
         customerPhone,
         currentState: CONVERSATION_STATE.CART_REVIEW,
-        context: {},
+        // Mesma regra do CartHandler: repetir o pedido não pode apagar a memória do "Alterar".
+        context: carryRememberedCheckout(sessionContext),
       })
       await this.dependencies.whatsAppSender.sendText(customerPhone, MESSAGES.REPEAT_ORDER_ADDED)
       await sendCartSummary({

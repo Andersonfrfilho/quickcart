@@ -7,9 +7,10 @@
  *
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  *
- * Fase 4 não tem tabelas `carts`/`cart_items` (chegam na Fase 5) — o carrinho
- * em progresso vive dentro de `conversation_sessions.context` (jsonb) até lá,
- * conforme spec §3.3.
+ * As tabelas `carts`/`cart_items` existem e são a fonte verdadeira do carrinho aberto (lidas por
+ * `CartHandler`, `enterConfirming` e pelo checkout). `cartDraft`, aqui neste contexto, é só o
+ * rascunho da lista/navegação ANTES da revisão — `enterCartReview` o materializa em `cart_items`
+ * via `AddCartItemUseCase` (ver T3.2, `.specs/features/roteiro-atendimento/evidence.md`).
  */
 
 import type { MatchCandidate } from '@/modules/conversation/application/types/MatchProducts.types'
@@ -53,6 +54,12 @@ export type ConversationContext = {
   readonly wasExpired?: boolean
   readonly editingCartItemId?: string
   readonly checkoutDeliveryType?: string
+  /**
+   * Taxa de entrega cotada quando o tipo de entrega foi escolhido (retirada = 0). Troco e pedido usam ESTE
+   * valor, nunca a env relida: se `DELIVERY_FEE_CENTS` mudar no meio do checkout, o troco já validado
+   * continua valendo. Ausente (sessão anterior à T2.1) vale 0.
+   */
+  readonly checkoutDeliveryFeeInCents?: number
   readonly checkoutAddress?: unknown
   /**
    * CEP resolvido, à espera do número (e complemento) para virar `checkoutAddress` completo.
@@ -69,6 +76,11 @@ export type ConversationContext = {
     readonly state: string
   }
   readonly checkoutPaymentMethod?: string
+  /**
+   * Troco no pagamento em dinheiro (roteiro §9). Ausente enquanto a pergunta não foi respondida;
+   * `null` para "Não preciso"; um número para o valor com que o cliente vai pagar.
+   */
+  readonly checkoutCashChangeForInCents?: number | null
   readonly checkoutReceiptPreference?: string
   readonly checkoutEmail?: string
   /**

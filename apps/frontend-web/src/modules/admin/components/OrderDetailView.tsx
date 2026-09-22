@@ -24,7 +24,9 @@ import {
 } from '@/modules/admin/shared/orderLabels'
 import { DeliveryFailureAction } from '@/modules/admin/components/DeliveryFailureAction'
 import { OrderStatusSteps } from '@/modules/admin/components/OrderStatusSteps'
+import { OrderPaymentNotes } from '@/modules/admin/components/OrderPaymentNotes'
 import { ORDER_STATUS, type OrderDetail, type OrderItem } from '@/shared/api/api.types'
+import { DELIVERY_FEE_LABEL, FREE_DELIVERY_FEE_LABEL } from '@/shared/order/deliveryFee.constant'
 
 const RECEIPT_LABELS: Record<string, string> = { whatsapp: '📱 WhatsApp', email: '📧 E-mail', both: '📱📧 Ambos' }
 
@@ -473,6 +475,7 @@ export function OrderDetailView({
         <Card className="p-3 md:p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pagamento</p>
           <p className="mt-0.5 font-medium">{PAYMENT_LABELS[order.paymentMethod] ?? order.paymentMethod}</p>
+          <OrderPaymentNotes cashChangeForInCents={order.cashChangeForInCents} requiresCardMachine={order.requiresCardMachine} />
           <p className="mt-0.5 text-xs text-muted-foreground">
             {/* Valor fora da lista vira travessão: "Recibo: none" na tela é código vazando para o
                 lojista, e ele não tem como saber que 'none' significa "não escolheu". */}
@@ -482,7 +485,14 @@ export function OrderDetailView({
 
         <Card className="p-3 md:p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Total</p>
-          <p className="mt-0.5 text-xl font-bold md:text-2xl">{formatMoney(order.totalInCents)}</p>
+          {/* O valor cobrado vem pronto do backend (`amountDueInCents`); a tela não soma itens + taxa. */}
+          <p className="mt-0.5 text-xl font-bold md:text-2xl">{formatMoney(order.amountDueInCents)}</p>
+          {order.deliveryType === 'delivery' && (
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Itens {formatMoney(order.totalInCents)} · {DELIVERY_FEE_LABEL}{' '}
+              {order.deliveryFeeInCents > 0 ? formatMoney(order.deliveryFeeInCents) : FREE_DELIVERY_FEE_LABEL}
+            </p>
+          )}
           <p className="mt-0.5 text-xs text-muted-foreground">
             {availableItems.length} {availableItems.length === 1 ? 'item' : 'itens'}
             {/* O que faltou fica dito aqui: o total menor sem explicação parece erro de conta. */}
@@ -693,7 +703,7 @@ export function OrderDetailView({
               <p className="mt-1 text-sm text-muted-foreground">
                 {availableItems.length === 0
                   ? 'Nada sobrou no pedido: o recado vai perguntar se ele quer montar outra lista ou cancelar.'
-                  : `O recado sai numa mensagem só, com o novo total de ${formatMoney(order.totalInCents)}.`}
+                  : `O recado sai numa mensagem só, com o novo total de ${formatMoney(order.amountDueInCents)}.`}
               </p>
             </div>
 

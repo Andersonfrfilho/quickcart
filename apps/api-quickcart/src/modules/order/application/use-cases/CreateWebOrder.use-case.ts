@@ -17,10 +17,10 @@
  * polling até o vencedor substituir o sentinela pelo `shortCode` real, ou expira em conflito.
  */
 
-import { ProductNotFoundError } from '@/shared/errors/CatalogErrors'
-import { CartProductUnavailableError } from '@/shared/errors/CartErrors'
 import { OrderInsufficientStockError, OrderIdempotencyConflictError } from '@/shared/errors/OrderErrors'
 import { generateId } from '@/shared/id'
+import { resolveDeliveryFeeInCents } from '@/modules/order/shared/amountDue'
+import { buildPricedOrderItems } from '@/modules/order/shared/buildPricedOrderItems'
 import { CHANNEL } from '@/modules/shared/shared.constant'
 import {
   ORDER_IDEMPOTENCY_CACHE_PREFIX,
@@ -42,6 +42,8 @@ type CreateWebOrderUseCaseDependencies = {
   readonly customerRepository: CustomerRepositoryInterface
   readonly cacheProvider: CacheProvider
   readonly receiptQueue: JobQueue
+  /** `DELIVERY_FEE_CENTS`. A web não tem etapa anterior que congele a taxa, então lê na criação. */
+  readonly configuredDeliveryFeeInCents: number
 }
 
 export class CreateWebOrderUseCase {
@@ -105,6 +107,10 @@ export class CreateWebOrderUseCase {
         paymentMethod: params.paymentMethod,
         receiptPreference: params.receiptPreference,
         notes: params.notes,
+        deliveryFeeInCents: resolveDeliveryFeeInCents({
+          deliveryType: params.deliveryType,
+          configuredFeeInCents: this.dependencies.configuredDeliveryFeeInCents,
+        }),
         items,
       })
 
@@ -121,22 +127,6 @@ export class CreateWebOrderUseCase {
   }
 
   private async buildOrderItems(requestedItems: ReadonlyArray<CreateWebOrderItemInput>): Promise<CreateOrderItemInput[]> {
-    const items: CreateOrderItemInput[] = []
-
-    for (const requestedItem of requestedItems) {
-      const product = await this.dependencies.productRepository.findById(requestedItem.productId)
-      if (!product) throw new ProductNotFoundError(requestedItem.productId)
-      if (!product.isAvailable) throw new CartProductUnavailableError(requestedItem.productId)
-
-      items.push({
-        productId: product.id,
-        productName: product.name,
-        unitPriceInCents: product.priceInCents,
-        quantity: requestedItem.quantity,
-        totalInCents: Math.round(product.priceInCents * requestedItem.quantity),
-      })
-    }
-
-    return items
+    return buildPricedOrderItems(this.dependencies.productRepository, requestedItems)
   }
 }

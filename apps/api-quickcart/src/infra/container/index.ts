@@ -85,6 +85,8 @@ import { GroqListRefinerProvider } from '@/modules/conversation/infra/providers/
 import { CachedKnownBrandsProvider } from '@/modules/conversation/infra/providers/CachedKnownBrandsProvider'
 import { DrizzleListImportRepository } from '@/modules/conversation/infra/database/DrizzleListImportRepository'
 import { DrizzleUnmatchedDemandRepository } from '@/modules/conversation/infra/database/DrizzleUnmatchedDemandRepository'
+import { ConversationCheckoutContextController } from '@/modules/conversation/infra/http/ConversationCheckoutContext.controller'
+import { GetConversationCheckoutContextUseCase } from '@/modules/conversation/application/use-cases/GetConversationCheckoutContext.use-case'
 import { UnmatchedDemandController } from '@/modules/conversation/infra/http/UnmatchedDemand.controller'
 import { ProcessParsedListItems } from '@/modules/conversation/application/handlers/support/ProcessParsedListItems'
 import { GreetingHandler } from '@/modules/conversation/application/handlers/GreetingHandler'
@@ -95,6 +97,7 @@ import { BrowseHandler } from '@/modules/conversation/application/handlers/Brows
 import { GlobalHandler } from '@/modules/conversation/application/handlers/GlobalHandler'
 import { CartHandler } from '@/modules/conversation/application/handlers/CartHandler'
 import { CheckoutHandler } from '@/modules/conversation/application/handlers/CheckoutHandler'
+import { CashChangeHandler } from '@/modules/conversation/application/handlers/CashChangeHandler'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import type { CartRepositoryInterface } from '@/modules/cart/domain/CartRepository.interface'
 import { DrizzleCartRepository } from '@/modules/cart/infra/database/DrizzleCartRepository'
@@ -222,6 +225,7 @@ type OrderModule = {
   readonly remindCustomerDecisionUseCase: RemindCustomerDecisionUseCase
   readonly listOrdersUseCase: ListOrdersUseCase
   readonly orderController: OrderController
+  readonly resolveOrderDeliveryEstimateUseCase: ResolveOrderDeliveryEstimateUseCase
 }
 
 function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
@@ -239,6 +243,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     customerRepository: dependencies.customerRepository,
     cacheProvider: dependencies.cacheProvider,
     receiptQueue,
+    configuredDeliveryFeeInCents: environment.DELIVERY_FEE_CENTS,
   })
   const getOrderByShortCodeUseCase = new GetOrderByShortCodeUseCase({
     orderRepository,
@@ -351,6 +356,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     remindCustomerDecisionUseCase,
     listOrdersUseCase,
     orderController,
+    resolveOrderDeliveryEstimateUseCase,
   }
 }
 
@@ -394,6 +400,7 @@ type ConversationModuleDependencies = {
   readonly removeCartItemUseCase: RemoveCartItemUseCase
   readonly updateCartItemQuantityUseCase: UpdateCartItemQuantityUseCase
   readonly createOrderFromCartUseCase: CreateOrderFromCartUseCase
+  readonly resolveOrderDeliveryEstimateUseCase: ResolveOrderDeliveryEstimateUseCase
   readonly repeatLastOrderUseCase: RepeatLastOrderUseCase
   readonly resolveCustomerDecisionUseCase: ResolveCustomerDecisionUseCase
   readonly resolveItemSubstitutionUseCase: ResolveItemSubstitutionUseCase
@@ -417,6 +424,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     removeCartItemUseCase,
     updateCartItemQuantityUseCase,
     createOrderFromCartUseCase,
+    resolveOrderDeliveryEstimateUseCase,
     repeatLastOrderUseCase,
     resolveCustomerDecisionUseCase,
     resolveItemSubstitutionUseCase,
@@ -485,7 +493,17 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     productRepository,
     customerRepository,
     createOrderFromCartUseCase,
+    resolveOrderDeliveryEstimateUseCase,
     addressLookupProvider,
+    storePreparationMinutes: environment.STORE_PREPARATION_MINUTES,
+    configuredDeliveryFeeInCents: environment.DELIVERY_FEE_CENTS,
+  })
+  const cashChangeHandler = new CashChangeHandler({
+    conversationSessionRepository,
+    whatsAppSender,
+    cartRepository,
+    productRepository,
+    configuredDeliveryFeeInCents: environment.DELIVERY_FEE_CENTS,
   })
   const globalHandler = new GlobalHandler({
     conversationSessionRepository,
@@ -516,6 +534,8 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
       [CONVERSATION_STATE.AWAITING_DELIVERY_TYPE]: checkoutHandler,
       [CONVERSATION_STATE.AWAITING_ADDRESS]: checkoutHandler,
       [CONVERSATION_STATE.AWAITING_PAYMENT]: checkoutHandler,
+      [CONVERSATION_STATE.AWAITING_CASH_CHANGE]: cashChangeHandler,
+      [CONVERSATION_STATE.AWAITING_CASH_CHANGE_AMOUNT]: cashChangeHandler,
       [CONVERSATION_STATE.AWAITING_RECEIPT_PREFERENCE]: checkoutHandler,
       [CONVERSATION_STATE.AWAITING_EMAIL]: checkoutHandler,
       [CONVERSATION_STATE.CONFIRMING]: checkoutHandler,
@@ -546,7 +566,14 @@ function buildWebhookModule(
       readonly orderRepository: OrderRepositoryInterface
     },
 ): WebhookModule {
-  const { cacheProvider, customerRepository, whatsAppSender, conversationEngine, repeatLastOrderUseCase } = params
+  const {
+    cacheProvider,
+    customerRepository,
+    conversationSessionRepository,
+    whatsAppSender,
+    conversationEngine,
+    repeatLastOrderUseCase,
+  } = params
 
   // Amarração circular resolvida por referência tardia: o driver precisa do interpretador que
   // esta fábrica cria, e a fábrica precisa saber chamar o driver.
@@ -651,6 +678,7 @@ function buildWebhookModule(
       sessionRepository: metaWhatsApp.conversations.repository,
       whatsAppSender,
       customerRepository,
+      conversationSessionRepository,
       repeatLastOrderUseCase,
       categoryRepository: params.categoryRepository,
       cartRepository: params.cartRepository,
@@ -672,11 +700,13 @@ type ConversationHttpModule = {
   readonly previewMediaController: ReturnType<typeof createPreviewMediaController>
   readonly previewInboundController: ReturnType<typeof createPreviewInboundController>
   readonly unmatchedDemandController: UnmatchedDemandController
+  readonly checkoutContextController: ConversationCheckoutContextController
 }
 
 function buildConversationHttpModule(params: {
   readonly metaWhatsApp: MetaWhatsAppModule
   readonly objectStorage?: ObjectStorageInterface
+  readonly getConversationCheckoutContextUseCase: GetConversationCheckoutContextUseCase
 }): ConversationHttpModule {
   return {
     conversationController: new ConversationController({
@@ -703,6 +733,9 @@ function buildConversationHttpModule(params: {
     previewInboundController: createPreviewInboundController(params.metaWhatsApp),
     unmatchedDemandController: new UnmatchedDemandController({
       unmatchedDemandRepository: new DrizzleUnmatchedDemandRepository(),
+    }),
+    checkoutContextController: new ConversationCheckoutContextController({
+      getConversationCheckoutContextUseCase: params.getConversationCheckoutContextUseCase,
     }),
   }
 }
@@ -763,6 +796,7 @@ const conversationModule = buildConversationModule({
   removeCartItemUseCase: cartModule.removeCartItemUseCase,
   updateCartItemQuantityUseCase: cartModule.updateCartItemQuantityUseCase,
   createOrderFromCartUseCase: orderModule.createOrderFromCartUseCase,
+  resolveOrderDeliveryEstimateUseCase: orderModule.resolveOrderDeliveryEstimateUseCase,
   repeatLastOrderUseCase: orderModule.repeatLastOrderUseCase,
   resolveCustomerDecisionUseCase: orderModule.resolveCustomerDecisionUseCase,
   resolveItemSubstitutionUseCase: orderModule.resolveItemSubstitutionUseCase,
@@ -852,10 +886,18 @@ export const container = {
   storeRepositories: {
     orderRepository: orderModule.orderRepository,
     customerRepository: webhookRepositories.customerRepository,
+    productRepository: catalogModule.productRepository,
   },
   conversationHttp: buildConversationHttpModule({
     metaWhatsApp: webhookModule.metaWhatsApp,
     ...(quickCartObjectStorage ? { objectStorage: quickCartObjectStorage.forModule } : {}),
+    getConversationCheckoutContextUseCase: new GetConversationCheckoutContextUseCase({
+      conversationSessionRepository: webhookRepositories.conversationSessionRepository,
+      customerRepository: webhookRepositories.customerRepository,
+      cartRepository: cartModule.cartRepository,
+      productRepository: catalogModule.productRepository,
+      configuredDeliveryFeeInCents: environment.DELIVERY_FEE_CENTS,
+    }),
   }),
   internal: buildInternalModule({
     conversationSessionRepository: webhookRepositories.conversationSessionRepository,

@@ -34,6 +34,14 @@ import type { UserModule } from '@adatechnology/user-module'
 import { createUserAuthContextResolver } from '@/modules/user/infra/userAuthContextResolver'
 import { StoreController } from '@/modules/store/infra/http/Store.controller'
 import { registerStoreRoutes } from '@/modules/store/infra/http/StoreRoutes'
+import { FixedWindowRateLimiter } from '@/infra/http/rate-limit/FixedWindowRateLimiter'
+import { RedisRateLimitStore } from '@/infra/http/rate-limit/RedisRateLimitStore'
+import { redis } from '@/infra/redis/connection'
+import {
+  CHECKOUT_QUOTE_RATE_LIMIT_PER_WINDOW,
+  CHECKOUT_QUOTE_RATE_LIMIT_SCOPE,
+  CHECKOUT_QUOTE_RATE_LIMIT_WINDOW_SECONDS,
+} from '@/modules/store/shared/Store.constant'
 import { RegisterCustomerUseCase } from '@/modules/store/application/use-cases/RegisterCustomer.use-case'
 import { ListMyOrdersUseCase } from '@/modules/store/application/use-cases/ListMyOrders.use-case'
 import { environment } from '@/infra/config/environment'
@@ -65,6 +73,7 @@ export function createRouter({ userModule }: CreateRouterParams): Router {
     previewMediaController: container.conversationHttp.previewMediaController,
     previewInboundController: container.conversationHttp.previewInboundController,
     unmatchedDemandController: container.conversationHttp.unmatchedDemandController,
+    checkoutContextController: container.conversationHttp.checkoutContextController,
   })
 
   // Notificação inteira — inbox, SSE do sino, devices, preferências e templates — em três linhas.
@@ -140,9 +149,18 @@ export function createRouter({ userModule }: CreateRouterParams): Router {
       orderRepository: container.storeRepositories.orderRepository,
       customerRepository: container.storeRepositories.customerRepository,
     }),
+    productRepository: container.storeRepositories.productRepository,
+    deliveryFeeInCents: environment.DELIVERY_FEE_CENTS,
   })
 
-  registerStoreRoutes({ router, storeController })
+  const checkoutQuoteRateLimiter = new FixedWindowRateLimiter({
+    store: new RedisRateLimitStore(redis),
+    scope: CHECKOUT_QUOTE_RATE_LIMIT_SCOPE,
+    limit: CHECKOUT_QUOTE_RATE_LIMIT_PER_WINDOW,
+    windowSeconds: CHECKOUT_QUOTE_RATE_LIMIT_WINDOW_SECONDS,
+  })
+
+  registerStoreRoutes({ router, storeController, checkoutQuoteRateLimiter })
 
   registerOpenApiRoutes({ router, notificationRoutes })
 

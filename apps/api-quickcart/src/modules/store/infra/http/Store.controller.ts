@@ -15,12 +15,21 @@ import { requireSession } from '@/infra/http/middlewares/requireSession'
 import { CUSTOMER_ONLY } from '@/modules/user/shared/User.constant'
 import type { RegisterCustomerUseCase } from '@/modules/store/application/use-cases/RegisterCustomer.use-case'
 import type { ListMyOrdersUseCase } from '@/modules/store/application/use-cases/ListMyOrders.use-case'
+import { amountDueInCents, resolveDeliveryFeeInCents } from '@/modules/order/shared/amountDue'
+import { buildPricedOrderItems } from '@/modules/order/shared/buildPricedOrderItems'
+import type { ProductRepositoryInterface } from '@/modules/catalog/domain/ProductRepository.interface'
+import { ProductNotFoundError } from '@/shared/errors/CatalogErrors'
+import { CartProductUnavailableError } from '@/shared/errors/CartErrors'
 
 import { registerCustomerBodySchema, listMyOrdersQuerySchema } from './schemas/RegisterCustomer.schema'
+import { checkoutQuoteBodySchema } from './schemas/CheckoutQuote.schema'
 
 type StoreControllerDependencies = {
   readonly registerCustomerUseCase: RegisterCustomerUseCase
   readonly listMyOrdersUseCase: ListMyOrdersUseCase
+  readonly productRepository: ProductRepositoryInterface
+  /** `DELIVERY_FEE_CENTS`, usada pela cotação para resolver a taxa por tipo de entrega. */
+  readonly deliveryFeeInCents: number
 }
 
 export class StoreController {
@@ -42,8 +51,55 @@ export class StoreController {
     const result = await this.dependencies.listMyOrdersUseCase.execute({ userId: session.userId, page, perPage })
 
     response.json(200, {
-      data: result.items,
+      // O valor cobrado sai do backend (spec §3.4): a tela não soma itens + taxa.
+      data: result.items.map((order) => ({ ...order, amountDueInCents: amountDueInCents(order) })),
       pagination: { total: result.total, page: result.page, perPage: result.perPage },
     })
+  }
+
+  /**
+   * Público (a loja navega sem login, spec §3.4 T2.2): o checkout web mostra Subtotal, Taxa e
+   * Total ANTES de confirmar, e os três precisam bater com o que `CreateWebOrder` vai cobrar.
+   * Os preços vêm sempre do banco (`buildPricedOrderItems`, a mesma leitura/validação do
+   * `CreateWebOrder`) — o carrinho do navegador pode ter preço velho. Substitui o antigo
+   * `GET /v1/store/checkout-config`: aquele só devolvia a taxa por tipo de entrega, sem o total
+   * cobrado; esta rota cobre o mesmo caso e o de exibir o total, então o outro foi removido.
+   */
+  handleGetCheckoutQuote: RouteHandler = async (request, response) => {
+    const input = validateBody(checkoutQuoteBodySchema, request.body)
+
+    const pricedItems = await this.priceQuoteItems(input.items)
+    const subtotalInCents = pricedItems.reduce((sum, item) => sum + item.totalInCents, 0)
+    const deliveryFeeInCents = resolveDeliveryFeeInCents({
+      deliveryType: input.deliveryType,
+      configuredFeeInCents: this.dependencies.deliveryFeeInCents,
+    })
+
+    response.json(200, {
+      data: {
+        subtotalInCents,
+        deliveryFeeInCents,
+        amountDueInCents: amountDueInCents({ totalInCents: subtotalInCents, deliveryFeeInCents }),
+        items: pricedItems.map((item) => ({
+          productId: item.productId,
+          unitPriceInCents: item.unitPriceInCents,
+          lineTotalInCents: item.totalInCents,
+        })),
+      },
+    })
+  }
+
+  /*
+   * Na rota PÚBLICA, inativo responde igual a inexistente (404): um 409 "indisponível" confirmaria a
+   * um anônimo que o produto despublicado existe. `buildPricedOrderItems` segue distinguindo os dois
+   * porque o `CreateWebOrder` (cliente logado, produto que estava no carrinho) precisa do motivo.
+   */
+  private async priceQuoteItems(items: Parameters<typeof buildPricedOrderItems>[1]): ReturnType<typeof buildPricedOrderItems> {
+    try {
+      return await buildPricedOrderItems(this.dependencies.productRepository, items)
+    } catch (error) {
+      if (error instanceof CartProductUnavailableError) throw new ProductNotFoundError(String(error.details?.productId ?? ''))
+      throw error
+    }
   }
 }

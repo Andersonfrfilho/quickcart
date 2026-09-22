@@ -42,7 +42,7 @@ export function MyOrdersPage() {
           </CardHeader>
           <CardContent className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-sm">{ORDER_STATUS_LABELS[order.status] ?? order.status}</span>
-            <span className="font-medium">{formatPrice(order.totalInCents)}</span>
+            <span className="font-medium">{formatPrice(order.amountDueInCents)}</span>
           </CardContent>
         </Card>
       ))}

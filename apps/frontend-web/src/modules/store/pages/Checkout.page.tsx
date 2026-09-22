@@ -2,12 +2,14 @@ import React from 'react'
 import { useRouter } from '@/app/router'
 import { useCheckoutPage } from '@/modules/store/hooks/useCheckoutPage.hook'
 import { Card, Button, Input } from '@/components/ui'
+import { DELIVERY_FEE_LABEL, FREE_DELIVERY_FEE_LABEL } from '@/shared/order/deliveryFee.constant'
 
 export function CheckoutPage() {
   const { navigate } = useRouter()
   const {
     items,
     totalInCents,
+    quote,
     name,
     setName,
     email,
@@ -62,9 +64,34 @@ export function CheckoutPage() {
             <span>{((item.priceInCents * item.quantity) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
           </div>
         ))}
+        <div className="flex justify-between text-sm pt-1">
+          <span>Subtotal</span>
+          {/*
+           * Subtotal da COTAÇÃO do servidor, não a soma local do carrinho: se o preço do banco
+           * divergir do que o carrinho guardou, é o do servidor que será cobrado (spec §3.4).
+           */}
+          <span>
+            {((quote?.subtotalInCents ?? totalInCents()) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+          </span>
+        </div>
+        {/* Ausente na retirada: a cotação resolve a taxa por tipo de entrega, igual ao pedido. */}
+        {deliveryType === 'delivery' && quote !== undefined && (
+          <div className="flex justify-between text-sm pt-1">
+            <span>{DELIVERY_FEE_LABEL}</span>
+            <span>
+              {quote.deliveryFeeInCents > 0
+                ? (quote.deliveryFeeInCents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                : FREE_DELIVERY_FEE_LABEL}
+            </span>
+          </div>
+        )}
         <div className="flex justify-between font-semibold text-lg mt-3 pt-3 border-t">
           <span>Total</span>
-          <span className="text-primary">{(totalInCents() / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+          <span className="text-primary">
+            {quote !== undefined
+              ? (quote.amountDueInCents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+              : '—'}
+          </span>
         </div>
       </Card>
 

@@ -90,6 +90,12 @@ export const PAYMENT_METHOD_BUTTON_ID = {
   CASH: 'cash',
 } as const
 
+/** Resposta sim/não sobre troco no pagamento em dinheiro (roteiro §9). */
+export const CASH_CHANGE_BUTTON_ID = {
+  NOT_NEEDED: 'cash_change_not_needed',
+  NEEDED: 'cash_change_needed',
+} as const
+
 export const RECEIPT_PREFERENCE_BUTTON_ID = {
   WHATSAPP: 'whatsapp',
   EMAIL: 'email',
@@ -109,6 +115,7 @@ export const REMEMBERED_CHECKOUT_BUTTON_ID = {
 
 export const CONFIRMING_BUTTON_ID = {
   CONFIRM: 'confirm_order',
+  EDIT: 'edit_order',
   CANCEL: 'cancel_order',
 } as const
 
@@ -119,6 +126,22 @@ export const BROWSE_TRIGGER = {
 export const GLOBAL_TRIGGER = {
   EXIT_WORDS: ['sair', 'cancelar'],
 } as const
+
+/**
+ * Frases que pedem gente de verdade, em QUALQUER estado (spec §3.5, T3.1).
+ *
+ * Casamento é por mensagem inteira ou pelo prefixo "falar com" (ver `isHumanHandoffRequest`),
+ * nunca substring — "o atendente de ontem errou meu pedido" não é pedido de transferência.
+ */
+export const HUMAN_HANDOFF_PHRASES = [
+  'atendente',
+  'humano',
+  'pessoa',
+  'falar com atendente',
+  'falar com alguém',
+  'falar com uma pessoa',
+  'quero um atendente',
+] as const
 
 /**
  * A decisão do cliente sobre um pedido com item em falta. O id carrega o pedido: `order_continue:<uuid>`.
@@ -214,6 +237,15 @@ export const MESSAGES = {
    */
   AGENT_REQUESTED: '💬 Já avisei a equipe — alguém vai te responder por aqui. Enquanto isso posso seguir te ajudando.',
   /**
+   * Pedido de atendente enquanto um atendente JÁ assumiu a conversa (`mode: 'human'`).
+   *
+   * `humanRequestedAt` não serve para deduplicar: o `@adatechnology/meta-whatsapp-module` nunca o
+   * limpa (nem `release`, nem `takeover`), então um pedido de semanas atrás — já resolvido e
+   * devolvido ao bot — pareceria "já pedido" para sempre. `mode` é confiável: só muda em
+   * `takeover`/`release`.
+   */
+  AGENT_HUMAN_IN_PROGRESS: 'Você já está falando com a nossa equipe — é só mandar sua mensagem por aqui.',
+  /**
    * Aviso de item que acabou. Diz o produto, o total novo e devolve a decisão ao cliente.
    *
    * Não pergunta "quer cancelar?" de propósito: a maioria segue com o resto da compra, e oferecer o
@@ -288,7 +320,8 @@ export const MESSAGES = {
   CART_EMPTY: '🛒 Seu carrinho está vazio. Envie sua lista de compras ou toque em "Ver produtos" pra começar.',
   CART_REVIEW_UNMATCHED_PREFIX: '⚠️ Não encontrei esses itens:',
   CART_SUMMARY_HEADER: '🛒 Seu carrinho:',
-  CART_SUMMARY_TOTAL_PREFIX: 'Total:',
+  /** No carrinho ainda não há taxa (T2.2): "Subtotal" evita confundir com o valor final cobrado. */
+  CART_SUMMARY_TOTAL_PREFIX: 'Subtotal:',
   CART_REVIEW_UNEXPECTED_INPUT: 'Por favor, escolha uma das opções acima ☝️',
   EDITING_CART_PICK_ITEM: 'Escolha o item que quer editar:',
   EDITING_CART_ASK_QUANTITY: 'Nova quantidade? Envie 0 para remover o item.',
@@ -321,14 +354,54 @@ export const MESSAGES = {
   CHECKOUT_ASK_ADDRESS_FALLBACK: 'Não achei esse CEP 🤔 Pode me mandar o endereço completo de entrega?',
   CHECKOUT_ASK_ADDRESS_NUMBER: 'Qual o número? (e o complemento, se tiver — ex: "412, apto 71")',
   CHECKOUT_ASK_PAYMENT: 'Como você vai pagar?',
+  /**
+   * Enviada ao escolher "Cartão na entrega", antes de seguir o fluxo normal (roteiro §11, spec §3.2).
+   *
+   * Só faz sentido na entrega: quem retira na loja paga no caixa, sem entregador nem maquininha —
+   * por isso `handleAwaitingPayment` só manda esta linha quando `checkoutDeliveryType === delivery`.
+   */
+  CHECKOUT_CARD_ON_DELIVERY_MACHINE_NOTICE:
+    'Certo! O pagamento é feito na entrega, no crédito ou débito — nosso entregador leva a maquininha.',
+  /** Só perguntado quando o pagamento escolhido é em dinheiro (roteiro §9). */
+  CHECKOUT_ASK_CASH_CHANGE: 'Precisa de troco?',
+  CHECKOUT_ASK_CASH_CHANGE_AMOUNT:
+    'Troco para quanto? Ex.: se a compra deu R$ 132,50 e você vai pagar com R$ 150,00, responda 150.',
+  CHECKOUT_CASH_CHANGE_INVALID: 'Não entendi esse valor 🤔 Pode me mandar só o número? Ex.: 150.',
+  /** `{total}` é o total a pagar — a mensagem some se o troco pedido não cobrir a compra. */
+  CHECKOUT_CASH_CHANGE_TOO_LOW: 'Esse valor não cobre a compra de {total}. Troco para quanto?',
+  /** Ao confirmar, o total recalculado passou do troco aceito antes (preço mudou): pergunta de novo. */
+  CHECKOUT_CASH_CHANGE_TOTAL_CHANGED: 'O total da compra mudou para {total}. Troco para quanto?',
   CHECKOUT_ASK_RECEIPT_PREFERENCE: 'Como você quer receber a nota/recibo?',
   CHECKOUT_ASK_EMAIL: '📧 Pode me mandar seu e-mail?',
   CHECKOUT_EMAIL_INVALID: 'Esse e-mail não parece válido 🤔 Pode conferir e mandar de novo?',
   CHECKOUT_UNEXPECTED_INPUT: 'Por favor, escolha uma das opções acima ☝️',
   CONFIRMING_SUMMARY_HEADER: '📋 Confira seu pedido:',
+  CONFIRMING_SUMMARY_ITEMS_LABEL: 'Itens:',
+  /** Resumo antes de confirmar (spec §3.4): subtotal dos itens, sem a taxa. */
+  CONFIRMING_SUMMARY_SUBTOTAL_PREFIX: 'Subtotal:',
+  /** `{valor}` é a taxa formatada; ausente por completo na retirada (`resolveDeliveryFeeInCents` = 0 não basta — a linha não aparece). */
+  CONFIRMING_SUMMARY_DELIVERY_FEE_PREFIX: 'Taxa de entrega:',
+  /** Taxa configurada em zero: mostra "grátis" em vez de "R$ 0,00". */
+  CONFIRMING_SUMMARY_DELIVERY_FEE_FREE: 'grátis',
+  /** `{valor}` = itens + taxa (`amountDueInCents`) — o que será cobrado, nunca só o total dos itens. */
+  CONFIRMING_SUMMARY_TOTAL_PREFIX: 'Total:',
+  CONFIRMING_SUMMARY_DELIVERY_PREFIX: 'Entrega:',
+  CONFIRMING_SUMMARY_PICKUP_LABEL: 'Retirada na loja',
+  CONFIRMING_SUMMARY_PAYMENT_PREFIX: 'Pagamento:',
+  CONFIRMING_SUMMARY_RECEIPT_PREFIX: 'Recibo:',
   CONFIRMING_ASK: 'Posso confirmar?',
   CONFIRMING_UNEXPECTED_INPUT: 'Por favor, escolha uma das opções acima ☝️',
+  /** Sufixo do pagamento no resumo e na confirmação, quando há troco. `{valor}` é o valor pago. */
+  CASH_CHANGE_SUMMARY_SUFFIX: ' — troco para {valor}',
   ORDER_CONFIRMED_PREFIX: '✅ Pedido confirmado! Código:',
+  /** Valor cobrado: itens + taxa de entrega (`amountDueInCents`), não o `total_in_cents` da nota. */
+  ORDER_CONFIRMED_TOTAL_LINE: 'Total: {total}.',
+  /** Linha de troco na confirmação final. `{valor}` é o valor com que o cliente vai pagar. */
+  ORDER_CONFIRMED_CASH_CHANGE_LINE: 'Troco para {valor}.',
+  /** Roteiro §12. Ausente sempre que não dá para responder com honestidade — nunca inventar. */
+  ORDER_CONFIRMED_DELIVERY_ESTIMATE_LINE: 'Previsão de entrega: entre {min} e {max} minutos.',
+  /** Retirada usa `STORE_PREPARATION_MINUTES`, não a estimativa de rota. */
+  ORDER_CONFIRMED_PICKUP_ESTIMATE_LINE: 'Pronto para retirada em cerca de {minutos} minutos.',
   ORDER_CANCELLED: 'Pedido cancelado. Seu carrinho continua salvo — quando quiser é só chamar de novo!',
   ORDER_INSUFFICIENT_STOCK: '😕 Alguns itens não têm estoque suficiente no momento. Vamos revisar seu carrinho.',
   ORDER_CART_EMPTY_ERROR: 'Seu carrinho está vazio, não dá pra fechar o pedido ainda.',
@@ -359,6 +432,11 @@ export const PAYMENT_METHOD_BUTTONS = [
   { id: PAYMENT_METHOD_BUTTON_ID.CASH, title: '💵 Dinheiro' },
 ] as const
 
+export const CASH_CHANGE_BUTTONS = [
+  { id: CASH_CHANGE_BUTTON_ID.NOT_NEEDED, title: '🙅 Não preciso' },
+  { id: CASH_CHANGE_BUTTON_ID.NEEDED, title: '💵 Preciso de troco' },
+] as const
+
 export const RECEIPT_PREFERENCE_BUTTONS = [
   { id: RECEIPT_PREFERENCE_BUTTON_ID.WHATSAPP, title: '📱 WhatsApp' },
   { id: RECEIPT_PREFERENCE_BUTTON_ID.EMAIL, title: '📧 E-mail' },
@@ -372,5 +450,6 @@ export const REMEMBERED_CHECKOUT_BUTTONS = [
 
 export const CONFIRMING_BUTTONS = [
   { id: CONFIRMING_BUTTON_ID.CONFIRM, title: '✅ Confirmar' },
+  { id: CONFIRMING_BUTTON_ID.EDIT, title: '✏️ Alterar' },
   { id: CONFIRMING_BUTTON_ID.CANCEL, title: '❌ Cancelar' },
 ] as const

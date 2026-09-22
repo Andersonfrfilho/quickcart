@@ -1,10 +1,13 @@
 import axios from 'axios'
 import type { InternalAxiosRequestConfig } from 'axios'
 import type {
+  ConversationCheckoutContext,
   ApiCollectionResponse,
   ApiItemResponse,
   ApiListResponse,
   Category,
+  CheckoutQuote,
+  CheckoutQuoteInput,
   DeliveryType,
   Order,
   OrderSortableField,
@@ -111,6 +114,10 @@ export type ListAdminProductsParams = {
   sortDirection?: SortDirection
 }
 
+export async function getCheckoutQuote(body: CheckoutQuoteInput): Promise<ApiItemResponse<CheckoutQuote>> {
+  return apiClient.post('/v1/store/checkout-quote', body)
+}
+
 export async function getCategories(): Promise<ApiCollectionResponse<Category>> {
   return apiClient.get('/v1/categories')
 }
@@ -199,6 +206,12 @@ export async function adminListOrders(params: ListAdminOrdersParams = {}): Promi
       search: search && search.trim().length > 0 ? search.trim() : undefined,
     },
   })
+}
+
+export async function adminGetConversationCheckoutContext(
+  whatsappNumber: string,
+): Promise<ApiItemResponse<ConversationCheckoutContext | null>> {
+  return apiClient.get(`/v1/admin/conversations/${encodeURIComponent(whatsappNumber)}/checkout-context`)
 }
 
 export async function adminGetOrderDetail(id: string): Promise<ApiItemResponse<OrderDetail>> {

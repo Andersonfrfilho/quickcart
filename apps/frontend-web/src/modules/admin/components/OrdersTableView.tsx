@@ -201,9 +201,16 @@ export function OrdersTableView({
                     <span className="block text-xs font-medium text-destructive">sem confirmação</span>
                   )}
                 </TableCell>
-                <TableCell className="font-medium">{formatMoney(order.totalInCents)}</TableCell>
+                {/* Exibe o valor cobrado; a ordenação da coluna segue pela soma dos itens (`totalInCents`). */}
+                <TableCell className="font-medium">{formatMoney(order.amountDueInCents)}</TableCell>
                 <TableCell className="whitespace-nowrap">
                   {DELIVERY_LABELS[order.deliveryType] ?? order.deliveryType}
+                  {/* Vem pronto do backend (`requiresCardMachine`) — nunca na retirada. */}
+                  {order.requiresCardMachine && (
+                    <Badge className="ml-1.5" variant="outline">
+                      🧾 Maquininha
+                    </Badge>
+                  )}
                 </TableCell>
                 <TableCell>
                   {/* Cor própria por situação: com quatro variantes, três estados diferentes ficavam

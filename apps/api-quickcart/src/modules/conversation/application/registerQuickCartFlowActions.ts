@@ -31,9 +31,12 @@ import type { CategoryRepositoryInterface } from '@/modules/catalog/domain/Categ
 import type { ProductRepositoryInterface } from '@/modules/catalog/domain/ProductRepository.interface'
 import { sendCartSummary } from '@/modules/conversation/application/handlers/support/CartSummary'
 import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInCents'
+import { amountDueInCents } from '@/modules/order/shared/amountDue'
 import type { OrderRepositoryInterface } from '@/modules/order/domain/OrderRepository.interface'
 import { OrderNoPreviousOrderError } from '@/shared/errors/OrderErrors'
 import { CHANNEL } from '@/modules/shared/shared.constant'
+import type { ConversationSessionRepositoryInterface } from '@/modules/webhook/domain/ConversationSessionRepository.interface'
+import { requestHumanHandoff } from '@/modules/conversation/application/handlers/support/requestHumanHandoff'
 
 const actionLog = logger.child('FlowAction')
 const COMPANY_ID = environment.WHATSAPP_COMPANY_ID
@@ -84,6 +87,8 @@ export type RegisterQuickCartFlowActionsParams = {
   readonly sessionRepository: SessionRepository
   readonly whatsAppSender: WhatsAppSender
   readonly customerRepository: CustomerRepositoryInterface
+  /** Só para a ação de atendente (T3.1) — a mesma que o `GlobalHandler` dispara pela palavra-chave. */
+  readonly conversationSessionRepository: ConversationSessionRepositoryInterface
   readonly repeatLastOrderUseCase: RepeatLastOrderUseCase
   readonly cartRepository: CartRepositoryInterface
   readonly productRepository: ProductRepositoryInterface
@@ -98,6 +103,7 @@ export function registerQuickCartFlowActions(params: RegisterQuickCartFlowAction
     sessionRepository,
     whatsAppSender,
     customerRepository,
+    conversationSessionRepository,
     repeatLastOrderUseCase,
     cartRepository,
     productRepository,
@@ -174,8 +180,7 @@ export function registerQuickCartFlowActions(params: RegisterQuickCartFlowAction
    * aguardando atendimento"), então o atendente vê a fila sem que o cliente pague com abandono.
    */
   registerFlowAction(QUICKCART_FLOW_ACTION.REQUEST_HUMAN, async ({ session }) => {
-    await sessionRepository.requestHuman(COMPANY_ID, session.whatsappNumber)
-    await whatsAppSender.sendText(session.whatsappNumber, MESSAGES.AGENT_REQUESTED)
+    await requestHumanHandoff({ conversationSessionRepository, whatsAppSender }, session.whatsappNumber)
     return { next: MAIN_FLOW_NODE.MENU }
   })
 
@@ -193,7 +198,7 @@ export function registerQuickCartFlowActions(params: RegisterQuickCartFlowAction
 
     const lines = orders.map((order) => {
       const when = order.createdAt.toLocaleDateString('pt-BR')
-      return `• ${when} — ${formatPriceInCents(order.totalInCents)} (${order.shortCode})`
+      return `• ${when} — ${formatPriceInCents(amountDueInCents(order))} (${order.shortCode})`
     })
     await whatsAppSender.sendText(session.whatsappNumber, `${MESSAGES.ORDER_HISTORY_HEADER}\n${lines.join('\n')}`)
     return { next: MAIN_FLOW_NODE.MENU }

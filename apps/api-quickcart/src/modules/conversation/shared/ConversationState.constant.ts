@@ -28,6 +28,10 @@ export const CONVERSATION_STATE = {
   /** Só existe quando o CEP resolveu — pede número (e complemento) para completar o endereço estruturado. */
   AWAITING_ADDRESS_NUMBER: 'awaiting_address_number',
   AWAITING_PAYMENT: 'awaiting_payment',
+  /** Só existe quando o pagamento é em dinheiro (roteiro §9): pergunta sim/não sobre troco. */
+  AWAITING_CASH_CHANGE: 'awaiting_cash_change',
+  /** Só depois de "Preciso de troco" — pede o valor com que o cliente vai pagar. */
+  AWAITING_CASH_CHANGE_AMOUNT: 'awaiting_cash_change_amount',
   AWAITING_RECEIPT_PREFERENCE: 'awaiting_receipt_preference',
   AWAITING_EMAIL: 'awaiting_email',
   CONFIRMING: 'confirming',

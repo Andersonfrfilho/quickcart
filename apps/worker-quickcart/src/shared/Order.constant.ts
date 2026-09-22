@@ -40,3 +40,8 @@ export const PAYMENT_METHOD = {
 } as const
 
 export type PaymentMethod = (typeof PAYMENT_METHOD)[keyof typeof PAYMENT_METHOD]
+
+export const DELIVERY_TYPE = {
+  DELIVERY: 'delivery',
+  PICKUP: 'pickup',
+} as const

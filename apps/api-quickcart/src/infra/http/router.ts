@@ -20,7 +20,7 @@ import { LOG_EVENTS } from '@/shared/constants/log-events.constant'
 import { AppError, TooManyRequestsError } from '@/shared/errors/AppError.error'
 import { MetaWhatsAppError } from '@adatechnology/meta-whatsapp-contracts'
 import { DomainError } from '@/shared/errors/DomainError'
-import { INTERNAL_ERROR, NOT_FOUND, REQUEST_TIMEOUT, INVALID_JSON_BODY } from '@/shared/errors/codes'
+import { INTERNAL_ERROR, NOT_FOUND, REQUEST_TIMEOUT, INVALID_JSON_BODY, PAYLOAD_TOO_LARGE } from '@/shared/errors/codes'
 import { captureError } from '@/infra/observability/sentry'
 import { getAllowedOrigins } from '@/infra/config/environment'
 import { serializeError } from '@/shared/serializeError'
@@ -102,12 +102,50 @@ type RawBody = {
   readonly parsed: unknown
 }
 
-async function readBody(request: Request): Promise<RawBody> {
+/** Opções por rota. Sem `maxBodyBytes` a rota aceita o teto do Bun.serve (upload de mídia depende disso). */
+export type RouteOptions = {
+  readonly maxBodyBytes?: number
+}
+
+function buildPayloadTooLargeError(): AppError {
+  return new AppError('Request body too large', 413, PAYLOAD_TOO_LARGE)
+}
+
+async function readBodyWithLimit(request: Request, maxBodyBytes: number): Promise<Buffer> {
+  const declaredLength = Number(request.headers.get('content-length') ?? Number.NaN)
+  if (Number.isFinite(declaredLength) && declaredLength > maxBodyBytes) throw buildPayloadTooLargeError()
+  if (!request.body) return Buffer.alloc(0)
+
+  // Corpo chunked não declara tamanho: conta os bytes enquanto lê e aborta ao passar do teto.
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    totalBytes += value.byteLength
+    if (totalBytes > maxBodyBytes) {
+      await reader.cancel()
+      throw buildPayloadTooLargeError()
+    }
+    chunks.push(value)
+  }
+  return Buffer.concat(chunks)
+}
+
+async function readWholeBody(request: Request): Promise<Buffer> {
+  return Buffer.from(await request.arrayBuffer())
+}
+
+async function readBody(request: Request, maxBodyBytes: number | undefined): Promise<RawBody> {
   const timeout = new Promise<never>((_, reject) => {
     setTimeout(() => reject(new AppError('Request body read timeout', 408, REQUEST_TIMEOUT)), BODY_READ_TIMEOUT_MS)
   })
-  const arrayBuffer = await Promise.race([request.arrayBuffer(), timeout])
-  const raw = Buffer.from(arrayBuffer)
+  const bodyPromise =
+    maxBodyBytes === undefined
+      ? readWholeBody(request)
+      : readBodyWithLimit(request, maxBodyBytes)
+  const raw = await Promise.race([bodyPromise, timeout])
   if (raw.length === 0) return { raw, parsed: undefined }
   try {
     return { raw, parsed: JSON.parse(raw.toString('utf-8')) }
@@ -292,6 +330,7 @@ type CompiledRoute = {
   readonly regex: RegExp
   readonly expectsBody: boolean
   readonly handler: RouteHandler
+  readonly options: RouteOptions
 }
 
 /**
@@ -322,8 +361,8 @@ export class Router {
     this.register('GET', pattern, handler, false)
   }
 
-  post(pattern: string, handler: RouteHandler): void {
-    this.register('POST', pattern, handler, true)
+  post(pattern: string, handler: RouteHandler, options: RouteOptions = {}): void {
+    this.register('POST', pattern, handler, true, options)
   }
 
   put(pattern: string, handler: RouteHandler): void {
@@ -346,8 +385,8 @@ export class Router {
     this.notFoundHandlerRegistered = true
   }
 
-  private register(method: HttpMethod, pattern: string, handler: RouteHandler, expectsBody: boolean): void {
-    this.routes.push({ method, regex: compileRoutePattern(pattern), expectsBody, handler })
+  private register(method: HttpMethod, pattern: string, handler: RouteHandler, expectsBody: boolean, options: RouteOptions = {}): void {
+    this.routes.push({ method, regex: compileRoutePattern(pattern), expectsBody, handler, options })
   }
 
   private findRoute(method: string, pathname: string): { route: CompiledRoute; params: readonly string[] } | undefined {
@@ -414,7 +453,7 @@ export class Router {
       httpLog.debug(LOG_EVENTS.REQUEST, { method: request.method, url: url.pathname })
       try {
         const { raw: rawBody, parsed: body } = route.expectsBody
-          ? await readBody(request)
+          ? await readBody(request, route.options.maxBodyBytes)
           : { raw: Buffer.alloc(0), parsed: undefined }
         await route.handler(
           { method: request.method, url: url.pathname, query: url.searchParams, headers, params, body, rawBody },

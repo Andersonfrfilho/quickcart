@@ -138,6 +138,28 @@ export const DELIVERY_FAILURE_REASON = {
 export type DeliveryFailureReason = (typeof DELIVERY_FAILURE_REASON)[keyof typeof DELIVERY_FAILURE_REASON]
 
 export type DeliveryType = 'delivery' | 'pickup'
+
+/**
+ * `POST /v1/store/checkout-quote` (T2.2). Preço, taxa e total sempre calculados pelo servidor a
+ * partir dos preços ATUAIS do banco — o carrinho web guarda preço no navegador, que pode estar
+ * velho. Substitui o antigo `GET /v1/store/checkout-config`, que só devolvia a taxa por tipo de
+ * entrega e não o total cobrado.
+ */
+export type CheckoutQuoteItem = {
+  readonly productId: string
+  readonly unitPriceInCents: number
+  readonly lineTotalInCents: number
+}
+export type CheckoutQuote = {
+  readonly subtotalInCents: number
+  readonly deliveryFeeInCents: number
+  readonly amountDueInCents: number
+  readonly items: readonly CheckoutQuoteItem[]
+}
+export type CheckoutQuoteInput = {
+  readonly items: ReadonlyArray<{ readonly productId: string; readonly quantity: number }>
+  readonly deliveryType: DeliveryType
+}
 export type PaymentMethod = 'pix' | 'card_on_delivery' | 'cash'
 export type ReceiptPreference = 'whatsapp' | 'email' | 'both'
 
@@ -146,13 +168,25 @@ export type Order = {
   readonly shortCode: string
   readonly customerName: string | null
   readonly customerPhone: string
+  /** Só a soma dos itens (é o que a NFC-e registra). Para exibir o que o cliente paga, use `amountDueInCents`. */
   readonly totalInCents: number
+  /** Taxa de entrega, fora de `totalInCents` (spec §3.4). Retirada = 0. */
+  readonly deliveryFeeInCents: number
+  /** Valor cobrado (itens + taxa), calculado pelo BACKEND — a tela nunca soma os dois. */
+  readonly amountDueInCents: number
   readonly status: OrderStatus
   readonly deliveryType: DeliveryType
   readonly paymentMethod: PaymentMethod
   readonly createdAt: string
   /** Só preenchido com `status = delivery_failed`. É ele que decide se a tela oferece outra tentativa. */
   readonly deliveryFailureReason: DeliveryFailureReason | null
+  /**
+   * Se o entregador precisa levar a maquininha (roteiro §11, spec §3.2).
+   *
+   * Calculado pelo BACKEND (`requiresCardMachine`), nunca aqui: `payment_method = card_on_delivery`
+   * na retirada não conta — a tela só lê o booleano e desenha o selo "Levar maquininha".
+   */
+  readonly requiresCardMachine: boolean
   /**
    * Próximos passos válidos, decididos pelo SERVIDOR.
    *
@@ -236,6 +270,8 @@ export type OrderDetail = Order & {
    * É a hora que diz se a espera é de dez minutos ou de ontem — e é ela que decide se o lojista liga.
    */
   readonly customerDecisionAskedAt: string | null
+  /** Troco no pagamento em dinheiro (roteiro §9). `null` = não precisa, ou pagamento não é em dinheiro. */
+  readonly cashChangeForInCents: number | null
   readonly items: readonly OrderItem[]
   /**
    * Uma linha por viagem da sacola, na ordem em que saíram.
@@ -269,3 +305,15 @@ export const ORDER_SORTABLE_FIELDS = ['createdAt', 'totalInCents', 'status'] as 
 export type OrderSortableField = (typeof ORDER_SORTABLE_FIELDS)[number]
 
 export type SortDirection = 'asc' | 'desc'
+
+/** Recorte do pedido em andamento de uma conversa. Os totais vêm prontos do backend: o painel não soma. */
+export type ConversationCheckoutContext = {
+  readonly items: ReadonlyArray<{ readonly name: string; readonly quantity: number; readonly lineTotalInCents: number }>
+  readonly subtotalInCents: number
+  readonly deliveryType: 'delivery' | 'pickup' | null
+  readonly deliveryFeeInCents: number
+  readonly amountDueInCents: number
+  readonly address: string | null
+  readonly paymentMethod: string | null
+  readonly cashChangeForInCents: number | null
+}

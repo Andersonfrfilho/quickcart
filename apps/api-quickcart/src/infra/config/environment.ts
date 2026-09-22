@@ -179,6 +179,11 @@ export const environmentSchema = z.object({
   DISTANCE_DETOUR_FACTOR: z.coerce.number().positive().default(1.35),
   DELIVERY_AVERAGE_SPEED_KMH: z.coerce.number().positive().default(25),
   STORE_PREPARATION_MINUTES: z.coerce.number().nonnegative().default(20),
+  /**
+   * Taxa de entrega em centavos, fora do `total_in_cents` (spec §3.4): a NFC-e registra só os itens.
+   * Ligar > 0 exige confirmar com o contador como a taxa é documentada. `""` vira 0 pelo coerce — aceito.
+   */
+  DELIVERY_FEE_CENTS: z.coerce.number().int().nonnegative().default(0),
   /** Alimenta um AVISO ao operador, nunca uma trava na venda (spec §8 Q2) — a coordenada vem de CEP e erra. */
   STORE_DELIVERY_RADIUS_KM: z.coerce.number().positive().default(8),
   /**

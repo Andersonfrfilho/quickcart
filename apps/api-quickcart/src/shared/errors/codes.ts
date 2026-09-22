@@ -20,6 +20,7 @@ export const TOO_MANY_REQUESTS = 'TOO_MANY_REQUESTS'
 export const INTERNAL_ERROR = 'INTERNAL_ERROR'
 export const REQUEST_TIMEOUT = 'REQUEST_TIMEOUT'
 export const INVALID_JSON_BODY = 'INVALID_JSON_BODY'
+export const PAYLOAD_TOO_LARGE = 'PAYLOAD_TOO_LARGE'
 
 // ── Catalog (categorias/produtos) ────────────────────────────────────
 export const CATEGORY_NOT_FOUND = 'CATEGORY_NOT_FOUND'

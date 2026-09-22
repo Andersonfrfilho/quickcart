@@ -19,6 +19,13 @@ export type CreateOrderFromCartParams = {
   readonly paymentMethod: string
   readonly receiptPreference: string
   readonly notes?: string | undefined
+  /** Troco no pagamento em dinheiro. Ausente ou `null` = não precisa, ou pagamento não é em dinheiro. */
+  readonly cashChangeForInCents?: number | null | undefined
+  /**
+   * A taxa cotada quando o cliente escolheu a entrega, gravada no contexto do checkout.
+   * Vem daqui, e não da env, para o pedido cobrar o mesmo valor contra o qual o troco foi validado.
+   */
+  readonly quotedDeliveryFeeInCents: number
 }
 
 export type CreateOrderFromCartResult = {

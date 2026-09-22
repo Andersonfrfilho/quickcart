@@ -63,6 +63,33 @@ Diferença: lá o fluxo conversacional fica no n8n; **aqui o motor de conversa v
 - **Estados da conversa** em varchar (nunca enum de banco); handlers por estado em
   `modules/conversation/application/handlers/`.
 
+### Roteiro de atendimento (`.specs/features/roteiro-atendimento/`)
+
+- **Estados novos**: `AWAITING_CASH_CHANGE` e `AWAITING_CASH_CHANGE_AMOUNT` (troco no dinheiro),
+  em `CashChangeHandler.ts`, fora do `CheckoutHandler`.
+- **Colunas novas em `orders`**: `cash_change_for_in_cents` (nulável; `null` = "não precisa" —
+  diferente de ausente = "ainda não perguntado", só existe em `ConversationContext`) e
+  `delivery_fee_in_cents` (`not null default 0`; retirada sempre grava `0`).
+- **`DELIVERY_FEE_CENTS`** (env da api, inteiro ≥ 0, padrão `0`): taxa de entrega fixa. **Fica
+  FORA de `orders.total_in_cents`** — a NFC-e usa `total_in_cents` como valor pago e não admite
+  frete (`modFrete = 9`); somar a taxa quebraria a nota. O valor cobrado do cliente é sempre
+  `amountDueInCents(order)` (`modules/order/shared/amountDue.ts`, espelhada em
+  `worker-quickcart/src/shared/amountDue.ts`) — **nenhum outro lugar soma itens + taxa**.
+  Antes de ligar `DELIVERY_FEE_CENTS > 0` em produção, confirmar com o contador como a taxa é
+  documentada no fiscal.
+- **`requiresCardMachine(order)`** (`modules/order/shared/requiresCardMachine.ts`): única função
+  que decide se o pedido exige levar a maquininha (`payment_method = card_on_delivery` **e**
+  `delivery_type = delivery`); consumida pelo DTO do painel (`Order.controller.ts`) e pelo bot.
+  Nunca reimplementar a comparação em outro lugar.
+- **Rotas novas**: `GET /v1/admin/conversations/:number/checkout-context` (painel — bloco "Pedido
+  em andamento", uma consulta por tabela: sessão, cliente, carrinho aberto, produtos em
+  `findByIds`) e `POST /v1/store/checkout-quote` (loja web — preço sempre do banco via
+  `buildPricedOrderItems`, nunca do carrinho salvo no navegador; substituiu o antigo
+  `GET /v1/store/checkout-config`).
+- **Palavra-chave global de atendente** (`isHumanHandoffRequest.ts`): "atendente"/"humano"/
+  "pessoa"/frases curtas equivalentes, em qualquer estado, via `GlobalHandler`, casamento por
+  mensagem inteira (não substring). Não cala o bot — só marca a fila de espera.
+
 ## Comandos
 
 > Pré-requisito local: `nvm use` (Node 22, ver `.nvmrc`) antes de `make dev-api`/`dev-worker` —

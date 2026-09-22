@@ -44,6 +44,15 @@ class FakeProductRepository implements ProductRepositoryInterface {
     throw new Error('not implemented')
   }
 
+  async findByIds(ids: readonly string[]): Promise<Product[]> {
+
+    const found = await Promise.all(ids.map((id) => this.findById(id)))
+
+    return found.filter((product): product is Product => product !== undefined)
+
+  }
+
+
   async findById(id: string): Promise<Product | undefined> {
     return this.products.get(id)
   }
@@ -244,6 +253,7 @@ function buildOrder(overrides: Partial<OrderRecord> = {}): OrderRecord {
     channel: 'whatsapp',
     status: 'completed',
     totalInCents: 5000,
+    deliveryFeeInCents: 0,
     deliveryType: 'delivery',
     address: null,
     legacyAddressText: null,
@@ -254,6 +264,7 @@ function buildOrder(overrides: Partial<OrderRecord> = {}): OrderRecord {
     deliveryFailureReason: null,
     customerDecisionAskedAt: null,
     customerDecisionRemindedAt: null,
+      cashChangeForInCents: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,

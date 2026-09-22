@@ -15,7 +15,10 @@ export type OrderRecord = {
   readonly cartId: string | null
   readonly channel: string
   readonly status: string
+  /** Só a soma dos itens (NFC-e). O valor cobrado sai de `amountDueInCents` em order/shared/amountDue. */
   readonly totalInCents: number
+  /** Taxa de entrega, fora do total. Retirada = 0. */
+  readonly deliveryFeeInCents: number
   readonly deliveryType: string
   readonly address: unknown
   /**
@@ -39,6 +42,8 @@ export type OrderRecord = {
   readonly customerDecisionAskedAt: Date | null
   /** Quando a pergunta foi cobrada — uma vez só. `null` com `askedAt` preenchido = ainda dá para cobrar. */
   readonly customerDecisionRemindedAt: Date | null
+  /** Troco no pagamento em dinheiro. `null` = não precisa, ou pagamento não é em dinheiro. */
+  readonly cashChangeForInCents: number | null
   readonly createdAt: Date
   readonly updatedAt: Date
 }
@@ -86,6 +91,10 @@ export type CreateOrderWithItemsParams = {
   readonly paymentMethod: string
   readonly receiptPreference: string
   readonly notes?: string | undefined
+  /** Troco no pagamento em dinheiro. Ausente ou `null` = não precisa, ou pagamento não é em dinheiro. */
+  readonly cashChangeForInCents?: number | null | undefined
+  /** Já decidida pelo use case (`resolveDeliveryFeeInCents`) — o repositório só grava, não decide. */
+  readonly deliveryFeeInCents: number
   readonly items: ReadonlyArray<CreateOrderItemInput>
 }
 
