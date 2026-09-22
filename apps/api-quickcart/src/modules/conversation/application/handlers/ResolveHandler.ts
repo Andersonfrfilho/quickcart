@@ -18,10 +18,11 @@ import type { CartRepositoryInterface } from '@/modules/cart/domain/CartReposito
 import type { ProductRepositoryInterface } from '@/modules/catalog/domain/ProductRepository.interface'
 import type { ConversationSessionRepositoryInterface } from '@/modules/webhook/domain/ConversationSessionRepository.interface'
 import type { WhatsAppSender } from '@/modules/webhook/infra/whatsapp/WhatsAppSender'
+import type { ConversationSession } from '@/modules/webhook/domain/Conversation.types'
 import type { ConversationHandlerContext, ConversationHandlerInterface } from '@/modules/conversation/application/handlers/ConversationHandler.interface'
-import type { CartDraftItem, ConversationContext } from '@/modules/conversation/shared/ConversationContext.types'
+import type { CartDraftItem, ConversationContext, PendingResolution } from '@/modules/conversation/shared/ConversationContext.types'
 import { advanceResolutionQueue } from '@/modules/conversation/application/handlers/support/advanceResolutionQueue'
-import { cheapestCandidate } from '@/modules/conversation/application/handlers/support/InteractiveListBuilders'
+import { buildResolveSection, cheapestCandidate } from '@/modules/conversation/application/handlers/support/InteractiveListBuilders'
 import {
   UNMATCHED_DEMAND_SOURCE,
   type UnmatchedDemandRepositoryInterface,
@@ -77,6 +78,16 @@ export class ResolveHandler implements ConversationHandlerInterface {
 
     if (message.kind !== 'list_reply') {
       await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.RESOLVE_UNEXPECTED_INPUT)
+      return
+    }
+
+    if (message.listId === RESOLVE_ROW_ID.NEXT_PAGE) {
+      await this.sendResolvePage({ session, context, current, pendingResolutions, page: (current.page ?? 1) + 1 })
+      return
+    }
+
+    if (message.listId === RESOLVE_ROW_ID.PREVIOUS_PAGE) {
+      await this.sendResolvePage({ session, context, current, pendingResolutions, page: Math.max(1, (current.page ?? 1) - 1) })
       return
     }
 
@@ -160,5 +171,32 @@ export class ResolveHandler implements ConversationHandlerInterface {
         ? { unmatchedDemandRepository: this.dependencies.unmatchedDemandRepository }
         : {}),
     })
+  }
+
+  /** Reenvia o mesmo item pendente numa página diferente, sem avançar a fila. */
+  private async sendResolvePage(params: {
+    readonly session: ConversationSession
+    readonly context: ConversationContext
+    readonly current: PendingResolution
+    readonly pendingResolutions: readonly PendingResolution[]
+    readonly page: number
+  }): Promise<void> {
+    const { session, context, current, pendingResolutions, page } = params
+    const updatedCurrent = { ...current, page }
+    const updatedPendingResolutions = [updatedCurrent, ...pendingResolutions.slice(1)]
+
+    await this.dependencies.conversationSessionRepository.updateStateByPhone({
+      customerPhone: session.customerPhone,
+      currentState: session.currentState,
+      context: { ...context, pendingResolutions: updatedPendingResolutions },
+    })
+
+    const section = buildResolveSection(updatedCurrent)
+    await this.dependencies.whatsAppSender.sendInteractiveList(
+      session.customerPhone,
+      `${MESSAGES.RESOLVE_PROMPT_PREFIX} "${updatedCurrent.originalTerm}"`,
+      'Ver opções',
+      [section],
+    )
   }
 }

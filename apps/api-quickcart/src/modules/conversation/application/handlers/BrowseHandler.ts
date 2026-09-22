@@ -27,8 +27,10 @@ import type { CartDraftItem, ConversationContext } from '@/modules/conversation/
 import { buildProductSection } from '@/modules/conversation/application/handlers/support/InteractiveListBuilders'
 import { enterCartReview } from '@/modules/conversation/application/handlers/support/enterCartReview'
 import type { UnmatchedDemandRepositoryInterface } from '@/modules/conversation/domain/UnmatchedDemandRepository.interface'
+import { paginateRows } from '@/modules/conversation/application/handlers/support/paginateRows'
 import { parseQuantityInput } from '@/modules/conversation/application/handlers/support/parseQuantityInput'
 import { BROWSE_PRODUCTS_PER_PAGE } from '@/modules/conversation/shared/Browse.constant'
+import { MATCH_MAX_AMBIGUOUS_CANDIDATES, MATCH_MIN_THRESHOLD } from '@/modules/conversation/shared/Matcher.constant'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import { BROWSE_ROW_ID, BROWSE_ROW_PREFIX, BROWSE_TRIGGER, MESSAGES } from '@/modules/conversation/shared/Messages.constant'
 import { CHANNEL } from '@/modules/shared/shared.constant'
@@ -83,6 +85,11 @@ export class BrowseHandler implements ConversationHandlerInterface {
       return
     }
 
+    if (message.kind === 'text') {
+      await this.sendSearchResults({ session, term: message.body.trim(), page: FIRST_PAGE })
+      return
+    }
+
     if (message.kind !== 'list_reply') {
       await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.BROWSE_UNEXPECTED_INPUT)
       return
@@ -101,6 +108,33 @@ export class BrowseHandler implements ConversationHandlerInterface {
         session,
         categoryId: browseContext.browsingCategoryId,
         page: (browseContext.browsingPage ?? FIRST_PAGE) + 1,
+      })
+      return
+    }
+
+    if (message.listId === BROWSE_ROW_ID.PREVIOUS_PAGE && browseContext.browsingCategoryId) {
+      await this.sendProductPage({
+        session,
+        categoryId: browseContext.browsingCategoryId,
+        page: Math.max(FIRST_PAGE, (browseContext.browsingPage ?? FIRST_PAGE) - 1),
+      })
+      return
+    }
+
+    if (message.listId === BROWSE_ROW_ID.NEXT_SEARCH_PAGE && browseContext.browsingSearchTerm) {
+      await this.sendSearchResults({
+        session,
+        term: browseContext.browsingSearchTerm,
+        page: (browseContext.browsingSearchPage ?? FIRST_PAGE) + 1,
+      })
+      return
+    }
+
+    if (message.listId === BROWSE_ROW_ID.PREVIOUS_SEARCH_PAGE && browseContext.browsingSearchTerm) {
+      await this.sendSearchResults({
+        session,
+        term: browseContext.browsingSearchTerm,
+        page: Math.max(FIRST_PAGE, (browseContext.browsingSearchPage ?? FIRST_PAGE) - 1),
       })
       return
     }
@@ -135,6 +169,50 @@ export class BrowseHandler implements ConversationHandlerInterface {
     await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.BROWSE_ASK_QUANTITY)
   }
 
+  /**
+   * Texto livre enquanto navega é o nome do produto que o cliente procura, não um erro.
+   *
+   * As linhas usam o mesmo prefixo da página da categoria, então o toque cai no fluxo de quantidade
+   * de sempre. A página da categoria continua no contexto: "próxima página" segue funcionando.
+   */
+  private async sendSearchResults(params: { session: ConversationSession; term: string; page: number }): Promise<void> {
+    const { session, term, page } = params
+    const results = await this.dependencies.productRepository.searchByTerm(term, MATCH_MAX_AMBIGUOUS_CANDIDATES)
+    const matches = results.filter((result) => result.score >= MATCH_MIN_THRESHOLD)
+
+    if (matches.length === 0) {
+      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.BROWSE_SEARCH_NOT_FOUND.replace('{termo}', term))
+      return
+    }
+
+    const { pageItems, hasNextPage, hasPreviousPage } = paginateRows({
+      items: matches,
+      page,
+      itemsPerPage: BROWSE_PRODUCTS_PER_PAGE,
+    })
+    const existingContext = (session.context ?? {}) as ConversationContext
+
+    await this.dependencies.conversationSessionRepository.updateStateByPhone({
+      customerPhone: session.customerPhone,
+      currentState: CONVERSATION_STATE.BROWSING_CATEGORIES,
+      context: { ...existingContext, browsingSearchTerm: term, browsingSearchPage: page },
+    })
+
+    const section = buildProductSection({
+      products: pageItems,
+      hasNextPage,
+      hasPreviousPage,
+      nextPageRowId: BROWSE_ROW_ID.NEXT_SEARCH_PAGE,
+      previousPageRowId: BROWSE_ROW_ID.PREVIOUS_SEARCH_PAGE,
+    })
+    await this.dependencies.whatsAppSender.sendInteractiveList(
+      session.customerPhone,
+      MESSAGES.BROWSE_SEARCH_RESULTS.replace('{termo}', term),
+      'Ver produtos',
+      [section],
+    )
+  }
+
   private async sendProductPage(params: { session: ConversationSession; categoryId: string; page: number }): Promise<void> {
     const { session, categoryId, page } = params
     const { items, total } = await this.dependencies.productRepository.list({
@@ -152,6 +230,7 @@ export class BrowseHandler implements ConversationHandlerInterface {
     }
 
     const hasNextPage = page * BROWSE_PRODUCTS_PER_PAGE < total
+    const hasPreviousPage = page > FIRST_PAGE
     const existingContext = (session.context ?? {}) as ConversationContext
 
     await this.dependencies.conversationSessionRepository.updateStateByPhone({
@@ -160,7 +239,7 @@ export class BrowseHandler implements ConversationHandlerInterface {
       context: { ...existingContext, browsingCategoryId: categoryId, browsingPage: page },
     })
 
-    const section = buildProductSection(items, hasNextPage)
+    const section = buildProductSection({ products: items, hasNextPage, hasPreviousPage })
     await this.dependencies.whatsAppSender.sendInteractiveList(session.customerPhone, MESSAGES.BROWSE_PICK_PRODUCT, 'Ver produtos', [section])
   }
 

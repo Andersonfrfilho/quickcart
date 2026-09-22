@@ -29,6 +29,8 @@ export type PendingResolution = {
   readonly quantity: number
   readonly unit: string
   readonly candidates: readonly MatchCandidate[]
+  /** Página atual da lista de candidatos, 1-indexed. Ausente equivale a 1. */
+  readonly page?: number
 }
 
 export type AwaitingQuantityProduct = {
@@ -43,6 +45,11 @@ export type ConversationContext = {
   readonly pendingResolutions?: readonly PendingResolution[]
   readonly browsingCategoryId?: string
   readonly browsingPage?: number
+  /** Termo de busca livre digitado durante a navegação — guardado para a página seguinte re-executar a mesma busca. */
+  readonly browsingSearchTerm?: string
+  readonly browsingSearchPage?: number
+  /** Página atual da lista de edição do carrinho, 1-indexed. Ausente equivale a 1. */
+  readonly editingCartPage?: number
   readonly awaitingQuantityProduct?: AwaitingQuantityProduct
   readonly wasExpired?: boolean
   readonly editingCartItemId?: string

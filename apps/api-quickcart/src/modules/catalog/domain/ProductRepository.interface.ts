@@ -89,4 +89,6 @@ export interface ProductRepositoryInterface {
   searchByTerm(term: string, limit: number): Promise<ProductSearchResult[]>
   /** `undefined` = não há parecido, e isso é resposta legítima: sem candidato não se pergunta nada. */
   findSubstituteCandidate(params: SubstituteCandidateParams): Promise<ProductSearchResult | undefined>
+  /** Marcas do catálogo disponível, sem repetição. Usado para reconhecer "arroz, broto legal" como um item só. */
+  listDistinctBrands(): Promise<string[]>
 }

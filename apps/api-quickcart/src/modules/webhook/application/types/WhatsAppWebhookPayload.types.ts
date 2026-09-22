@@ -65,6 +65,15 @@ export type ParsedInboundMessage =
       readonly mimeType: string
     }
   | {
+      readonly kind: 'image'
+      readonly from: string
+      readonly waMessageId: string
+      readonly mediaId: string
+      readonly mimeType: string
+      /** Legenda da foto. O cliente costuma escrever "tem esse?" junto, e isso ajuda a busca. */
+      readonly caption?: string
+    }
+  | {
       readonly kind: 'button_reply'
       readonly from: string
       readonly waMessageId: string

@@ -11,6 +11,8 @@
  * controllers uma única vez por processo e expõe tudo como um objeto plano.
  */
 
+import { createBarcodeReader } from '@adatechnology/product-vision-provider/barcode'
+
 import { DatabaseHealthChecker } from '@/infra/database/DatabaseHealthChecker'
 import { RedisHealthChecker } from '@/infra/redis/RedisHealthChecker'
 import { GetHealthStatusUseCase } from '@/modules/health/application/use-cases/GetHealthStatus.use-case'
@@ -62,6 +64,12 @@ import {
   createInboundAudioResolver,
   type ResolveInboundAudio,
 } from '@/modules/conversation/application/resolveInboundAudio'
+import {
+  createInboundImageResolver,
+  type ResolveInboundImage,
+} from '@/modules/conversation/application/resolveInboundImage'
+import { decodeImageWithSharp } from '@/modules/catalog/infra/vision/decodeImageWithSharp'
+import { createBarcodeProductIdentifier } from '@/modules/catalog/infra/vision/identifyProductByBarcode'
 import { wrapChannelWithLogging } from '@/modules/conversation/application/wrapChannelWithLogging'
 import { createMenuOptionsFilter } from '@/modules/conversation/application/createMenuOptionsFilter'
 import { MAIN_FLOW_SEED } from '@/modules/conversation/shared/MainFlow.seed'
@@ -74,6 +82,7 @@ import { ConversationEngine } from '@/modules/conversation/application/Conversat
 import { MatchProductsUseCase } from '@/modules/conversation/application/use-cases/MatchProducts.use-case'
 import { ParseShoppingListUseCase } from '@/modules/conversation/application/use-cases/ParseShoppingList.use-case'
 import { GroqListRefinerProvider } from '@/modules/conversation/infra/providers/GroqListRefinerProvider'
+import { CachedKnownBrandsProvider } from '@/modules/conversation/infra/providers/CachedKnownBrandsProvider'
 import { DrizzleListImportRepository } from '@/modules/conversation/infra/database/DrizzleListImportRepository'
 import { DrizzleUnmatchedDemandRepository } from '@/modules/conversation/infra/database/DrizzleUnmatchedDemandRepository'
 import { ConversationCheckoutContextController } from '@/modules/conversation/infra/http/ConversationCheckoutContext.controller'
@@ -423,7 +432,10 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
   } = dependencies
 
   const matchProductsUseCase = new MatchProductsUseCase(productRepository)
-  const parseShoppingListUseCase = new ParseShoppingListUseCase(new GroqListRefinerProvider())
+  const parseShoppingListUseCase = new ParseShoppingListUseCase(
+    new GroqListRefinerProvider(),
+    new CachedKnownBrandsProvider(productRepository),
+  )
   const listImportRepository = new DrizzleListImportRepository()
   // Demanda que a loja está perdendo: gravada onde o motivo é conhecido, lida pelo relatório do admin.
   const unmatchedDemandRepository = new DrizzleUnmatchedDemandRepository()
@@ -568,6 +580,7 @@ function buildWebhookModule(
   let flowDriver: FlowDriver | undefined
   // Mesma amarração tardia: o resolvedor precisa do canal e do repositório que esta fábrica cria.
   let resolveInboundAudio: ResolveInboundAudio | undefined
+  let resolveInboundImage: ResolveInboundImage | undefined
 
   const metaWhatsApp = createQuickCartWhatsAppModule({
     cacheProvider,
@@ -575,6 +588,7 @@ function buildWebhookModule(
     resolveConversationEngine: () => conversationEngine,
     resolveFlowDriver: () => flowDriver,
     resolveInboundAudio: () => resolveInboundAudio,
+    resolveInboundImage: () => resolveInboundImage,
   })
 
   // O canal de WhatsApp já existe: notificação por WhatsApp reusa o mesmo, em vez de abrir uma
@@ -594,6 +608,36 @@ function buildWebhookModule(
    * Ficava dentro do `FlowDriver`, e por isso voz era entendida só dentro do grafo: fora dele o
    * `BrowseHandler` respondia "escolha uma opção da lista acima" a quem ditava a compra.
    */
+  /**
+   * Identifica produto pela foto. Hoje só o degrau do código de barras, que é o único que não
+   * precisa de índice: `products.barcode` é único e `findByBarcode` já existe.
+   *
+   * O engine vem do `@adatechnology/product-vision-provider`, ainda não publicado. Sem ele o
+   * identificador fica `undefined` — e a capacidade ausente devolve exatamente o comportamento de
+   * hoje, que é o que o `resolveInboundImage` já garante em teste.
+   */
+  resolveInboundImage = createInboundImageResolver({
+    // Só o degrau do código de barras: é o único que não precisa de índice, porque
+    // `products.barcode` é único e `findByBarcode` já existe. A busca por similaridade visual
+    // chega quando o catálogo migrar para o `@adatechnology/catalog-module`.
+    identifyProduct: createBarcodeProductIdentifier({
+      // O decoder é do produto: o provider não escolhe entre sharp e jimp por ninguém, e o Bun
+      // no servidor não tem `OffscreenCanvas` para o caminho default funcionar.
+      engine: createBarcodeReader({}, { decodeImage: (input, maxPixels) => decodeImageWithSharp(input, maxPixels) }),
+      productRepository: params.productRepository,
+    }),
+    fetchMediaAsBase64: (mediaId) => metaWhatsApp.channel.fetchMediaAsBase64(mediaId),
+    sendNotice: async (whatsappNumber, body) => {
+      await wrapChannelWithLogging({
+        channel: metaWhatsApp.channel,
+        logMessage: metaWhatsApp.conversations.log,
+        companyId: environment.WHATSAPP_COMPANY_ID,
+        whatsappNumber,
+        startState: CONVERSATION_STATE.GREETING,
+      }).sendText(whatsappNumber, body)
+    },
+  })
+
   resolveInboundAudio = createInboundAudioResolver({
     // Mesmo transcritor da inbox. Ausente, áudio segue cru para quem sabe lidar com ele.
     transcriber: audioTranscriber,

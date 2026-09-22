@@ -43,6 +43,7 @@ export const LOG_EVENTS = {
   CONVERSATION_CUSTOMER_NOT_FOUND: 'conversation_customer_not_found',
   CONVERSATION_LIST_REFINE_NON_OK: 'conversation_list_refine_non_ok',
   CONVERSATION_LIST_REFINE_FAILED: 'conversation_list_refine_failed',
+  CONVERSATION_KNOWN_BRANDS_UNAVAILABLE: 'conversation_known_brands_unavailable',
 
   // Resume de conversa (rota interna, chamada pelo worker após STT)
   CONVERSATION_RESUME_SESSION_NOT_FOUND: 'conversation_resume_session_not_found',

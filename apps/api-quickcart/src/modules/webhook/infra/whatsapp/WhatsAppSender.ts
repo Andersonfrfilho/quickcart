@@ -25,6 +25,7 @@ import {
 import { environment } from '@/infra/config/environment'
 import { generateId } from '@/shared/id'
 import { logger } from '@/shared/logger'
+import { maskPhone } from '@/shared/maskPhone'
 import { LOG_EVENTS } from '@/shared/constants/log-events.constant'
 import {
   WhatsAppConfigMissingError,
@@ -89,7 +90,7 @@ export class WhatsAppSender {
     const { waMessageId, mocked } = await this.sendViaProvider('text', to, (provider) =>
       provider.messages.sendText(to, body),
     )
-    if (mocked) senderLog.info(LOG_EVENTS.WHATSAPP_SEND_MOCK, { to, type: 'text', body })
+    if (mocked) senderLog.info(LOG_EVENTS.WHATSAPP_SEND_MOCK, { to: maskPhone(to), type: 'text', bodyLength: body.length })
     await this.persistOutbound({ to, type: 'text', body, waMessageId })
   }
 
@@ -97,7 +98,13 @@ export class WhatsAppSender {
     const { waMessageId, mocked } = await this.sendViaProvider('interactive_buttons', to, (provider) =>
       provider.messages.sendInteractiveButtons({ to, bodyText, buttons }),
     )
-    if (mocked) senderLog.info(LOG_EVENTS.WHATSAPP_SEND_MOCK, { to, type: 'interactive_buttons', bodyText })
+    if (mocked) {
+      senderLog.info(LOG_EVENTS.WHATSAPP_SEND_MOCK, {
+        to: maskPhone(to),
+        type: 'interactive_buttons',
+        bodyLength: bodyText.length,
+      })
+    }
     await this.persistOutbound({ to, type: 'interactive_buttons', body: bodyText, payload: { buttons }, waMessageId })
   }
 
@@ -110,7 +117,13 @@ export class WhatsAppSender {
     const { waMessageId, mocked } = await this.sendViaProvider('interactive_list', to, (provider) =>
       provider.messages.sendInteractiveList({ to, bodyText, buttonText, sections }),
     )
-    if (mocked) senderLog.info(LOG_EVENTS.WHATSAPP_SEND_MOCK, { to, type: 'interactive_list', bodyText })
+    if (mocked) {
+      senderLog.info(LOG_EVENTS.WHATSAPP_SEND_MOCK, {
+        to: maskPhone(to),
+        type: 'interactive_list',
+        bodyLength: bodyText.length,
+      })
+    }
     await this.persistOutbound({
       to,
       type: 'interactive_list',
@@ -134,7 +147,7 @@ export class WhatsAppSender {
       return { waMessageId: result.waMessageId, mocked: false }
     } catch (error) {
       senderLog.error(LOG_EVENTS.WHATSAPP_SEND_FAILED, {
-        to,
+        to: maskPhone(to),
         type,
         message: serializeError(error),
       })

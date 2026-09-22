@@ -202,4 +202,13 @@ export class DrizzleProductRepository implements ProductRepositoryInterface {
       score: Number(row.score),
     }
   }
+
+  async listDistinctBrands(): Promise<string[]> {
+    const result = await db
+      .selectDistinct({ brand: products.brand })
+      .from(products)
+      .where(and(eq(products.isAvailable, true), sql`${products.brand} is not null`))
+
+    return result.map((row) => row.brand).filter((brand): brand is string => brand !== null)
+  }
 }

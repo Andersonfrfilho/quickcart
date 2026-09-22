@@ -29,6 +29,7 @@ import type { ParsedInboundMessage } from '@/modules/webhook/application/types/W
 import type { AudioTranscriber } from '@adatechnology/audio-transcription-provider'
 import { serializeError } from '@/shared/serializeError'
 import { MESSAGES } from '@/modules/conversation/shared/Messages.constant'
+import { isExitWord } from '@/modules/conversation/application/isExitWord'
 import { matchChoiceOption } from '@/modules/conversation/application/matchChoiceOption'
 import { shouldYieldToShoppingList } from '@/modules/conversation/application/shouldYieldToShoppingList'
 import { looksLikeShoppingList } from '@/modules/conversation/application/looksLikeShoppingList'
@@ -152,6 +153,16 @@ export class FlowDriver {
   // continua sendo o caminho de quem já está no meio de um carrinho ou checkout.
   async handleInbound(params: HandleInboundParams): Promise<HandleInboundResult> {
     const { session, message } = params
+
+    /*
+     * "sair" não é resposta de nó: o grafo casaria contra as opções, não acharia nenhuma e repetiria
+     * o menu. Solta a posição e devolve para o GlobalHandler, que zera o estado e se despede.
+     */
+    if (message.kind === 'text' && isExitWord(message.body)) {
+      await this.dependencies.sessionRepository.setFlowPosition(COMPANY_ID, session.whatsappNumber, null, null)
+      flowLog.info('flow_exited_by_customer', { nodeId: session.currentNodeId })
+      return { handled: false }
+    }
 
     // Conversa parada num nó retoma dali; conversa nova entra pelo início do fluxo principal.
     const flowKey = session.flowKey ?? MAIN_FLOW_KEY

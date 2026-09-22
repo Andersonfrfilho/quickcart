@@ -142,7 +142,7 @@ describe('CartHandler — memória do checkout sobrevive ao ciclo de edição do
     })
 
     expect(stateUpdates).toEqual([
-      { currentState: CONVERSATION_STATE.EDITING_CART, context: { rememberedCheckout: REMEMBERED } },
+      { currentState: CONVERSATION_STATE.EDITING_CART, context: { rememberedCheckout: REMEMBERED, editingCartPage: 1 } },
     ])
   })
 

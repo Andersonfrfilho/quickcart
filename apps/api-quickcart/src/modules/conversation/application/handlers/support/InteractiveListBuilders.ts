@@ -14,19 +14,25 @@
  */
 
 import type { InteractiveListRow, InteractiveListSection } from '@adatechnology/meta-whatsapp-provider'
-import type { Category, Product } from '@/infra/database/schema'
+import { WHATSAPP_CHOICE_LIMIT } from '@adatechnology/meta-whatsapp-contracts'
+import type { Category } from '@/infra/database/schema'
 import type { MatchCandidate } from '@/modules/conversation/application/types/MatchProducts.types'
 import type { PendingResolution } from '@/modules/conversation/shared/ConversationContext.types'
+import { paginateRows } from '@/modules/conversation/application/handlers/support/paginateRows'
 import {
   MESSAGES,
   BROWSE_ROW_ID,
   BROWSE_ROW_PREFIX,
   EDITING_CART_ROW_ID,
   EDITING_CART_ROW_PREFIX,
+  NEXT_PAGE_ROW_TITLE,
+  PREVIOUS_PAGE_ROW_TITLE,
   RESOLVE_ROW_ID,
   RESOLVE_ROW_PREFIX,
 } from '@/modules/conversation/shared/Messages.constant'
 import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInCents'
+
+const FIRST_PAGE = 1
 
 const LIST_ROW_TITLE_MAX_LENGTH = 24
 const LIST_ROW_DESCRIPTION_MAX_LENGTH = 72
@@ -57,15 +63,37 @@ export function buildCategorySection(categories: readonly Category[]): Interacti
   return { title: truncate('Categorias', LIST_SECTION_TITLE_MAX_LENGTH), rows }
 }
 
-export function buildProductSection(products: readonly Product[], hasNextPage: boolean): InteractiveListSection {
+/** Só o que a linha exibe: vale tanto para a página da categoria quanto para o resultado da busca. */
+type ProductRowSource = PricedItem & { readonly id: string }
+
+export type BuildProductSectionParams = {
+  readonly products: readonly ProductRowSource[]
+  readonly hasNextPage: boolean
+  readonly hasPreviousPage?: boolean
+  /** Paginação de categoria e busca por texto livre avançam de formas diferentes — precisam de ids distintos. */
+  readonly nextPageRowId?: string
+  readonly previousPageRowId?: string
+}
+
+export function buildProductSection(params: BuildProductSectionParams): InteractiveListSection {
+  const {
+    products,
+    hasNextPage,
+    hasPreviousPage = false,
+    nextPageRowId = BROWSE_ROW_ID.NEXT_PAGE,
+    previousPageRowId = BROWSE_ROW_ID.PREVIOUS_PAGE,
+  } = params
+
   const productRows: InteractiveListRow[] = products.map((product) => ({
     id: `${BROWSE_ROW_PREFIX.PRODUCT}${product.id}`,
     title: truncate(product.name, LIST_ROW_TITLE_MAX_LENGTH),
     description: buildItemDescription(product),
   }))
-  const nextPageRow: InteractiveListRow = { id: BROWSE_ROW_ID.NEXT_PAGE, title: '➡️ Próxima página' }
-  const rows = hasNextPage ? [...productRows, nextPageRow] : productRows
-  return { title: truncate('Produtos', LIST_SECTION_TITLE_MAX_LENGTH), rows }
+  const previousPageRow: InteractiveListRow = { id: previousPageRowId, title: PREVIOUS_PAGE_ROW_TITLE }
+  const nextPageRow: InteractiveListRow = { id: nextPageRowId, title: NEXT_PAGE_ROW_TITLE }
+  const navigationRows = [...(hasPreviousPage ? [previousPageRow] : []), ...(hasNextPage ? [nextPageRow] : [])]
+
+  return { title: truncate('Produtos', LIST_SECTION_TITLE_MAX_LENGTH), rows: [...productRows, ...navigationRows] }
 }
 
 export type EditingCartRow = {
@@ -75,14 +103,28 @@ export type EditingCartRow = {
   readonly priceInCents: number
 }
 
-export function buildEditingCartSection(rows: readonly EditingCartRow[]): InteractiveListSection {
-  const itemRows: InteractiveListRow[] = rows.map((row) => ({
+/** Linhas fixas da seção (concluir + anterior + próxima, ambas reservadas) descontadas do teto de 10 rows da Meta. */
+const EDITING_CART_FIXED_ROWS = 3
+const EDITING_CART_ITEMS_PER_PAGE = WHATSAPP_CHOICE_LIMIT.LIST_ROWS - EDITING_CART_FIXED_ROWS
+
+export function buildEditingCartSection(rows: readonly EditingCartRow[], page: number = FIRST_PAGE): InteractiveListSection {
+  const { pageItems, hasNextPage, hasPreviousPage } = paginateRows({
+    items: rows,
+    page,
+    itemsPerPage: EDITING_CART_ITEMS_PER_PAGE,
+  })
+
+  const itemRows: InteractiveListRow[] = pageItems.map((row) => ({
     id: `${EDITING_CART_ROW_PREFIX.ITEM}${row.cartItemId}`,
     title: truncate(`${row.quantity}x ${row.productName}`, LIST_ROW_TITLE_MAX_LENGTH),
     description: buildItemDescription({ name: row.productName, priceInCents: row.priceInCents * row.quantity }),
   }))
   const doneRow: InteractiveListRow = { id: EDITING_CART_ROW_ID.DONE, title: '✅ Concluir edição' }
-  return { title: truncate('Seus itens', LIST_SECTION_TITLE_MAX_LENGTH), rows: [...itemRows, doneRow] }
+  const previousPageRow: InteractiveListRow = { id: EDITING_CART_ROW_ID.PREVIOUS_PAGE, title: PREVIOUS_PAGE_ROW_TITLE }
+  const nextPageRow: InteractiveListRow = { id: EDITING_CART_ROW_ID.NEXT_PAGE, title: NEXT_PAGE_ROW_TITLE }
+  const trailingRows = [doneRow, ...(hasPreviousPage ? [previousPageRow] : []), ...(hasNextPage ? [nextPageRow] : [])]
+
+  return { title: truncate('Seus itens', LIST_SECTION_TITLE_MAX_LENGTH), rows: [...itemRows, ...trailingRows] }
 }
 
 /**
@@ -121,25 +163,44 @@ export function cheapestCandidate(candidates: readonly MatchCandidate[]): MatchC
 }
 
 export function buildResolveSection(pending: PendingResolution): InteractiveListSection {
-  // Do mais barato para o mais caro: com nomes iguais, o preço é a única coisa que o cliente compara,
-  // e ele não deveria ter de varrer a lista para achar o menor.
-  const orderedCandidates = [...pending.candidates].sort(
-    (left, right) => left.priceInCents - right.priceInCents,
-  )
+  const delegateRows: InteractiveListRow[] = areCandidatesInterchangeable(pending.candidates)
+    ? [{ id: RESOLVE_ROW_ID.CHEAPEST, title: MESSAGES.RESOLVE_CHEAPEST_LABEL }]
+    : []
+  const skipRow: InteractiveListRow = { id: RESOLVE_ROW_ID.SKIP_ITEM, title: '❌ Nenhum desses' }
+  const previousPageRow: InteractiveListRow = { id: RESOLVE_ROW_ID.PREVIOUS_PAGE, title: PREVIOUS_PAGE_ROW_TITLE }
+  const nextPageRow: InteractiveListRow = { id: RESOLVE_ROW_ID.NEXT_PAGE, title: NEXT_PAGE_ROW_TITLE }
 
-  const candidateRows: InteractiveListRow[] = orderedCandidates.map((candidate: MatchCandidate) => ({
+  /**
+   * "Tanto faz" e "Nenhum desses" ocupam a página inteira; anterior e próxima reservam mais duas
+   * linhas sempre — mesmo nas páginas que não as usam — para o slice de candidatos vir da mesma
+   * conta de offset em toda página, e ir/voltar bater sempre no mesmo resultado.
+   */
+  const candidatesPerPage = WHATSAPP_CHOICE_LIMIT.LIST_ROWS - delegateRows.length - 3
+  const page = pending.page ?? FIRST_PAGE
+  const { pageItems, hasNextPage, hasPreviousPage } = paginateRows({
+    items: pending.candidates,
+    page,
+    itemsPerPage: candidatesPerPage,
+  })
+
+  /** Candidatos mantêm ordem de relevância entre páginas; dentro da página, o mais barato aparece primeiro. */
+  const orderedPageCandidates = [...pageItems].sort((left, right) => left.priceInCents - right.priceInCents)
+
+  const candidateRows: InteractiveListRow[] = orderedPageCandidates.map((candidate: MatchCandidate) => ({
     id: `${RESOLVE_ROW_PREFIX.PRODUCT}${candidate.productId}`,
     title: truncate(candidate.name, LIST_ROW_TITLE_MAX_LENGTH),
     description: buildItemDescription(candidate),
   }))
 
-  const delegateRows: InteractiveListRow[] = areCandidatesInterchangeable(orderedCandidates)
-    ? [{ id: RESOLVE_ROW_ID.CHEAPEST, title: MESSAGES.RESOLVE_CHEAPEST_LABEL }]
-    : []
+  const trailingRows = [
+    ...delegateRows,
+    skipRow,
+    ...(hasPreviousPage ? [previousPageRow] : []),
+    ...(hasNextPage ? [nextPageRow] : []),
+  ]
 
-  const skipRow: InteractiveListRow = { id: RESOLVE_ROW_ID.SKIP_ITEM, title: '❌ Nenhum desses' }
   return {
     title: truncate(`Opções: ${pending.originalTerm}`, LIST_SECTION_TITLE_MAX_LENGTH),
-    rows: [...candidateRows, ...delegateRows, skipRow],
+    rows: [...candidateRows, ...trailingRows],
   }
 }
