@@ -36,7 +36,12 @@ export type ConversationEngineDependencies = {
   readonly customerRepository: CustomerRepositoryInterface
   readonly whatsAppSender: WhatsAppSender
   readonly globalHandler: GlobalConversationHandlerInterface
-  readonly handlers: Partial<Record<ConversationState, ConversationHandlerInterface>>
+  /**
+   * Um handler para CADA estado — sem `Partial`. Com `Partial`, um estado novo sem rota compilava,
+   * passava nos testes e só falhava com um cliente real: foi assim que `awaiting_address_number`
+   * ficou sem handler e o número da casa depois do CEP caía em "ainda estou aprendendo".
+   */
+  readonly handlers: Record<ConversationState, ConversationHandlerInterface>
 }
 
 export class ConversationEngine {

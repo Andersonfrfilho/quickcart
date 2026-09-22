@@ -535,12 +535,16 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
       [CONVERSATION_STATE.EDITING_CART]: cartHandler,
       [CONVERSATION_STATE.AWAITING_DELIVERY_TYPE]: checkoutHandler,
       [CONVERSATION_STATE.AWAITING_ADDRESS]: checkoutHandler,
+      [CONVERSATION_STATE.AWAITING_ADDRESS_NUMBER]: checkoutHandler,
       [CONVERSATION_STATE.AWAITING_PAYMENT]: checkoutHandler,
       [CONVERSATION_STATE.AWAITING_CASH_CHANGE]: cashChangeHandler,
       [CONVERSATION_STATE.AWAITING_CASH_CHANGE_AMOUNT]: cashChangeHandler,
       [CONVERSATION_STATE.AWAITING_RECEIPT_PREFERENCE]: checkoutHandler,
       [CONVERSATION_STATE.AWAITING_EMAIL]: checkoutHandler,
       [CONVERSATION_STATE.CONFIRMING]: checkoutHandler,
+      // Nenhum caminho grava mais `completed`, mas sessão antiga pode ter esse valor no banco:
+      // recomeçar pela saudação é o certo, e sem esta linha ela cairia no fallback.
+      [CONVERSATION_STATE.COMPLETED]: greetingHandler,
     },
   })
 
