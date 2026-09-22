@@ -719,3 +719,65 @@ esse padrão no arquivo):
 **Números.** Baseline antes desta task: 381 testes passando, 0 falhas. Depois: **401 testes
 passando, 0 falhas** (20 novos: 10 + 3 + 7 acima). `bun run typecheck` limpo (banco de teste
 `quickcart-test-postgres`/`quickcart-test-redis` de pé, migrado). Frontend não tocado.
+
+### T3.1 — correção: deduplicação e requestHuman obrigatório
+
+**Dois defeitos confirmados no código da T3.1** (branch `feat/roteiro-atendimento`, commit `af13382`).
+
+**Defeito 1 — a deduplicação por `humanRequestedAt` trava o atendimento para sempre.**
+`requestHumanHandoff.ts` respondia `AGENT_ALREADY_WAITING` e não chamava `requestHuman` sempre que
+`session.humanRequestedAt` estava preenchido. Mas no `@adatechnology/meta-whatsapp-module`
+instalado (`dist/index.js`, `SessionRepository`), `humanRequestedAt` só é **escrito** por
+`requestHuman` (`sql\`now()\``) e **nunca é limpo**: `setMode` (usado por `takeover` e `release`)
+só grava `mode`/`assignedUserId`/`updatedAt`. Resultado: depois do primeiro pedido de atendente da
+vida de um cliente — mesmo já resolvido e a conversa devolvida ao bot semanas antes —, todo pedido
+futuro caía no ramo "já avisei" e nunca entrava na fila de novo.
+
+**Correção**: a deduplicação passa a olhar `mode`, que é o campo que de fato muda no
+takeover/release:
+- `mode === 'human'` (atendente já assumiu): responde `MESSAGES.AGENT_HUMAN_IN_PROGRESS` ("Você já
+  está falando com a nossa equipe — é só mandar sua mensagem por aqui.") e **não** chama
+  `requestHuman`.
+- Qualquer outro caso (`mode` bot ou qualquer outro valor): chama `requestHuman` **sempre**
+  (renova `humanRequestedAt` e (re)põe na fila) e responde `MESSAGES.AGENT_REQUESTED`, como era
+  antes da T3.1.
+- `MESSAGES.AGENT_ALREADY_WAITING` removida (ficou sem uso).
+- `mode` já chegava até `ConversationSession` — `DrizzleConversationSessionRepository.toDomain` já
+  mapeava `mode: row.mode`; não foi preciso mapear nada de novo.
+
+**Defeito 2 — `requestHuman` opcional na interface permitia prometer atendimento sem chamar ninguém.**
+`ConversationSessionRepositoryInterface.requestHuman?` era opcional e a ação chamava
+`requestHuman?.(...)` — se um dublê de teste (ou uma implementação futura) não trouxesse o método,
+a chamada virava no-op silencioso e o cliente recebia `AGENT_REQUESTED` sem ninguém ter sido
+avisado.
+
+**Correção**: `requestHuman` passou a ser **obrigatório** na interface
+(`ConversationSessionRepository.interface.ts`) e a ação chama sem `?.`. Todos os dublês de teste já
+implementavam o método (o `bun run typecheck` não acusou nenhum dublê faltando) — nenhuma alteração
+extra necessária nos testes por causa disso. `humanRequestedAt?` em `ConversationSession` segue
+opcional e em uso: é preenchido pelo `DrizzleConversationSessionRepository.toDomain` e continua
+sendo dado de domínio válido (não é mais usado para deduplicar nesta ação, mas não ficou sem
+consumidor — permanece o retrato do estado persistido).
+
+**Arquivos alterados:**
+- `requestHumanHandoff.ts` — deduplicação por `mode`, `requestHuman` chamado sem `?.`.
+- `Messages.constant.ts` — `AGENT_ALREADY_WAITING` → `AGENT_HUMAN_IN_PROGRESS` (texto e uso mudam).
+- `ConversationSessionRepository.interface.ts` — `requestHuman?` → `requestHuman` (obrigatório).
+- `requestHumanHandoff.test.ts` — troca o teste de "não duplica com `humanRequestedAt` setado" por
+  "chama `requestHuman` de novo com `mode: 'bot'` e `humanRequestedAt` antigo" (o caso que a T3.1
+  quebrou) e por "não chama com `mode: 'human'`".
+- `GlobalHandler.test.ts` — mesma troca, no nível do handler global.
+
+**Números.** Baseline antes desta correção: 401 testes passando, 0 falhas. Depois: **402 testes
+passando, 0 falhas** (removidos 2 casos de deduplicação antiga, adicionados 3: dedup por `mode`
+human, renovação de pedido com `mode` bot + `humanRequestedAt` antigo, no `GlobalHandler` e no
+`requestHumanHandoff`). `bun run typecheck` limpo. Frontend não tocado.
+
+**Achado para o usuário (não corrigido — é no pacote, não neste repo):** no
+`@adatechnology/meta-whatsapp-module`, `release` (via `setMode`) não limpa `humanRequestedAt`. O
+filtro `waitingHuman` da inbox (`Conversation.controller.ts`, query param `waitingHuman=true`) é
+implementado pelo pacote com base em `humanRequestedAt is not null` — então uma conversa já
+atendida e devolvida ao bot continua aparecendo na fila "aguardando atendimento" da inbox para
+sempre, mesmo que `mode` já esteja de volta em `bot`. A correção correta é no pacote: `release`
+deveria limpar `humanRequestedAt` (ou o filtro da inbox deveria considerar `mode` também, não só o
+timestamp).

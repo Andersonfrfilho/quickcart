@@ -64,18 +64,20 @@ describe('requestHumanHandoff', () => {
     expect(texts).toEqual([MESSAGES.AGENT_REQUESTED])
   })
 
-  it('não duplica o pedido quando a conversa já está aguardando atendimento', async () => {
+  it('chama requestHuman de novo mesmo com pedido anterior já resolvido (mode bot)', async () => {
+    // Este é o caso que a T3.1 quebrou: `humanRequestedAt` antigo (pedido já atendido e devolvido
+    // ao bot) não pode bloquear um pedido novo — o pacote nunca limpa esse campo, só `mode`.
     const { dependencies, texts, requestHumanCalls } = buildDependencies(
-      buildSession({ humanRequestedAt: new Date() }),
+      buildSession({ mode: 'bot', humanRequestedAt: new Date('2020-01-01') }),
     )
 
     await requestHumanHandoff(dependencies, PHONE)
 
-    expect(requestHumanCalls).toEqual([])
-    expect(texts).toEqual([MESSAGES.AGENT_ALREADY_WAITING])
+    expect(requestHumanCalls).toEqual([PHONE])
+    expect(texts).toEqual([MESSAGES.AGENT_REQUESTED])
   })
 
-  it('não duplica quando já está em atendimento humano (mode human, humanRequestedAt setado)', async () => {
+  it('não chama requestHuman quando já está em atendimento humano (mode human)', async () => {
     const { dependencies, texts, requestHumanCalls } = buildDependencies(
       buildSession({ mode: 'human', humanRequestedAt: new Date() }),
     )
@@ -83,6 +85,6 @@ describe('requestHumanHandoff', () => {
     await requestHumanHandoff(dependencies, PHONE)
 
     expect(requestHumanCalls).toEqual([])
-    expect(texts).toEqual([MESSAGES.AGENT_ALREADY_WAITING])
+    expect(texts).toEqual([MESSAGES.AGENT_HUMAN_IN_PROGRESS])
   })
 })

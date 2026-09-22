@@ -219,12 +219,14 @@ export const MESSAGES = {
    */
   AGENT_REQUESTED: '💬 Já avisei a equipe — alguém vai te responder por aqui. Enquanto isso posso seguir te ajudando.',
   /**
-   * Pedido repetido enquanto a conversa já está na fila (ou já em atendimento humano).
+   * Pedido de atendente enquanto um atendente JÁ assumiu a conversa (`mode: 'human'`).
    *
-   * Sem esta checagem, cada "atendente" novo reiniciaria a fila (`humanRequestedAt` vira "agora"),
-   * empurrando quem já esperava para o fim da lista de espera do atendente.
+   * `humanRequestedAt` não serve para deduplicar: o `@adatechnology/meta-whatsapp-module` nunca o
+   * limpa (nem `release`, nem `takeover`), então um pedido de semanas atrás — já resolvido e
+   * devolvido ao bot — pareceria "já pedido" para sempre. `mode` é confiável: só muda em
+   * `takeover`/`release`.
    */
-  AGENT_ALREADY_WAITING: 'Já avisei a equipe, alguém vai te responder em breve 💬',
+  AGENT_HUMAN_IN_PROGRESS: 'Você já está falando com a nossa equipe — é só mandar sua mensagem por aqui.',
   /**
    * Aviso de item que acabou. Diz o produto, o total novo e devolve a decisão ao cliente.
    *

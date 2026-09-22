@@ -105,8 +105,8 @@ describe('GlobalHandler — pedido de atendente por palavra-chave (T3.1)', () =>
     })
   }
 
-  it('não duplica o pedido quando a conversa já está aguardando atendimento', async () => {
-    const session = buildSession({ humanRequestedAt: new Date() })
+  it('não chama requestHuman de novo quando um atendente já assumiu (mode human)', async () => {
+    const session = buildSession({ mode: 'human', humanRequestedAt: new Date() })
     const { dependencies, texts, requestHumanCalls } = buildDependencies(session)
     const handler = new GlobalHandler(dependencies)
 
@@ -118,7 +118,25 @@ describe('GlobalHandler — pedido de atendente por palavra-chave (T3.1)', () =>
 
     expect(handled).toBe(true)
     expect(requestHumanCalls).toEqual([])
-    expect(texts).toEqual([MESSAGES.AGENT_ALREADY_WAITING])
+    expect(texts).toEqual([MESSAGES.AGENT_HUMAN_IN_PROGRESS])
+  })
+
+  it('chama requestHuman de novo com mode bot mesmo com pedido anterior já resolvido', async () => {
+    // Antes da correção, `humanRequestedAt` antigo (pedido já atendido e devolvido ao bot) fazia
+    // esta chamada ser tratada como duplicata para sempre — o pacote nunca limpa esse campo.
+    const session = buildSession({ mode: 'bot', humanRequestedAt: new Date('2020-01-01') })
+    const { dependencies, texts, requestHumanCalls } = buildDependencies(session)
+    const handler = new GlobalHandler(dependencies)
+
+    const handled = await handler.tryHandle({
+      session,
+      customer: CUSTOMER as Customer,
+      message: textMessage('atendente'),
+    })
+
+    expect(handled).toBe(true)
+    expect(requestHumanCalls).toEqual([PHONE])
+    expect(texts).toEqual([MESSAGES.AGENT_REQUESTED])
   })
 
   it('checa o pedido de atendente ANTES do parser de lista de compras', async () => {
