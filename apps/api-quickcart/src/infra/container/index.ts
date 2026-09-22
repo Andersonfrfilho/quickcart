@@ -82,6 +82,7 @@ import { ConversationEngine } from '@/modules/conversation/application/Conversat
 import { MatchProductsUseCase } from '@/modules/conversation/application/use-cases/MatchProducts.use-case'
 import { ParseShoppingListUseCase } from '@/modules/conversation/application/use-cases/ParseShoppingList.use-case'
 import { GroqListRefinerProvider } from '@/modules/conversation/infra/providers/GroqListRefinerProvider'
+import { CachedKnownBrandsProvider } from '@/modules/conversation/infra/providers/CachedKnownBrandsProvider'
 import { DrizzleListImportRepository } from '@/modules/conversation/infra/database/DrizzleListImportRepository'
 import { DrizzleUnmatchedDemandRepository } from '@/modules/conversation/infra/database/DrizzleUnmatchedDemandRepository'
 import { UnmatchedDemandController } from '@/modules/conversation/infra/http/UnmatchedDemand.controller'
@@ -423,7 +424,10 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
   } = dependencies
 
   const matchProductsUseCase = new MatchProductsUseCase(productRepository)
-  const parseShoppingListUseCase = new ParseShoppingListUseCase(new GroqListRefinerProvider())
+  const parseShoppingListUseCase = new ParseShoppingListUseCase(
+    new GroqListRefinerProvider(),
+    new CachedKnownBrandsProvider(productRepository),
+  )
   const listImportRepository = new DrizzleListImportRepository()
   // Demanda que a loja está perdendo: gravada onde o motivo é conhecido, lida pelo relatório do admin.
   const unmatchedDemandRepository = new DrizzleUnmatchedDemandRepository()

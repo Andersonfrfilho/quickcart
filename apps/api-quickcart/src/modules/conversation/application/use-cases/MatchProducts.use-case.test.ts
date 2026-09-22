@@ -62,6 +62,10 @@ class FakeProductRepository implements ProductRepositoryInterface {
     this.searchCalls.push({ term, limit })
     return this.searchResults
   }
+
+  async listDistinctBrands(): Promise<string[]> {
+    return []
+  }
 }
 
 function buildCandidate(overrides: Partial<ProductSearchResult>): ProductSearchResult {

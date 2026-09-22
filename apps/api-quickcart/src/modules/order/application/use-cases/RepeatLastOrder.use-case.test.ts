@@ -67,6 +67,10 @@ class FakeProductRepository implements ProductRepositoryInterface {
   async searchByTerm(_term: string, _limit: number): Promise<ProductSearchResult[]> {
     return []
   }
+
+  async listDistinctBrands(): Promise<string[]> {
+    return []
+  }
 }
 
 class FakeCartRepository implements CartRepositoryInterface {
