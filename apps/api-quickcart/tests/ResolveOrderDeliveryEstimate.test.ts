@@ -86,6 +86,12 @@ class InMemoryDeliveryFeeTierRepository implements DeliveryFeeTierRepositoryInte
   async replaceAll(): Promise<void> {
     throw new Error('not implemented')
   }
+
+  async hasBeenConfigured(): Promise<boolean> {
+    return true
+  }
+
+  async markConfigured(): Promise<void> {}
 }
 
 function buildUseCase(overrides: { readonly storeCep?: string | undefined; readonly maxDeliveryRadiusKm?: number } = {}) {

@@ -64,6 +64,12 @@ class FakeTierRepository implements DeliveryFeeTierRepositoryInterface {
   async replaceAll(): Promise<void> {
     throw new Error('not used in this test')
   }
+
+  async hasBeenConfigured(): Promise<boolean> {
+    return true
+  }
+
+  async markConfigured(): Promise<void> {}
 }
 
 function buildUseCase(overrides: { readonly tiers?: readonly DeliveryFeeTier[]; readonly storeCep?: string | undefined } = {}) {

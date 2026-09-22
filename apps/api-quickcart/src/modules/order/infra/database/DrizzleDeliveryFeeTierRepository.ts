@@ -14,7 +14,7 @@
 
 import { asc } from 'drizzle-orm'
 import { db } from '@/infra/database/connection'
-import { deliveryFeeTiers } from '@/infra/database/schema'
+import { deliveryFeeSettings, deliveryFeeTiers } from '@/infra/database/schema'
 import { generateId } from '@/shared/id'
 import type {
   DeliveryFeeTier,
@@ -39,6 +39,7 @@ export class DrizzleDeliveryFeeTierRepository implements DeliveryFeeTierReposito
   async replaceAll(tiers: readonly DeliveryFeeTier[]): Promise<void> {
     await db.transaction(async (tx) => {
       await tx.delete(deliveryFeeTiers)
+      await tx.insert(deliveryFeeSettings).values({ id: 1 }).onConflictDoNothing()
       if (tiers.length === 0) return
 
       await tx.insert(deliveryFeeTiers).values(
@@ -49,5 +50,14 @@ export class DrizzleDeliveryFeeTierRepository implements DeliveryFeeTierReposito
         })),
       )
     })
+  }
+
+  async hasBeenConfigured(): Promise<boolean> {
+    const rows = await db.select({ id: deliveryFeeSettings.id }).from(deliveryFeeSettings).limit(1)
+    return rows.length > 0
+  }
+
+  async markConfigured(): Promise<void> {
+    await db.insert(deliveryFeeSettings).values({ id: 1 }).onConflictDoNothing()
   }
 }

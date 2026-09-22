@@ -26,6 +26,10 @@ function buildFakeRepository(initialTiers: readonly DeliveryFeeTier[]) {
       replaceAllCalls.push(next)
       tiers = next
     },
+    async hasBeenConfigured() {
+      return true
+    },
+    async markConfigured() {},
   }
   return { repository, replaceAllCalls }
 }
@@ -67,6 +71,10 @@ describe('ReplaceDeliveryFeeTiersUseCase', () => {
         return oldTiers
       },
       async replaceAll() {},
+      async hasBeenConfigured() {
+        return true
+      },
+      async markConfigured() {},
     }
     const useCase = new ReplaceDeliveryFeeTiersUseCase({ deliveryFeeTierRepository: repository })
 

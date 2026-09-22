@@ -14,7 +14,7 @@
 import { afterAll, afterEach, describe, expect, test } from 'bun:test'
 
 import { db } from '@/infra/database/connection'
-import { deliveryFeeTiers } from '@/infra/database/schema'
+import { deliveryFeeSettings, deliveryFeeTiers } from '@/infra/database/schema'
 import { generateId } from '@/shared/id'
 import { DrizzleDeliveryFeeTierRepository } from '@/modules/order/infra/database/DrizzleDeliveryFeeTierRepository'
 
@@ -22,6 +22,7 @@ const repository = new DrizzleDeliveryFeeTierRepository()
 
 async function limpar(): Promise<void> {
   await db.delete(deliveryFeeTiers)
+  await db.delete(deliveryFeeSettings)
 }
 
 afterEach(limpar)
@@ -63,6 +64,17 @@ describe('DrizzleDeliveryFeeTierRepository', () => {
     await repository.replaceAll([])
 
     expect(await repository.listOrdered()).toEqual([])
+  })
+
+  test('replaceAll grava o marcador, mesmo com lista vazia; markConfigured é idempotente', async () => {
+    expect(await repository.hasBeenConfigured()).toBe(false)
+
+    await repository.replaceAll([])
+    expect(await repository.hasBeenConfigured()).toBe(true)
+
+    await repository.markConfigured()
+    await repository.replaceAll([{ maxDistanceKm: 3, feeInCents: 500 }])
+    expect(await repository.hasBeenConfigured()).toBe(true)
   })
 
   test('o CHECK do banco recusa fee_in_cents negativo mesmo sem passar pela validação de aplicação', async () => {

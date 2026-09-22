@@ -10,6 +10,7 @@
 
 import { describe, expect, it } from 'bun:test'
 import { EnsureDefaultDeliveryFeeTiersUseCase } from '@/modules/order/application/use-cases/EnsureDefaultDeliveryFeeTiers.use-case'
+import { ReplaceDeliveryFeeTiersUseCase } from '@/modules/order/application/use-cases/ReplaceDeliveryFeeTiers.use-case'
 import { DEFAULT_DELIVERY_FEE_TIERS } from '@/modules/order/shared/DefaultDeliveryFeeTiers.constant'
 import type {
   DeliveryFeeTier,
@@ -18,6 +19,7 @@ import type {
 
 class FakeTierRepository implements DeliveryFeeTierRepositoryInterface {
   public replaceAllCalls: (readonly DeliveryFeeTier[])[] = []
+  public isConfigured = false
 
   constructor(private tiers: readonly DeliveryFeeTier[]) {}
 
@@ -28,6 +30,15 @@ class FakeTierRepository implements DeliveryFeeTierRepositoryInterface {
   async replaceAll(tiers: readonly DeliveryFeeTier[]): Promise<void> {
     this.replaceAllCalls.push(tiers)
     this.tiers = tiers
+    this.isConfigured = true
+  }
+
+  async hasBeenConfigured(): Promise<boolean> {
+    return this.isConfigured
+  }
+
+  async markConfigured(): Promise<void> {
+    this.isConfigured = true
   }
 }
 
@@ -61,5 +72,31 @@ describe('EnsureDefaultDeliveryFeeTiersUseCase', () => {
 
     expect(repository.replaceAllCalls.length).toBe(1)
     expect(await repository.listOrdered()).toEqual(DEFAULT_DELIVERY_FEE_TIERS)
+  })
+
+  it('lista vazia depois de um PUT do painel não é semeada de novo', async () => {
+    const repository = new FakeTierRepository([{ maxDistanceKm: 5, feeInCents: 300 }])
+    await new ReplaceDeliveryFeeTiersUseCase({ deliveryFeeTierRepository: repository }).execute({
+      tiers: [],
+      actorUserId: 'user-1',
+    })
+    repository.replaceAllCalls = []
+
+    await new EnsureDefaultDeliveryFeeTiersUseCase({ deliveryFeeTierRepository: repository }).execute()
+
+    expect(repository.replaceAllCalls).toEqual([])
+    expect(await repository.listOrdered()).toEqual([])
+  })
+
+  it('primeira subida semeia e grava o marcador; faixa legada sem marcador só ganha o marcador', async () => {
+    const fresh = new FakeTierRepository([])
+    await new EnsureDefaultDeliveryFeeTiersUseCase({ deliveryFeeTierRepository: fresh }).execute()
+    expect(fresh.replaceAllCalls).toEqual([DEFAULT_DELIVERY_FEE_TIERS])
+    expect(fresh.isConfigured).toBe(true)
+
+    const legacy = new FakeTierRepository([{ maxDistanceKm: 5, feeInCents: 300 }])
+    await new EnsureDefaultDeliveryFeeTiersUseCase({ deliveryFeeTierRepository: legacy }).execute()
+    expect(legacy.replaceAllCalls).toEqual([])
+    expect(legacy.isConfigured).toBe(true)
   })
 })

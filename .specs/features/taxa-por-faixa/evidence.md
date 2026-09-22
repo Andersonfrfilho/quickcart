@@ -595,3 +595,12 @@ Commit único com as mudanças acima. Mensagem em português com o porquê, conf
 - `ResolveCepCoordinate`: CEP da loja (`storeCep`) nunca lê nem grava o cache negativo; dedup em andamento
   (`Map<cep, Promise>`); memória LRU com teto `COORDINATE_MEMORY_CACHE_MAX_ENTRIES = 5000`.
 - Gates: typecheck limpo (api, worker, frontend); api 666 pass / 0 fail; frontend 48 pass / 0 fail.
+
+### B) Faixas vazias persistem
+- Migration aditiva `0025_delivery_fee_settings` (linha única `id = 1`, `tiers_seeded_at`; journal `when` =
+  1790089631319 > 1790083998573). Base que já tinha faixas ganha o marcador na própria migration.
+- `replaceAll` grava o marcador na mesma transação (vale para o seed e para o PUT do painel);
+  `EnsureDefaultDeliveryFeeTiers` só semeia sem marcador. Worker não lê faixas — sem espelho.
+- Testes: vazia depois de PUT não é semeada; primeira subida semeia; legado com faixa só ganha marcador;
+  integração do marcador no Postgres.
+- Gates: typecheck limpo; api 669 / 0 fail; frontend 48 / 0 fail.

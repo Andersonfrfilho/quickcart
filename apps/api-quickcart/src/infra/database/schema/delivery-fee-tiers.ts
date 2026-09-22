@@ -12,7 +12,7 @@
  * linha isolada — por isso não há mais colunas de auditoria aqui além de criado/atualizado.
  */
 
-import { pgTable, uuid, numeric, integer, timestamp, uniqueIndex, check } from 'drizzle-orm/pg-core'
+import { pgTable, uuid, numeric, integer, smallint, timestamp, uniqueIndex, check } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 
 export const deliveryFeeTiers = pgTable(
@@ -33,3 +33,13 @@ export const deliveryFeeTiers = pgTable(
 
 export type DeliveryFeeTierRow = typeof deliveryFeeTiers.$inferSelect
 export type NewDeliveryFeeTierRow = typeof deliveryFeeTiers.$inferInsert
+
+/** Linha única: existe quando as faixas já foram configuradas (seed ou painel) — o seed não roda de novo. */
+export const deliveryFeeSettings = pgTable(
+  'delivery_fee_settings',
+  {
+    id: smallint('id').primaryKey().default(1),
+    tiersSeededAt: timestamp('tiers_seeded_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [check('delivery_fee_settings_single_row_check', sql`${table.id} = 1`)],
+)

@@ -24,4 +24,11 @@ export interface DeliveryFeeTierRepositoryInterface {
    * isolada (design.md "Trade-offs aceitos"), então não há upsert por linha aqui.
    */
   replaceAll(tiers: readonly DeliveryFeeTier[]): Promise<void>
+  /**
+   * `true` depois que alguém (seed ou painel) já configurou as faixas — mesmo que a lista esteja
+   * vazia. É o que distingue "nunca configurado" de "o lojista desligou a entrega".
+   */
+  hasBeenConfigured(): Promise<boolean>
+  /** Grava o marcador sem mexer nas faixas; `replaceAll` já grava na mesma transação. */
+  markConfigured(): Promise<void>
 }
