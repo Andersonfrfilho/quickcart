@@ -29,6 +29,7 @@ import { enterCartReview } from '@/modules/conversation/application/handlers/sup
 import type { UnmatchedDemandRepositoryInterface } from '@/modules/conversation/domain/UnmatchedDemandRepository.interface'
 import { parseQuantityInput } from '@/modules/conversation/application/handlers/support/parseQuantityInput'
 import { BROWSE_PRODUCTS_PER_PAGE } from '@/modules/conversation/shared/Browse.constant'
+import { MATCH_MIN_THRESHOLD } from '@/modules/conversation/shared/Matcher.constant'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import { BROWSE_ROW_ID, BROWSE_ROW_PREFIX, BROWSE_TRIGGER, MESSAGES } from '@/modules/conversation/shared/Messages.constant'
 import { CHANNEL } from '@/modules/shared/shared.constant'
@@ -83,6 +84,11 @@ export class BrowseHandler implements ConversationHandlerInterface {
       return
     }
 
+    if (message.kind === 'text') {
+      await this.sendSearchResults(session, message.body)
+      return
+    }
+
     if (message.kind !== 'list_reply') {
       await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.BROWSE_UNEXPECTED_INPUT)
       return
@@ -133,6 +139,31 @@ export class BrowseHandler implements ConversationHandlerInterface {
       },
     })
     await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.BROWSE_ASK_QUANTITY)
+  }
+
+  /**
+   * Texto livre enquanto navega é o nome do produto que o cliente procura, não um erro.
+   *
+   * As linhas usam o mesmo prefixo da página da categoria, então o toque cai no fluxo de quantidade
+   * de sempre. A página da categoria continua no contexto: "próxima página" segue funcionando.
+   */
+  private async sendSearchResults(session: ConversationSession, rawTerm: string): Promise<void> {
+    const term = rawTerm.trim()
+    const results = await this.dependencies.productRepository.searchByTerm(term, BROWSE_PRODUCTS_PER_PAGE)
+    const matches = results.filter((result) => result.score >= MATCH_MIN_THRESHOLD)
+
+    if (matches.length === 0) {
+      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.BROWSE_SEARCH_NOT_FOUND.replace('{termo}', term))
+      return
+    }
+
+    const section = buildProductSection(matches, false)
+    await this.dependencies.whatsAppSender.sendInteractiveList(
+      session.customerPhone,
+      MESSAGES.BROWSE_SEARCH_RESULTS.replace('{termo}', term),
+      'Ver produtos',
+      [section],
+    )
   }
 
   private async sendProductPage(params: { session: ConversationSession; categoryId: string; page: number }): Promise<void> {

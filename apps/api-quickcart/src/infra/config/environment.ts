@@ -77,7 +77,7 @@ export const environmentSchema = z.object({
    * README de @adatechnology/audio-transcription-provider.
    */
   TRANSCRIPTION_LOCAL_FALLBACK_ENABLED: booleanFromString('false'),
-  TRANSCRIPTION_LOCAL_MODEL_PATH: z.string().default('/models/ggml-small.bin'),
+  TRANSCRIPTION_LOCAL_MODEL_PATH: z.string().default('/models/ggml-large-v3-turbo-q5_0.bin'),
 
   // ── Object storage (arquivos da conversa) ──
   // Desligado, a ingestão não é enfileirada e a biblioteca fica vazia — sem meio erro em runtime.

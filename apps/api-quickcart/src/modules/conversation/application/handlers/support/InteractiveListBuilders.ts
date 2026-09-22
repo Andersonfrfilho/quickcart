@@ -14,7 +14,7 @@
  */
 
 import type { InteractiveListRow, InteractiveListSection } from '@adatechnology/meta-whatsapp-provider'
-import type { Category, Product } from '@/infra/database/schema'
+import type { Category } from '@/infra/database/schema'
 import type { MatchCandidate } from '@/modules/conversation/application/types/MatchProducts.types'
 import type { PendingResolution } from '@/modules/conversation/shared/ConversationContext.types'
 import {
@@ -57,7 +57,10 @@ export function buildCategorySection(categories: readonly Category[]): Interacti
   return { title: truncate('Categorias', LIST_SECTION_TITLE_MAX_LENGTH), rows }
 }
 
-export function buildProductSection(products: readonly Product[], hasNextPage: boolean): InteractiveListSection {
+/** Só o que a linha exibe: vale tanto para a página da categoria quanto para o resultado da busca. */
+type ProductRowSource = PricedItem & { readonly id: string }
+
+export function buildProductSection(products: readonly ProductRowSource[], hasNextPage: boolean): InteractiveListSection {
   const productRows: InteractiveListRow[] = products.map((product) => ({
     id: `${BROWSE_ROW_PREFIX.PRODUCT}${product.id}`,
     title: truncate(product.name, LIST_ROW_TITLE_MAX_LENGTH),
