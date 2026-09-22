@@ -26,6 +26,16 @@ export type CreateOrderFromCartParams = {
    * Vem daqui, e não da env, para o pedido cobrar o mesmo valor contra o qual o troco foi validado.
    */
   readonly quotedDeliveryFeeInCents: number
+  /**
+   * Snapshot da cotação feita no contexto do checkout (spec §3.7): distância, teto e taxa da
+   * faixa aplicada, e a fonte da localização. Opcional por transição — enquanto a Fase 3 não monta
+   * a cotação no contexto, o caminho atual do WhatsApp continua chamando sem eles, e as quatro
+   * colunas gravam `null` (T3.1 fecha essa lacuna).
+   */
+  readonly quotedDeliveryDistanceKm?: number | null | undefined
+  readonly quotedDeliveryTierMaxKm?: number | null | undefined
+  readonly quotedDeliveryTierFeeInCents?: number | null | undefined
+  readonly quotedDeliveryLocationSource?: string | null | undefined
 }
 
 export type CreateOrderFromCartResult = {

@@ -84,3 +84,93 @@
 - Nenhum consumidor ainda usa essas classes (ligação vem nas Fases 2 e 4, quando `CreateWebOrder` recota e a rota pública de cotação existir).
 
 **Números:** typecheck limpo. `bun run test`: 600 pass / 0 fail (91 arquivos) — base 597 + 3 testes novos.
+
+## T2.1 — Colunas e criação
+
+**Arquivos** (api-quickcart):
+- `drizzle/migrations/0024_order_delivery_quote.sql` + entrada `idx: 24` em `meta/_journal.json` com
+  `when: 1790083998573` (maior que o `1790082918150` da 0023). Quatro colunas nullable em `orders`:
+  `delivery_distance_km numeric(6,2)`, `delivery_tier_max_km numeric(5,2)`,
+  `delivery_tier_fee_in_cents integer`, `delivery_location_source varchar(20)`.
+- `src/infra/database/schema/orders.ts` (api) e `apps/worker-quickcart/src/infra/database/schema/orders.ts`
+  (espelho, só leitura) ganham as quatro colunas.
+- `OrderRepository.interface.ts` — `OrderRecord` ganha os quatro campos (obrigatórios, `number | null`);
+  `CreateOrderWithItemsParams` ganha os mesmos quatro, opcionais (`?: number | string | null | undefined`).
+- `DrizzleOrderRepository.ts` — `toOrderRecord` converte os `numeric` (string do Postgres) para `number`
+  com `Number(...)`; `createWithStockDecrement` grava `String(...)` nas colunas numéricas e `null` quando
+  ausente.
+- `CreateOrderFromCart.types.ts`/`.use-case.ts` — quatro campos novos **opcionais**
+  (`quotedDeliveryDistanceKm`, `quotedDeliveryTierMaxKm`, `quotedDeliveryTierFeeInCents`,
+  `quotedDeliveryLocationSource`), gravados como `null` quando ausentes. **Transição**: o caminho atual do
+  WhatsApp (`CheckoutHandler.confirmOrder`) continua chamando sem eles — a T3.1 monta a cotação no
+  contexto do checkout e passa a preenchê-los.
+- `CreateWebOrder.use-case.ts` — reescrito para **recotar** via `QuoteDeliveryFeeUseCase` injetado
+  (`Pick<QuoteDeliveryFeeUseCase, 'execute'>`, registrado no container) em vez de ler
+  `configuredDeliveryFeeInCents` da env. Fluxo (`quoteDelivery`): retirada → taxa 0 e as quatro colunas
+  nulas, sem chamar a cotação; `out_of_range` → `DeliveryOutOfRangeError` (422); `unavailable` →
+  `DeliveryUnavailableError` (422); `quoted`/`approximate_max_tier` → grava taxa, faixa e fonte (distância
+  só em `quoted`; `approximate_max_tier` não calcula distância, por design da T1.1/D3). Em qualquer kind
+  de entrega, se `expectedDeliveryFeeInCents` foi enviado e diverge da taxa recotada →
+  `DeliveryFeeChangedError` (409); ausente, não compara.
+- `CreateWebOrder.types.ts` — `expectedDeliveryFeeInCents?: number` novo, opcional (a Fase 4 faz a tela
+  mandar).
+- `src/infra/container/index.ts` (`buildOrderModule`) — reordenado: `resolveCepCoordinateUseCase` e um
+  `DrizzleDeliveryFeeTierRepository` novo sobem antes de `createWebOrderUseCase`, para montar
+  `quoteDeliveryFeeUseCase` (mesmos `environment.STORE_CEP`/`DISTANCE_DETOUR_FACTOR` que
+  `ResolveOrderDeliveryEstimateUseCase` já usava) e injetá-lo no lugar de `configuredDeliveryFeeInCents`.
+- `OrderSeedRunner.ts` — monta seu próprio `quoteDeliveryFeeUseCase` (mesmas peças: `DrizzleDeliveryFeeTierRepository`,
+  `ResolveCepCoordinateUseCase` com os repositórios Drizzle reais e `NominatimGeocodingProvider`) em vez de
+  `configuredDeliveryFeeInCents`. **Decisão registrada**: os CEPs de `OrderSeedCustomers.ts` são endereços
+  reais de São Paulo que nunca foram validados contra `STORE_CEP`/as faixas — a seed não roda em
+  `bun run test` (só é chamada manualmente por `seeds/index.ts` no boot de desenvolvimento), então isto
+  fica fora do gate de teste automatizado; typecheck confirma que a chamada compila, mas a execução real
+  da seed pode agora lançar `DeliveryOutOfRangeError`/`DeliveryUnavailableError` para os clientes de
+  entrega se o CEP da loja de dev não cobrir essas distâncias. Fica como aviso para quem rodar a seed
+  localmente — corrigir os CEPs de exemplo é T6.1/backlog, não bloqueia este gate.
+- **`amountDue.ts` NÃO teve `resolveDeliveryFeeInCents` removida** — `CreateOrderFromCart.use-case.ts`
+  ainda a usa (transição do item acima), assim como `Store.controller.ts`, `CheckoutHandler.ts` e
+  `resolveCheckoutDeliveryFeeInCents.ts`. `amountDueInCents` continua intocada. Remoção fica para quando a
+  Fase 3 (T3.1) tirar o WhatsApp desse caminho, ou T6.1 na limpeza final.
+
+**Arquivos** (worker-quickcart):
+- `src/infra/database/schema/orders.ts` — quatro colunas espelhadas (só leitura).
+- `OrderReceiptData.types.ts`, `DrizzleOrderReceiptRepository.ts`, `ReceiptProvider.interface.ts`,
+  `ProcessReceiptJob.use-case.ts` — `deliveryTierMaxKm: number | null` passa a fluir do banco até o
+  provider do recibo.
+- `SimpleReceiptProvider.ts` (`buildTotalLines`) — rótulo da taxa vira `"Taxa de entrega (até N km)"`
+  quando `deliveryTierMaxKm !== null`; sem faixa, mantém `"Taxa de entrega"`. **`FiscalReceiptProvider.ts`
+  não foi tocado** — continua somando só os itens.
+
+**Testes novos/ajustados:**
+- `CreateWebOrder.use-case.test.ts` — reescrito com `FakeQuoteDeliveryFeeUseCase` controlável por `kind`;
+  cobre `quoted` (grava taxa/distância/faixa/fonte), `approximate_max_tier` (sem distância), retirada
+  (zero chamadas à cotação), `out_of_range` → 422, `unavailable` → erro certo, taxa mudou → 409, taxa
+  igual → cria.
+- `CreateWebOrder.use-case.integration.test.ts` e `DrizzleOrderRepository.deliveryFee.integration.test.ts`
+  — trocado `configuredDeliveryFeeInCents` por um `quoteDeliveryFeeUseCase` fixo (o primeiro nem chama,
+  pois só testa retirada; o segundo devolve sempre `quoted`/800). Acrescentado
+  `describe('DrizzleOrderRepository — snapshot da cotação (T2.1...)')`: entrega grava as quatro colunas,
+  retirada grava as quatro `null` — prova de banco real que as colunas existem e aceitam `null`.
+- `CreateOrderFromCart.use-case.test.ts` — dois testes novos: recebendo a cotação, grava distância/faixa/
+  fonte; sem cotação (caminho atual do WhatsApp), grava as quatro colunas `null`.
+- `SimpleReceiptProvider.test.ts`, `FiscalReceiptProvider.test.ts`, `ProcessReceiptJob.use-case.test.ts`
+  (worker) — fixtures ganham `deliveryTierMaxKm`; teste novo prova o rótulo "(até N km)" e que a NFC-e
+  (`FiscalReceiptProvider`) segue inalterada.
+- Fixtures de `OrderRecord` em `RepeatLastOrder`/`GetOrderByShortCode`/`UpdateOrderStatus.use-case.test.ts`
+  ganharam os quatro campos `null` (a interface passou a exigi-los). Mocks de `CheckoutHandler.*.test.ts`
+  e `ConversationCheckoutContext.controller.test.ts` usam `as unknown as` e não precisaram de ajuste.
+
+**Decisões:**
+- `approximate_max_tier` nunca grava `deliveryDistanceKm` (fica `null`): a T1.1 decidiu não calcular
+  distância nesse caso (seria a da cidade, não a da casa) — o snapshot só registra o que foi calculado.
+- `expectedDeliveryFeeInCents` é comparado também na retirada (0) e no `approximate_max_tier`, não só no
+  `quoted` — a spec fala em "a taxa cotada difere de uma taxa esperada" sem restringir a um `kind`, e
+  tratar os três do mesmo jeito evita um quarto caminho sem essa checagem.
+- Sem migration de dado (backfill): a spec marca as quatro colunas como nulas em pedido antigo por
+  definição — não há cotação retroativa a calcular.
+
+**Números:** typecheck limpo nos dois apps. Migration `0024` aplicada no banco de teste (`\d orders`
+confere as quatro colunas nullable). `bun run test`: api-quickcart 609 pass / 0 fail (base 600 + 9 novos:
+7 em `CreateWebOrder.use-case.test.ts`, 2 em `CreateOrderFromCart.use-case.test.ts`, mais os 2 de
+integração do repositório substituem os 2 antigos sem aumentar a contagem líquida); worker-quickcart 21
+pass / 0 fail (base 20 + 1 novo, rótulo "(até N km)").

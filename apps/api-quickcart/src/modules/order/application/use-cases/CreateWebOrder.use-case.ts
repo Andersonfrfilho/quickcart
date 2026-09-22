@@ -17,9 +17,14 @@
  * polling até o vencedor substituir o sentinela pelo `shortCode` real, ou expira em conflito.
  */
 
-import { OrderInsufficientStockError, OrderIdempotencyConflictError } from '@/shared/errors/OrderErrors'
+import {
+  OrderInsufficientStockError,
+  OrderIdempotencyConflictError,
+  DeliveryOutOfRangeError,
+  DeliveryFeeChangedError,
+  DeliveryUnavailableError,
+} from '@/shared/errors/OrderErrors'
 import { generateId } from '@/shared/id'
-import { resolveDeliveryFeeInCents } from '@/modules/order/shared/amountDue'
 import { buildPricedOrderItems } from '@/modules/order/shared/buildPricedOrderItems'
 import { CHANNEL } from '@/modules/shared/shared.constant'
 import {
@@ -28,20 +33,35 @@ import {
   ORDER_IDEMPOTENCY_PENDING_SENTINEL,
   ORDER_IDEMPOTENCY_POLL_INTERVAL_MS,
   ORDER_IDEMPOTENCY_POLL_TIMEOUT_MS,
+  DELIVERY_TYPE,
 } from '@/modules/order/shared/Order.constant'
+import { DELIVERY_QUOTE_KIND, CUSTOMER_LOCATION_KIND } from '@/modules/order/shared/DeliveryFeeQuote.constant'
 import type { ProductRepositoryInterface } from '@/modules/catalog/domain/ProductRepository.interface'
 import type { CustomerRepositoryInterface } from '@/modules/webhook/domain/CustomerRepository.interface'
 import type { CacheProvider } from '@/shared/providers/CacheProvider.interface'
 import type { OrderRepositoryInterface, CreateOrderItemInput } from '@/modules/order/domain/OrderRepository.interface'
+import type { QuoteDeliveryFeeUseCase } from '@/modules/order/application/use-cases/QuoteDeliveryFee.use-case'
 import type { CreateWebOrderItemInput, CreateWebOrderParams, CreateWebOrderResult } from '../types/CreateWebOrder.types'
+
+type DeliveryQuoteSnapshot = {
+  readonly feeInCents: number
+  readonly distanceKm: number | null
+  readonly tierMaxKm: number | null
+  readonly tierFeeInCents: number | null
+  readonly locationSource: string | null
+}
 
 type CreateWebOrderUseCaseDependencies = {
   readonly orderRepository: OrderRepositoryInterface
   readonly productRepository: ProductRepositoryInterface
   readonly customerRepository: CustomerRepositoryInterface
   readonly cacheProvider: CacheProvider
-  /** `DELIVERY_FEE_CENTS`. A web não tem etapa anterior que congele a taxa, então lê na criação. */
-  readonly configuredDeliveryFeeInCents: number
+  /**
+   * A web não confia no navegador (spec §3.5): recota pelo CEP do endereço a cada criação, e não lê
+   * uma taxa fixa da env. Se a taxa mudou desde a cotação que o cliente viu, `DeliveryFeeChangedError`
+   * (409); fora do raio, `DeliveryOutOfRangeError` (422); sem como calcular, `DeliveryUnavailableError`.
+   */
+  readonly quoteDeliveryFeeUseCase: Pick<QuoteDeliveryFeeUseCase, 'execute'>
 }
 
 export class CreateWebOrderUseCase {
@@ -89,6 +109,8 @@ export class CreateWebOrderUseCase {
 
   private async createOrder(params: CreateWebOrderParams, cacheKey: string): Promise<CreateWebOrderResult> {
     try {
+      const quote = await this.quoteDelivery(params)
+
       const customer = await this.dependencies.customerRepository.upsertByPhone({
         phone: params.customer.phone,
         name: params.customer.name,
@@ -105,10 +127,11 @@ export class CreateWebOrderUseCase {
         paymentMethod: params.paymentMethod,
         receiptPreference: params.receiptPreference,
         notes: params.notes,
-        deliveryFeeInCents: resolveDeliveryFeeInCents({
-          deliveryType: params.deliveryType,
-          configuredFeeInCents: this.dependencies.configuredDeliveryFeeInCents,
-        }),
+        deliveryFeeInCents: quote.feeInCents,
+        deliveryDistanceKm: quote.distanceKm,
+        deliveryTierMaxKm: quote.tierMaxKm,
+        deliveryTierFeeInCents: quote.tierFeeInCents,
+        deliveryLocationSource: quote.locationSource,
         items,
       })
 
@@ -121,6 +144,63 @@ export class CreateWebOrderUseCase {
       await this.dependencies.cacheProvider.del(cacheKey)
       throw error
     }
+  }
+
+  /**
+   * Recota pelo CEP do endereço de entrega (spec §3.5) — nunca confia na taxa que o navegador mandou.
+   *
+   * A validação do schema já garante endereço presente na entrega e ausente na retirada
+   * (`CreateWebOrder.schema.ts`), então `params.address!.cep` é seguro aqui.
+   */
+  private async quoteDelivery(params: CreateWebOrderParams): Promise<DeliveryQuoteSnapshot> {
+    if (params.deliveryType !== DELIVERY_TYPE.DELIVERY) {
+      this.assertFeeMatchesExpectation(params, 0)
+      return { feeInCents: 0, distanceKm: null, tierMaxKm: null, tierFeeInCents: null, locationSource: null }
+    }
+
+    const cep = params.address!.cep
+    const quote = await this.dependencies.quoteDeliveryFeeUseCase.execute({
+      deliveryType: params.deliveryType,
+      location: { kind: CUSTOMER_LOCATION_KIND.CEP, cep },
+    })
+
+    if (quote.kind === DELIVERY_QUOTE_KIND.OUT_OF_RANGE) {
+      throw new DeliveryOutOfRangeError({ distanceKm: quote.distanceKm, maxDistanceKm: quote.maxDistanceKm })
+    }
+    if (quote.kind === DELIVERY_QUOTE_KIND.UNAVAILABLE) {
+      throw new DeliveryUnavailableError(quote.reason)
+    }
+
+    if (quote.kind === DELIVERY_QUOTE_KIND.APPROXIMATE_MAX_TIER) {
+      this.assertFeeMatchesExpectation(params, quote.feeInCents)
+      return {
+        feeInCents: quote.feeInCents,
+        distanceKm: null,
+        tierMaxKm: quote.tier.maxDistanceKm,
+        tierFeeInCents: quote.tier.feeInCents,
+        locationSource: quote.source,
+      }
+    }
+
+    if (quote.kind !== DELIVERY_QUOTE_KIND.QUOTED) {
+      // `pickup` nunca chega aqui (retorno antecipado no início do método) — sobra só `quoted`.
+      throw new DeliveryUnavailableError('unexpected_quote_kind')
+    }
+
+    this.assertFeeMatchesExpectation(params, quote.feeInCents)
+    return {
+      feeInCents: quote.feeInCents,
+      distanceKm: quote.distanceKm,
+      tierMaxKm: quote.tier.maxDistanceKm,
+      tierFeeInCents: quote.tier.feeInCents,
+      locationSource: quote.source,
+    }
+  }
+
+  private assertFeeMatchesExpectation(params: CreateWebOrderParams, currentFeeInCents: number): void {
+    const expected = params.expectedDeliveryFeeInCents
+    if (expected === undefined || expected === currentFeeInCents) return
+    throw new DeliveryFeeChangedError({ previousFeeInCents: expected, currentFeeInCents })
   }
 
   private async buildOrderItems(requestedItems: ReadonlyArray<CreateWebOrderItemInput>): Promise<CreateOrderItemInput[]> {

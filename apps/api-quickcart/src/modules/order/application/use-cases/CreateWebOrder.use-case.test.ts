@@ -12,7 +12,15 @@
  */
 
 import { describe, expect, test } from 'bun:test'
-import { OrderInsufficientStockError } from '@/shared/errors/OrderErrors'
+import {
+  OrderInsufficientStockError,
+  DeliveryOutOfRangeError,
+  DeliveryFeeChangedError,
+  DeliveryUnavailableError,
+} from '@/shared/errors/OrderErrors'
+import { DELIVERY_QUOTE_KIND, DELIVERY_LOCATION_SOURCE } from '@/modules/order/shared/DeliveryFeeQuote.constant'
+import type { QuoteDeliveryFeeUseCase } from './QuoteDeliveryFee.use-case'
+import type { QuoteDeliveryFeeResult } from '@/modules/order/application/types/QuoteDeliveryFee.types'
 import type { CacheProvider } from '@/shared/providers/CacheProvider.interface'
 import type {
   CustomerRepositoryInterface,
@@ -191,6 +199,10 @@ class FakeOrderRepository implements OrderRepositoryInterface {
       deliveryType: params.deliveryType,
       address: params.address ?? null,
       legacyAddressText: null,
+      deliveryDistanceKm: params.deliveryDistanceKm ?? null,
+      deliveryTierMaxKm: params.deliveryTierMaxKm ?? null,
+      deliveryTierFeeInCents: params.deliveryTierFeeInCents ?? null,
+      deliveryLocationSource: params.deliveryLocationSource ?? null,
       paymentMethod: params.paymentMethod,
       receiptPreference: params.receiptPreference,
       fiscalDocumentId: null,
@@ -343,20 +355,52 @@ function buildProduct(overrides: Partial<Product> = {}): Product {
   }
 }
 
-function buildDependencies(products: Map<string, Product>, configuredDeliveryFeeInCents = 0) {
+class FakeQuoteDeliveryFeeUseCase implements Pick<QuoteDeliveryFeeUseCase, 'execute'> {
+  constructor(private readonly result: QuoteDeliveryFeeResult) {}
+
+  readonly calls: unknown[] = []
+
+  async execute(params: unknown): Promise<QuoteDeliveryFeeResult> {
+    this.calls.push(params)
+    return this.result
+  }
+}
+
+const DEFAULT_QUOTE_RESULT: QuoteDeliveryFeeResult = {
+  kind: DELIVERY_QUOTE_KIND.QUOTED,
+  feeInCents: 800,
+  distanceKm: 2,
+  tier: { maxDistanceKm: 3, feeInCents: 800 },
+  source: DELIVERY_LOCATION_SOURCE.CEP,
+}
+
+function buildAddress(overrides: Record<string, unknown> = {}) {
+  return {
+    cep: '01310-100',
+    street: 'Av. Paulista',
+    number: '1000',
+    neighborhood: 'Bela Vista',
+    city: 'São Paulo',
+    state: 'SP',
+    ...overrides,
+  }
+}
+
+function buildDependencies(products: Map<string, Product>, quoteResult: QuoteDeliveryFeeResult = DEFAULT_QUOTE_RESULT) {
   const orderRepository = new FakeOrderRepository(products)
   const productRepository = new FakeProductRepository(products)
   const customerRepository = new FakeCustomerRepository()
   const cacheProvider = new FakeCacheProvider()
+  const quoteDeliveryFeeUseCase = new FakeQuoteDeliveryFeeUseCase(quoteResult)
   const useCase = new CreateWebOrderUseCase({
     orderRepository,
     productRepository,
     customerRepository,
     cacheProvider,
-    configuredDeliveryFeeInCents,
+    quoteDeliveryFeeUseCase,
   })
 
-  return { useCase, orderRepository, productRepository, customerRepository, cacheProvider }
+  return { useCase, orderRepository, productRepository, customerRepository, cacheProvider, quoteDeliveryFeeUseCase }
 }
 
 describe('CreateWebOrderUseCase', () => {
@@ -369,6 +413,7 @@ describe('CreateWebOrderUseCase', () => {
       customer: { name: 'Maria', phone: '5511999999999' },
       items: [{ productId: 'product-1', quantity: 2 }],
       deliveryType: 'delivery',
+      address: buildAddress(),
       paymentMethod: 'pix',
       receiptPreference: 'email',
     })
@@ -388,6 +433,7 @@ describe('CreateWebOrderUseCase', () => {
       customer: { name: 'Maria', phone: '5511999999999' },
       items: [{ productId: 'product-1', quantity: 1 }],
       deliveryType: 'delivery',
+      address: buildAddress(),
       paymentMethod: 'pix',
       receiptPreference: 'email',
     }
@@ -410,6 +456,7 @@ describe('CreateWebOrderUseCase', () => {
         customer: { name: 'Maria', phone: '5511999999999' },
         items: [{ productId: 'product-1', quantity: 5 }],
         deliveryType: 'delivery',
+        address: buildAddress(),
         paymentMethod: 'pix',
         receiptPreference: 'email',
       }),
@@ -417,33 +464,94 @@ describe('CreateWebOrderUseCase', () => {
   })
 })
 
-describe('CreateWebOrderUseCase — taxa de entrega (T2.1)', () => {
-  function buildParams(deliveryType: string) {
+describe('CreateWebOrderUseCase — recotação com QuoteDeliveryFee (T2.1)', () => {
+  function buildParams(deliveryType: string, overrides: Record<string, unknown> = {}) {
     return {
-      idempotencyKey: `idem-${deliveryType}`,
+      idempotencyKey: `idem-${deliveryType}-${Math.random()}`,
       customer: { name: 'Maria', phone: '5511999999999' },
       items: [{ productId: 'product-1', quantity: 2 }],
       deliveryType,
+      ...(deliveryType === 'delivery' ? { address: buildAddress() } : {}),
       paymentMethod: 'pix',
       receiptPreference: 'email',
+      ...overrides,
     }
   }
 
-  test('entrega grava a taxa configurada, fora do total dos itens', async () => {
-    const { useCase } = buildDependencies(new Map([['product-1', buildProduct()]]), 800)
+  test('entrega "quoted" grava taxa, distância, faixa e fonte — fora do total dos itens', async () => {
+    const { useCase } = buildDependencies(new Map([['product-1', buildProduct()]]), DEFAULT_QUOTE_RESULT)
 
     const result = await useCase.execute(buildParams('delivery'))
 
     expect(result.order.deliveryFeeInCents).toBe(800)
     expect(result.order.totalInCents).toBe(5000)
-    expect(result.items).toHaveLength(1)
+    expect(result.order.deliveryDistanceKm).toBe(2)
+    expect(result.order.deliveryTierMaxKm).toBe(3)
+    expect(result.order.deliveryTierFeeInCents).toBe(800)
+    expect(result.order.deliveryLocationSource).toBe(DELIVERY_LOCATION_SOURCE.CEP)
   })
 
-  test('retirada grava 0 mesmo com taxa configurada', async () => {
-    const { useCase } = buildDependencies(new Map([['product-1', buildProduct()]]), 800)
+  test('entrega "approximate_max_tier" grava a maior faixa sem distância', async () => {
+    const { useCase } = buildDependencies(new Map([['product-1', buildProduct()]]), {
+      kind: DELIVERY_QUOTE_KIND.APPROXIMATE_MAX_TIER,
+      feeInCents: 1000,
+      tier: { maxDistanceKm: 8, feeInCents: 1000 },
+      source: DELIVERY_LOCATION_SOURCE.CEP_APPROXIMATE,
+    })
+
+    const result = await useCase.execute(buildParams('delivery'))
+
+    expect(result.order.deliveryFeeInCents).toBe(1000)
+    expect(result.order.deliveryDistanceKm).toBeNull()
+    expect(result.order.deliveryTierMaxKm).toBe(8)
+    expect(result.order.deliveryLocationSource).toBe(DELIVERY_LOCATION_SOURCE.CEP_APPROXIMATE)
+  })
+
+  test('retirada grava taxa 0 e as quatro colunas de cotação nulas — não chama QuoteDeliveryFee', async () => {
+    const { useCase, quoteDeliveryFeeUseCase } = buildDependencies(new Map([['product-1', buildProduct()]]))
 
     const result = await useCase.execute(buildParams('pickup'))
 
     expect(result.order.deliveryFeeInCents).toBe(0)
+    expect(result.order.deliveryDistanceKm).toBeNull()
+    expect(result.order.deliveryTierMaxKm).toBeNull()
+    expect(result.order.deliveryTierFeeInCents).toBeNull()
+    expect(result.order.deliveryLocationSource).toBeNull()
+    expect(quoteDeliveryFeeUseCase.calls).toHaveLength(0)
+  })
+
+  test('fora do raio lança DeliveryOutOfRangeError (422)', async () => {
+    const { useCase } = buildDependencies(new Map([['product-1', buildProduct()]]), {
+      kind: DELIVERY_QUOTE_KIND.OUT_OF_RANGE,
+      distanceKm: 12,
+      maxDistanceKm: 8,
+    })
+
+    await expect(useCase.execute(buildParams('delivery'))).rejects.toBeInstanceOf(DeliveryOutOfRangeError)
+  })
+
+  test('sem como cotar lança DeliveryUnavailableError', async () => {
+    const { useCase } = buildDependencies(new Map([['product-1', buildProduct()]]), {
+      kind: DELIVERY_QUOTE_KIND.UNAVAILABLE,
+      reason: 'no_store_cep',
+    })
+
+    await expect(useCase.execute(buildParams('delivery'))).rejects.toBeInstanceOf(DeliveryUnavailableError)
+  })
+
+  test('taxa mudou desde a cotação que o cliente viu → DeliveryFeeChangedError (409)', async () => {
+    const { useCase } = buildDependencies(new Map([['product-1', buildProduct()]]), DEFAULT_QUOTE_RESULT)
+
+    await expect(
+      useCase.execute(buildParams('delivery', { expectedDeliveryFeeInCents: 500 })),
+    ).rejects.toBeInstanceOf(DeliveryFeeChangedError)
+  })
+
+  test('taxa igual à esperada cria o pedido normalmente', async () => {
+    const { useCase } = buildDependencies(new Map([['product-1', buildProduct()]]), DEFAULT_QUOTE_RESULT)
+
+    const result = await useCase.execute(buildParams('delivery', { expectedDeliveryFeeInCents: 800 }))
+
+    expect(result.order.deliveryFeeInCents).toBe(800)
   })
 })

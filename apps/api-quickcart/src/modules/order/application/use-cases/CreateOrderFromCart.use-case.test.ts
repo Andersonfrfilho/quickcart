@@ -200,6 +200,10 @@ class FakeOrderRepository implements OrderRepositoryInterface {
       deliveryType: params.deliveryType,
       address: params.address ?? null,
       legacyAddressText: null,
+      deliveryDistanceKm: params.deliveryDistanceKm ?? null,
+      deliveryTierMaxKm: params.deliveryTierMaxKm ?? null,
+      deliveryTierFeeInCents: params.deliveryTierFeeInCents ?? null,
+      deliveryLocationSource: params.deliveryLocationSource ?? null,
       paymentMethod: params.paymentMethod,
       receiptPreference: params.receiptPreference,
       fiscalDocumentId: null,
@@ -475,7 +479,14 @@ describe('CreateOrderFromCartUseCase', () => {
 })
 
 describe('CreateOrderFromCartUseCase — taxa de entrega (T2.1)', () => {
-  async function createOrder(params: { readonly deliveryType: string; readonly quotedDeliveryFeeInCents: number }) {
+  async function createOrder(params: {
+    readonly deliveryType: string
+    readonly quotedDeliveryFeeInCents: number
+    readonly quotedDeliveryDistanceKm?: number
+    readonly quotedDeliveryTierMaxKm?: number
+    readonly quotedDeliveryTierFeeInCents?: number
+    readonly quotedDeliveryLocationSource?: string
+  }) {
     const products = new Map([['product-1', buildProduct()]])
     const cartRepository = new FakeCartRepository()
     const useCase = new CreateOrderFromCartUseCase({
@@ -494,6 +505,10 @@ describe('CreateOrderFromCartUseCase — taxa de entrega (T2.1)', () => {
       paymentMethod: 'pix',
       receiptPreference: 'whatsapp',
       quotedDeliveryFeeInCents: params.quotedDeliveryFeeInCents,
+      quotedDeliveryDistanceKm: params.quotedDeliveryDistanceKm,
+      quotedDeliveryTierMaxKm: params.quotedDeliveryTierMaxKm,
+      quotedDeliveryTierFeeInCents: params.quotedDeliveryTierFeeInCents,
+      quotedDeliveryLocationSource: params.quotedDeliveryLocationSource,
     })
   }
 
@@ -509,5 +524,30 @@ describe('CreateOrderFromCartUseCase — taxa de entrega (T2.1)', () => {
     const result = await createOrder({ deliveryType: 'pickup', quotedDeliveryFeeInCents: 800 })
 
     expect(result.order.deliveryFeeInCents).toBe(0)
+  })
+
+  test('recebendo a cotação (transição §T3.1), grava distância, faixa e fonte no pedido', async () => {
+    const result = await createOrder({
+      deliveryType: 'delivery',
+      quotedDeliveryFeeInCents: 800,
+      quotedDeliveryDistanceKm: 2,
+      quotedDeliveryTierMaxKm: 3,
+      quotedDeliveryTierFeeInCents: 800,
+      quotedDeliveryLocationSource: 'whatsapp_location',
+    })
+
+    expect(result.order.deliveryDistanceKm).toBe(2)
+    expect(result.order.deliveryTierMaxKm).toBe(3)
+    expect(result.order.deliveryTierFeeInCents).toBe(800)
+    expect(result.order.deliveryLocationSource).toBe('whatsapp_location')
+  })
+
+  test('caminho atual do WhatsApp (sem cotação no contexto) grava as quatro colunas como null', async () => {
+    const result = await createOrder({ deliveryType: 'delivery', quotedDeliveryFeeInCents: 800 })
+
+    expect(result.order.deliveryDistanceKm).toBeNull()
+    expect(result.order.deliveryTierMaxKm).toBeNull()
+    expect(result.order.deliveryTierFeeInCents).toBeNull()
+    expect(result.order.deliveryLocationSource).toBeNull()
   })
 })

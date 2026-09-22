@@ -21,9 +21,15 @@
  */
 
 import { CreateWebOrderUseCase } from '@/modules/order/application/use-cases/CreateWebOrder.use-case'
+import { QuoteDeliveryFeeUseCase } from '@/modules/order/application/use-cases/QuoteDeliveryFee.use-case'
 import { DrizzleOrderRepository } from '@/modules/order/infra/database/DrizzleOrderRepository'
+import { DrizzleDeliveryFeeTierRepository } from '@/modules/order/infra/database/DrizzleDeliveryFeeTierRepository'
 import { DrizzleProductRepository } from '@/modules/catalog/infra/database/DrizzleProductRepository'
 import { DrizzleCustomerRepository } from '@/modules/webhook/infra/database/DrizzleCustomerRepository'
+import { ResolveCepCoordinateUseCase } from '@/modules/shared/address/ResolveCepCoordinate.use-case'
+import { DrizzleGeocodedAddressRepository } from '@/modules/shared/address/infra/DrizzleGeocodedAddressRepository'
+import { DrizzleGeocodeFailureRepository } from '@/modules/shared/address/infra/DrizzleGeocodeFailureRepository'
+import { NominatimGeocodingProvider } from '@/infra/nominatim/NominatimGeocodingProvider'
 import type { CacheProvider } from '@/shared/providers/CacheProvider.interface'
 import { generateId } from '@/shared/id'
 import { environment } from '@/infra/config/environment'
@@ -63,12 +69,23 @@ export async function seedOrders(): Promise<void> {
   const productRepository = new DrizzleProductRepository()
   const customerRepository = new DrizzleCustomerRepository()
 
+  const resolveCepCoordinateUseCase = new ResolveCepCoordinateUseCase({
+    geocodedAddressRepository: new DrizzleGeocodedAddressRepository(),
+    geocodingProvider: new NominatimGeocodingProvider(),
+    geocodeFailureRepository: new DrizzleGeocodeFailureRepository(),
+  })
+  const quoteDeliveryFeeUseCase = new QuoteDeliveryFeeUseCase({
+    deliveryFeeTierRepository: new DrizzleDeliveryFeeTierRepository(),
+    resolveCepCoordinateUseCase,
+    storeCep: environment.STORE_CEP,
+    detourFactor: environment.DISTANCE_DETOUR_FACTOR,
+  })
   const createWebOrderUseCase = new CreateWebOrderUseCase({
     orderRepository,
     productRepository,
     customerRepository,
     cacheProvider: new InMemoryCacheProvider(),
-    configuredDeliveryFeeInCents: environment.DELIVERY_FEE_CENTS,
+    quoteDeliveryFeeUseCase,
   })
 
   const catalog = await productRepository.list({

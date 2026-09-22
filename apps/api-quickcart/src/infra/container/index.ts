@@ -118,6 +118,7 @@ import { DrizzleGeocodedAddressRepository } from '@/modules/shared/address/infra
 import { DrizzleGeocodeFailureRepository } from '@/modules/shared/address/infra/DrizzleGeocodeFailureRepository'
 import { DrizzleDeliveryFeeTierRepository } from '@/modules/order/infra/database/DrizzleDeliveryFeeTierRepository'
 import { EnsureDefaultDeliveryFeeTiersUseCase } from '@/modules/order/application/use-cases/EnsureDefaultDeliveryFeeTiers.use-case'
+import { QuoteDeliveryFeeUseCase } from '@/modules/order/application/use-cases/QuoteDeliveryFee.use-case'
 import { SetOrderItemUnavailableUseCase } from '@/modules/order/application/use-cases/SetOrderItemUnavailable.use-case'
 import { SetOrderItemPickedUseCase } from '@/modules/order/application/use-cases/SetOrderItemPicked.use-case'
 import { AskUnavailableItemsUseCase } from '@/modules/order/application/use-cases/AskUnavailableItems.use-case'
@@ -239,12 +240,28 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     cartRepository: dependencies.cartRepository,
     productRepository: dependencies.productRepository,
   })
+  /*
+   * Coordenada por CEP, cacheada em Postgres. Uma instância só do provider por processo, porque é ela
+   * que guarda o instante da última chamada para respeitar o 1 req/s do Nominatim.
+   */
+  const resolveCepCoordinateUseCase = new ResolveCepCoordinateUseCase({
+    geocodedAddressRepository: new DrizzleGeocodedAddressRepository(),
+    geocodingProvider: new NominatimGeocodingProvider(),
+    geocodeFailureRepository: new DrizzleGeocodeFailureRepository(),
+  })
+  const deliveryFeeTierRepository = new DrizzleDeliveryFeeTierRepository()
+  const quoteDeliveryFeeUseCase = new QuoteDeliveryFeeUseCase({
+    deliveryFeeTierRepository,
+    resolveCepCoordinateUseCase,
+    storeCep: environment.STORE_CEP,
+    detourFactor: environment.DISTANCE_DETOUR_FACTOR,
+  })
   const createWebOrderUseCase = new CreateWebOrderUseCase({
     orderRepository,
     productRepository: dependencies.productRepository,
     customerRepository: dependencies.customerRepository,
     cacheProvider: dependencies.cacheProvider,
-    configuredDeliveryFeeInCents: environment.DELIVERY_FEE_CENTS,
+    quoteDeliveryFeeUseCase,
   })
   const getOrderByShortCodeUseCase = new GetOrderByShortCodeUseCase({
     orderRepository,
@@ -256,15 +273,6 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     notifyStatusChanged: (params) => dependencies.resolveOrderStatusNotifier().notifyStatusChanged(params),
   }
   const updateOrderStatusUseCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier, receiptQueue })
-  /*
-   * Coordenada por CEP, cacheada em Postgres. Uma instância só do provider por processo, porque é ela
-   * que guarda o instante da última chamada para respeitar o 1 req/s do Nominatim.
-   */
-  const resolveCepCoordinateUseCase = new ResolveCepCoordinateUseCase({
-    geocodedAddressRepository: new DrizzleGeocodedAddressRepository(),
-    geocodingProvider: new NominatimGeocodingProvider(),
-    geocodeFailureRepository: new DrizzleGeocodeFailureRepository(),
-  })
   const resolveOrderDeliveryEstimateUseCase = new ResolveOrderDeliveryEstimateUseCase({
     resolveCepCoordinateUseCase,
     storeCep: environment.STORE_CEP,

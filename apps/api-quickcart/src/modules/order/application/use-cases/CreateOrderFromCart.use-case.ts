@@ -62,6 +62,10 @@ export class CreateOrderFromCartUseCase {
         deliveryType: params.deliveryType,
         configuredFeeInCents: params.quotedDeliveryFeeInCents,
       }),
+      deliveryDistanceKm: params.quotedDeliveryDistanceKm ?? null,
+      deliveryTierMaxKm: params.quotedDeliveryTierMaxKm ?? null,
+      deliveryTierFeeInCents: params.quotedDeliveryTierFeeInCents ?? null,
+      deliveryLocationSource: params.quotedDeliveryLocationSource ?? null,
       items,
     })
 

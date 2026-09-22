@@ -27,6 +27,15 @@ export type OrderRecord = {
    * endereço já nasce estruturado — não é "backfill ainda não rodou", é "não havia nada a preservar".
    */
   readonly legacyAddressText: string | null
+  /**
+   * Snapshot da cotação de entrega (spec §3.7): distância percorrida, teto e taxa da faixa
+   * aplicada, e a fonte da localização (`whatsapp_location` | `cep` | `cep_approximate`).
+   * `null` nos quatro campos em retirada e em pedido anterior a esta coluna.
+   */
+  readonly deliveryDistanceKm: number | null
+  readonly deliveryTierMaxKm: number | null
+  readonly deliveryTierFeeInCents: number | null
+  readonly deliveryLocationSource: string | null
   readonly paymentMethod: string
   readonly receiptPreference: string
   readonly fiscalDocumentId: string | null
@@ -93,8 +102,13 @@ export type CreateOrderWithItemsParams = {
   readonly notes?: string | undefined
   /** Troco no pagamento em dinheiro. Ausente ou `null` = não precisa, ou pagamento não é em dinheiro. */
   readonly cashChangeForInCents?: number | null | undefined
-  /** Já decidida pelo use case (`resolveDeliveryFeeInCents`) — o repositório só grava, não decide. */
+  /** Já decidida pelo use case (`resolveDeliveryFeeInCents` ou `QuoteDeliveryFee`) — o repositório só grava, não decide. */
   readonly deliveryFeeInCents: number
+  /** Snapshot da cotação (spec §3.7). Ausente ou `null` = retirada, ou caminho que ainda não cota (transição §T3.1). */
+  readonly deliveryDistanceKm?: number | null | undefined
+  readonly deliveryTierMaxKm?: number | null | undefined
+  readonly deliveryTierFeeInCents?: number | null | undefined
+  readonly deliveryLocationSource?: string | null | undefined
   readonly items: ReadonlyArray<CreateOrderItemInput>
 }
 

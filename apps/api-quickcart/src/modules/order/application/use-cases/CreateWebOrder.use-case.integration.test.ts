@@ -45,12 +45,19 @@ const customerRepository = new DrizzleCustomerRepository()
 const orderRepository = new DrizzleOrderRepository()
 const cacheProvider = new RedisProvider()
 
+/** Todo pedido deste arquivo é retirada — a cotação nunca é chamada; falhar alto denuncia regressão. */
+const quoteDeliveryFeeUseCase = {
+  execute: async () => {
+    throw new Error('QuoteDeliveryFee não deveria ser chamado por um pedido de retirada')
+  },
+}
+
 const useCase = new CreateWebOrderUseCase({
   orderRepository,
   productRepository,
   customerRepository,
   cacheProvider,
-  configuredDeliveryFeeInCents: 0,
+  quoteDeliveryFeeUseCase,
 })
 
 const TEST_PHONE_PREFIX = '55119'

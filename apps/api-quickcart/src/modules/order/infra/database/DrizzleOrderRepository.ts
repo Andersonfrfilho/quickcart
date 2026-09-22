@@ -67,6 +67,10 @@ function toOrderRecord(order: Order): OrderRecord {
     deliveryType: order.deliveryType,
     address: order.address,
     legacyAddressText: order.legacyAddressText,
+    deliveryDistanceKm: order.deliveryDistanceKm === null ? null : Number(order.deliveryDistanceKm),
+    deliveryTierMaxKm: order.deliveryTierMaxKm === null ? null : Number(order.deliveryTierMaxKm),
+    deliveryTierFeeInCents: order.deliveryTierFeeInCents,
+    deliveryLocationSource: order.deliveryLocationSource,
     paymentMethod: order.paymentMethod,
     receiptPreference: order.receiptPreference,
     fiscalDocumentId: order.fiscalDocumentId,
@@ -210,6 +214,16 @@ export class DrizzleOrderRepository implements OrderRepositoryInterface {
             deliveryFeeInCents: params.deliveryFeeInCents,
             deliveryType: params.deliveryType,
             address: params.address ?? null,
+            deliveryDistanceKm:
+              params.deliveryDistanceKm === undefined || params.deliveryDistanceKm === null
+                ? null
+                : String(params.deliveryDistanceKm),
+            deliveryTierMaxKm:
+              params.deliveryTierMaxKm === undefined || params.deliveryTierMaxKm === null
+                ? null
+                : String(params.deliveryTierMaxKm),
+            deliveryTierFeeInCents: params.deliveryTierFeeInCents ?? null,
+            deliveryLocationSource: params.deliveryLocationSource ?? null,
             paymentMethod: params.paymentMethod,
             receiptPreference: params.receiptPreference,
             notes: params.notes ?? null,
