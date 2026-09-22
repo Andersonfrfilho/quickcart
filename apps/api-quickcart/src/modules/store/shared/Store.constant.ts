@@ -10,3 +10,5 @@
 
 export const MY_ORDERS_DEFAULT_PER_PAGE = 20
 export const MY_ORDERS_MAX_PER_PAGE = 50
+/** Limite de linhas na cotação pública de checkout (T2.2) — cada uma lê um produto no banco. */
+export const CHECKOUT_QUOTE_MAX_ITEMS = 100

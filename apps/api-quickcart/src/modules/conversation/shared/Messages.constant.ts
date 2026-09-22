@@ -276,7 +276,8 @@ export const MESSAGES = {
   CART_EMPTY: '🛒 Seu carrinho está vazio. Envie sua lista de compras ou toque em "Ver produtos" pra começar.',
   CART_REVIEW_UNMATCHED_PREFIX: '⚠️ Não encontrei esses itens:',
   CART_SUMMARY_HEADER: '🛒 Seu carrinho:',
-  CART_SUMMARY_TOTAL_PREFIX: 'Total:',
+  /** No carrinho ainda não há taxa (T2.2): "Subtotal" evita confundir com o valor final cobrado. */
+  CART_SUMMARY_TOTAL_PREFIX: 'Subtotal:',
   CART_REVIEW_UNEXPECTED_INPUT: 'Por favor, escolha uma das opções acima ☝️',
   EDITING_CART_PICK_ITEM: 'Escolha o item que quer editar:',
   EDITING_CART_ASK_QUANTITY: 'Nova quantidade? Envie 0 para remover o item.',
@@ -329,6 +330,19 @@ export const MESSAGES = {
   CHECKOUT_EMAIL_INVALID: 'Esse e-mail não parece válido 🤔 Pode conferir e mandar de novo?',
   CHECKOUT_UNEXPECTED_INPUT: 'Por favor, escolha uma das opções acima ☝️',
   CONFIRMING_SUMMARY_HEADER: '📋 Confira seu pedido:',
+  CONFIRMING_SUMMARY_ITEMS_LABEL: 'Itens:',
+  /** Resumo antes de confirmar (spec §3.4): subtotal dos itens, sem a taxa. */
+  CONFIRMING_SUMMARY_SUBTOTAL_PREFIX: 'Subtotal:',
+  /** `{valor}` é a taxa formatada; ausente por completo na retirada (`resolveDeliveryFeeInCents` = 0 não basta — a linha não aparece). */
+  CONFIRMING_SUMMARY_DELIVERY_FEE_PREFIX: 'Taxa de entrega:',
+  /** Taxa configurada em zero: mostra "grátis" em vez de "R$ 0,00". */
+  CONFIRMING_SUMMARY_DELIVERY_FEE_FREE: 'grátis',
+  /** `{valor}` = itens + taxa (`amountDueInCents`) — o que será cobrado, nunca só o total dos itens. */
+  CONFIRMING_SUMMARY_TOTAL_PREFIX: 'Total:',
+  CONFIRMING_SUMMARY_DELIVERY_PREFIX: 'Entrega:',
+  CONFIRMING_SUMMARY_PICKUP_LABEL: 'Retirada na loja',
+  CONFIRMING_SUMMARY_PAYMENT_PREFIX: 'Pagamento:',
+  CONFIRMING_SUMMARY_RECEIPT_PREFIX: 'Recibo:',
   CONFIRMING_ASK: 'Posso confirmar?',
   CONFIRMING_UNEXPECTED_INPUT: 'Por favor, escolha uma das opções acima ☝️',
   /** Sufixo do pagamento no resumo e na confirmação, quando há troco. `{valor}` é o valor pago. */

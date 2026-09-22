@@ -16,7 +16,6 @@ import type { ConversationContext } from '@/modules/conversation/shared/Conversa
 import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInCents'
 import {
   CONFIRMING_BUTTONS,
-  DELIVERY_TYPE_BUTTONS,
   MESSAGES,
   PAYMENT_METHOD_BUTTONS,
   RECEIPT_PREFERENCE_BUTTONS,
@@ -25,6 +24,8 @@ import { formatAddressLine } from '@/modules/shared/address/formatAddressLine'
 import { CHANNEL } from '@/modules/shared/shared.constant'
 import type { UpdateConversationSessionStateByPhoneParams } from '@/modules/webhook/domain/ConversationSessionRepository.interface'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
+import { amountDueInCents } from '@/modules/order/shared/amountDue'
+import { DELIVERY_TYPE } from '@/modules/order/shared/Order.constant'
 
 type InteractiveButtonOption = { readonly id: string; readonly title: string }
 
@@ -69,30 +70,48 @@ async function buildConfirmingSummary(dependencies: EnterConfirmingDependencies,
     return `• ${item.quantity}x ${product?.name ?? item.productId} — ${formatPriceInCents(lineTotalInCents)}`
   })
 
-  const deliveryLine = describeSelection(DELIVERY_TYPE_BUTTONS, checkoutContext.checkoutDeliveryType)
+  /*
+   * A taxa vem do contexto do checkout (`checkoutDeliveryFeeInCents`), gravada pelo
+   * `CheckoutHandler` ao escolher entrega/retirada — não relida da env aqui: se a env mudar entre
+   * a escolha e a confirmação, o resumo continua batendo com o que será cobrado (t2.1-validacao).
+   */
+  const deliveryFeeInCents = checkoutContext.checkoutDeliveryFeeInCents ?? 0
+  const isPickup = checkoutContext.checkoutDeliveryType === DELIVERY_TYPE.PICKUP
+  const amountDue = amountDueInCents({ totalInCents, deliveryFeeInCents })
+
   /*
    * `String(objeto)` virava "[object Object]" desde que o endereço passou a nascer estruturado
    * (T2.2) — `formatAddressLine` entende os dois formatos, o novo e o texto livre de quem já
    * estava no meio do checkout antes do deploy.
    */
   const formattedAddress = formatAddressLine(checkoutContext.checkoutAddress)
-  const addressLine = formattedAddress ? `📍 ${formattedAddress}` : undefined
+  const deliveryLine = isPickup
+    ? `${MESSAGES.CONFIRMING_SUMMARY_DELIVERY_PREFIX} ${MESSAGES.CONFIRMING_SUMMARY_PICKUP_LABEL}`
+    : `${MESSAGES.CONFIRMING_SUMMARY_DELIVERY_PREFIX} ${formattedAddress ?? ''}`.trim()
   const cashChangeForInCents = checkoutContext.checkoutCashChangeForInCents
   const paymentLine =
+    `${MESSAGES.CONFIRMING_SUMMARY_PAYMENT_PREFIX} ` +
     describeSelection(PAYMENT_METHOD_BUTTONS, checkoutContext.checkoutPaymentMethod) +
     (typeof cashChangeForInCents === 'number'
       ? MESSAGES.CASH_CHANGE_SUMMARY_SUFFIX.replace('{valor}', formatPriceInCents(cashChangeForInCents))
       : '')
-  const receiptLine = describeSelection(RECEIPT_PREFERENCE_BUTTONS, checkoutContext.checkoutReceiptPreference)
+  const receiptLine = `${MESSAGES.CONFIRMING_SUMMARY_RECEIPT_PREFIX} ${describeSelection(RECEIPT_PREFERENCE_BUTTONS, checkoutContext.checkoutReceiptPreference)}`
 
   return [
     MESSAGES.CONFIRMING_SUMMARY_HEADER,
+    MESSAGES.CONFIRMING_SUMMARY_ITEMS_LABEL,
     ...lines,
-    '',
-    `${MESSAGES.CART_SUMMARY_TOTAL_PREFIX} ${formatPriceInCents(totalInCents)}`,
-    '',
+    `${MESSAGES.CONFIRMING_SUMMARY_SUBTOTAL_PREFIX} ${formatPriceInCents(totalInCents)}`,
+    // Ausente na retirada (spec §3.4): não há taxa a mostrar quando ela nunca será cobrada.
+    ...(isPickup
+      ? []
+      : [
+          `${MESSAGES.CONFIRMING_SUMMARY_DELIVERY_FEE_PREFIX} ${
+            deliveryFeeInCents > 0 ? formatPriceInCents(deliveryFeeInCents) : MESSAGES.CONFIRMING_SUMMARY_DELIVERY_FEE_FREE
+          }`,
+        ]),
+    `${MESSAGES.CONFIRMING_SUMMARY_TOTAL_PREFIX} ${formatPriceInCents(amountDue)}`,
     deliveryLine,
-    ...(addressLine ? [addressLine] : []),
     paymentLine,
     receiptLine,
     '',

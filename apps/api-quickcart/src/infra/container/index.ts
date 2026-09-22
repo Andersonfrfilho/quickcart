@@ -826,6 +826,7 @@ export const container = {
   storeRepositories: {
     orderRepository: orderModule.orderRepository,
     customerRepository: webhookRepositories.customerRepository,
+    productRepository: catalogModule.productRepository,
   },
   conversationHttp: buildConversationHttpModule({
     metaWhatsApp: webhookModule.metaWhatsApp,

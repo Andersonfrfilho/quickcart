@@ -16,14 +16,17 @@ import { CUSTOMER_ONLY } from '@/modules/user/shared/User.constant'
 import type { RegisterCustomerUseCase } from '@/modules/store/application/use-cases/RegisterCustomer.use-case'
 import type { ListMyOrdersUseCase } from '@/modules/store/application/use-cases/ListMyOrders.use-case'
 import { amountDueInCents, resolveDeliveryFeeInCents } from '@/modules/order/shared/amountDue'
-import { DELIVERY_TYPE } from '@/modules/order/shared/Order.constant'
+import { buildPricedOrderItems } from '@/modules/order/shared/buildPricedOrderItems'
+import type { ProductRepositoryInterface } from '@/modules/catalog/domain/ProductRepository.interface'
 
 import { registerCustomerBodySchema, listMyOrdersQuerySchema } from './schemas/RegisterCustomer.schema'
+import { checkoutQuoteBodySchema } from './schemas/CheckoutQuote.schema'
 
 type StoreControllerDependencies = {
   readonly registerCustomerUseCase: RegisterCustomerUseCase
   readonly listMyOrdersUseCase: ListMyOrdersUseCase
-  /** `DELIVERY_FEE_CENTS`, exposta ao checkout web para o cliente ver a taxa antes de confirmar. */
+  readonly productRepository: ProductRepositoryInterface
+  /** `DELIVERY_FEE_CENTS`, usada pela cotação para resolver a taxa por tipo de entrega. */
   readonly deliveryFeeInCents: number
 }
 
@@ -53,18 +56,33 @@ export class StoreController {
   }
 
   /**
-   * Público: a taxa de entrega que o checkout web mostra antes de confirmar. Vem da api, e não de um
-   * `VITE_` duplicado, para a tela nunca divergir do que `CreateWebOrder` cobra. Vai por tipo de entrega,
-   * resolvida pela mesma `resolveDeliveryFeeInCents`, para a tela só consultar — não reimplementar "retirada = 0".
+   * Público (a loja navega sem login, spec §3.4 T2.2): o checkout web mostra Subtotal, Taxa e
+   * Total ANTES de confirmar, e os três precisam bater com o que `CreateWebOrder` vai cobrar.
+   * Os preços vêm sempre do banco (`buildPricedOrderItems`, a mesma leitura/validação do
+   * `CreateWebOrder`) — o carrinho do navegador pode ter preço velho. Substitui o antigo
+   * `GET /v1/store/checkout-config`: aquele só devolvia a taxa por tipo de entrega, sem o total
+   * cobrado; esta rota cobre o mesmo caso e o de exibir o total, então o outro foi removido.
    */
-  handleGetCheckoutConfig: RouteHandler = async (_request, response) => {
-    const configuredFeeInCents = this.dependencies.deliveryFeeInCents
+  handleGetCheckoutQuote: RouteHandler = async (request, response) => {
+    const input = validateBody(checkoutQuoteBodySchema, request.body)
+
+    const pricedItems = await buildPricedOrderItems(this.dependencies.productRepository, input.items)
+    const subtotalInCents = pricedItems.reduce((sum, item) => sum + item.totalInCents, 0)
+    const deliveryFeeInCents = resolveDeliveryFeeInCents({
+      deliveryType: input.deliveryType,
+      configuredFeeInCents: this.dependencies.deliveryFeeInCents,
+    })
+
     response.json(200, {
       data: {
-        deliveryFeeInCentsByDeliveryType: {
-          [DELIVERY_TYPE.DELIVERY]: resolveDeliveryFeeInCents({ deliveryType: DELIVERY_TYPE.DELIVERY, configuredFeeInCents }),
-          [DELIVERY_TYPE.PICKUP]: resolveDeliveryFeeInCents({ deliveryType: DELIVERY_TYPE.PICKUP, configuredFeeInCents }),
-        },
+        subtotalInCents,
+        deliveryFeeInCents,
+        amountDueInCents: amountDueInCents({ totalInCents: subtotalInCents, deliveryFeeInCents }),
+        items: pricedItems.map((item) => ({
+          productId: item.productId,
+          unitPriceInCents: item.unitPriceInCents,
+          lineTotalInCents: item.totalInCents,
+        })),
       },
     })
   }
