@@ -155,6 +155,13 @@
       "when": 1790036900738,
       "tag": "0021_order_delivery_fee",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1790082265085,
+      "tag": "0022_delivery_fee_tiers",
+      "breakpoints": true
     }
   ]
 }

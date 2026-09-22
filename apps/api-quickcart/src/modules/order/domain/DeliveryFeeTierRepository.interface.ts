@@ -7,7 +7,7 @@
  *
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  *
- * As faixas de taxa por distância. Só o contrato aqui: a tabela e o repositório Drizzle vêm depois.
+ * As faixas de taxa por distância (T1.2 acrescenta `replaceAll`, usado pelo painel §3.6).
  */
 
 /** "Até `maxDistanceKm` km, cobra `feeInCents`" — a faixa i cobre (X[i-1], X[i]]. */
@@ -19,4 +19,9 @@ export type DeliveryFeeTier = {
 export interface DeliveryFeeTierRepositoryInterface {
   /** Ordenadas por `maxDistanceKm` crescente; lista vazia = a loja não entrega. */
   listOrdered(): Promise<readonly DeliveryFeeTier[]>
+  /**
+   * Substitui a lista inteira numa transação (delete + insert) — o painel nunca edita uma faixa
+   * isolada (design.md "Trade-offs aceitos"), então não há upsert por linha aqui.
+   */
+  replaceAll(tiers: readonly DeliveryFeeTier[]): Promise<void>
 }
