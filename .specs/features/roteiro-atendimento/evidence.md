@@ -110,3 +110,10 @@ Não existe tela dedicada ao papel `motorista` no frontend — busquei por `driv
 ### Desvios da spec
 
 Nenhum desvio de comportamento. Um ajuste de escopo registrado: como não existe tela de motorista separada, o "mesmo selo" da task foi satisfeito pelos componentes compartilhados (`OrderDetailView`/`OrdersTableView`), e não por uma tela nova — a task pede explicitamente para não inventar uma quando não existir.
+
+### T1.2 — ajuste na revisão
+
+O bot reimplementava a regra da maquininha em vez de chamar `requiresCardMachine`, com o argumento de
+que o pedido ainda não existe no checkout. A função já aceita `{ paymentMethod, deliveryType }`, e os
+ids dos botões são os próprios valores de domínio, então o bot passou a usar a função. Suíte: 322
+verdes; typecheck limpo.
