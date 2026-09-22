@@ -781,3 +781,42 @@ atendida e devolvida ao bot continua aparecendo na fila "aguardando atendimento"
 sempre, mesmo que `mode` já esteja de volta em `bot`. A correção correta é no pacote: `release`
 deveria limpar `humanRequestedAt` (ou o filtro da inbox deveria considerar `mode` também, não só o
 timestamp).
+
+## T3.2 — Pedido em andamento no painel
+
+**Passo 0 (⚠️ do architect): onde mora o carrinho em andamento?** Nos dois lugares, em fases diferentes.
+Existem as tabelas `carts`/`cart_items` (`src/infra/database/schema/carts.ts`, `cart-items.ts`) e o
+`DrizzleCartRepository`. O `cartDraft` de `conversation_sessions.context` é só o rascunho da lista/navegação
+**antes** da revisão: `enterCartReview` → `materializeCartDraft` o converte em linhas de `cart_items` via
+`AddCartItemUseCase`. Daí em diante `CartHandler` (`findOpenByCustomer`, l.240/285), `enterConfirming` (l.127) e
+o checkout leem a **tabela**. Fonte verdadeira do card = carrinho aberto em `carts` do cliente do telefone,
+canal WhatsApp; contexto da sessão só para as escolhas de checkout. O comentário do topo de
+`ConversationContext.types.ts` ("Fase 4 não tem tabelas carts") está desatualizado — registrado, não alterado.
+
+**API** (`apps/api-quickcart`)
+- `GET /v1/admin/conversations/:number/checkout-context` → `ConversationCheckoutContext.controller.ts`
+  (controller próprio; `requireSession` com `ADMIN_AND_ATTENDANT`, `userModule` injetável só para teste).
+- `GetConversationCheckoutContext.use-case.ts` + `types/GetConversationCheckoutContext.types.ts` +
+  `shared/CheckoutContext.schema.ts` (Zod `.strict()` — a resposta não carrega chave além do recorte).
+- Resolve sessão por `conversationSessionRepository.findByPhone` (que já encapsula o tenant) — nenhum uso novo
+  de `COMPANY_ID`. Cliente por `customerRepository.findByPhone`, carrinho por `findOpenByCustomer`, produtos
+  num único `findByIds` (sem N+1). Linha = `round(preço × qtd)`, igual ao resumo do WhatsApp.
+- `amountDueInCents` calculado no backend com `amountDueInCents()` e a taxa **do contexto**
+  (`checkoutDeliveryFeeInCents`, ausente = 0). Endereço por `formatAddressLine`.
+- Sem carrinho com itens e sem escolha de checkout → `200 { data: null }`. Nada é logado.
+- Ligação: `ConversationRoutes.ts`, `server.ts`, `container/index.ts`.
+- Testes: use case (null sem pedido; itens/subtotal/taxa/total/endereço/troco; não vaza nome, e-mail, CEP; só
+  as 8 chaves) e controller (admin/atendente 200, separador/motorista 403, sem sessão 401, data null).
+
+**Front** (`apps/frontend-web`)
+- `components/OrderInProgressCard.tsx` no slot `renderAboveTranscript` de `AdminConversations.page.tsx`
+  (o slot recebe `conversation`; `conversation.id` é o telefone — o pacote não precisou mudar).
+- `hooks/useConversationCheckoutContext.query.ts` (react-query, refetch 15s), `adminGetConversationCheckoutContext`
+  em `shared/api/client.ts`, tipo em `api.types.ts`, textos/chaves em `shared/orderInProgress.constant.ts`.
+- `toContextEntries` esconde `cartDraft`, `unmatchedTerms`, `pendingResolutions`, `awaitingQuantityProduct`,
+  `editingCartItemId` e as `checkout*` que o card mostra (fim do JSON cru na coluna lateral).
+- Testes: `conversationContext.test.ts` e `OrderInProgressCard.test.tsx` (renderToStaticMarkup com
+  QueryClient pré-populado: vazio com `null`; exibe o total do backend mesmo diferente de subtotal+taxa; "grátis").
+
+**Números:** api 402 → 412 (0 falhas, typecheck limpo) · frontend 12 → 17 (0 falhas, typecheck limpo).
+Pendente, fora do escopo: autorização por objeto continua só por papel (igual às rotas vizinhas, tenant único).

@@ -19,6 +19,7 @@ import { ConversationsProvider, ConversationsWorkspace } from '@adatechnology/co
 
 import { useRouter } from '@/app/router'
 import { ConversationSimulatorPanel } from '@/modules/conversations/components/ConversationSimulatorPanel'
+import { OrderInProgressCard } from '@/modules/conversations/components/OrderInProgressCard'
 import { CONVERSATION_QUICK_REPLIES, quickReplyVariablesFor } from '@/modules/conversations/shared/quickReplies'
 import { IS_PREVIEW_ENABLED } from '@/modules/preview/shared/previewEnvironment'
 import { conversationsApi } from '@/modules/conversations/shared/conversationsApi'
@@ -40,6 +41,8 @@ function Inbox() {
       signInHref="#/admin"
       {...(linkedConversationId ? { initialConversationId: linkedConversationId } : {})}
       contextEntriesOf={toContextEntries}
+      // O id da conversa é o telefone — a mesma chave das rotas `/conversations/:number` da API.
+      renderAboveTranscript={(conversation) => <OrderInProgressCard whatsappNumber={conversation.id} />}
       quickReplies={CONVERSATION_QUICK_REPLIES}
       quickReplyVariablesFor={(conversation) => quickReplyVariablesFor(conversation.clientName)}
       onDownload={(conversation) =>

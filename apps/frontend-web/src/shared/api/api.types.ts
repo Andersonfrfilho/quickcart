@@ -305,3 +305,15 @@ export const ORDER_SORTABLE_FIELDS = ['createdAt', 'totalInCents', 'status'] as 
 export type OrderSortableField = (typeof ORDER_SORTABLE_FIELDS)[number]
 
 export type SortDirection = 'asc' | 'desc'
+
+/** Recorte do pedido em andamento de uma conversa. Os totais vêm prontos do backend: o painel não soma. */
+export type ConversationCheckoutContext = {
+  readonly items: ReadonlyArray<{ readonly name: string; readonly quantity: number; readonly lineTotalInCents: number }>
+  readonly subtotalInCents: number
+  readonly deliveryType: 'delivery' | 'pickup' | null
+  readonly deliveryFeeInCents: number
+  readonly amountDueInCents: number
+  readonly address: string | null
+  readonly paymentMethod: string | null
+  readonly cashChangeForInCents: number | null
+}

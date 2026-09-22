@@ -1,6 +1,7 @@
 import axios from 'axios'
 import type { InternalAxiosRequestConfig } from 'axios'
 import type {
+  ConversationCheckoutContext,
   ApiCollectionResponse,
   ApiItemResponse,
   ApiListResponse,
@@ -205,6 +206,12 @@ export async function adminListOrders(params: ListAdminOrdersParams = {}): Promi
       search: search && search.trim().length > 0 ? search.trim() : undefined,
     },
   })
+}
+
+export async function adminGetConversationCheckoutContext(
+  whatsappNumber: string,
+): Promise<ApiItemResponse<ConversationCheckoutContext | null>> {
+  return apiClient.get(`/v1/admin/conversations/${encodeURIComponent(whatsappNumber)}/checkout-context`)
 }
 
 export async function adminGetOrderDetail(id: string): Promise<ApiItemResponse<OrderDetail>> {
