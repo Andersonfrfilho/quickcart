@@ -11,6 +11,8 @@ export type ReceiptParams = {
   readonly totalInCents: number
   /** Taxa de entrega, fora do total. A NFC-e ignora; o recibo simples mostra. */
   readonly deliveryFeeInCents: number
+  /** Teto da faixa aplicada (spec §3.7). `null` em retirada e pedido sem faixa registrada. */
+  readonly deliveryTierMaxKm: number | null
   readonly deliveryType: string
   readonly paymentMethod: string
   readonly address: unknown

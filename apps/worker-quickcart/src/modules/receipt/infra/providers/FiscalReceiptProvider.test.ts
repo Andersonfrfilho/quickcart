@@ -67,6 +67,7 @@ describe('FiscalReceiptProvider — taxa de entrega fora da NFC-e', () => {
       ],
       totalInCents: 5870,
       deliveryFeeInCents: 800,
+      deliveryTierMaxKm: null,
       deliveryType: 'delivery',
       paymentMethod: 'pix',
       address: null,
