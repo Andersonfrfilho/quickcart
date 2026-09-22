@@ -12,7 +12,7 @@
  * pode parar a loja) e só um `warn` registra a falha.
  */
 
-import type { RouteHandler } from '@/infra/http/router'
+import type { MountedModuleRouter, RouteHandler } from '@/infra/http/router'
 import { logger } from '@/shared/logger'
 import { TooManyRequestsError } from '@/shared/errors/AppError.error'
 
@@ -43,6 +43,12 @@ export type FixedWindowRateLimiterParams = {
   readonly windowSeconds: number
 }
 
+export type ProtectMountedRouteParams = {
+  readonly moduleRouter: MountedModuleRouter
+  readonly method: string
+  readonly pathname: string
+}
+
 export class FixedWindowRateLimiter {
   constructor(private readonly params: FixedWindowRateLimiterParams) {}
 
@@ -51,6 +57,24 @@ export class FixedWindowRateLimiter {
     return async (request, response) => {
       await this.consume(resolveClientIp(request.headers))
       await handler(request, response)
+    }
+  }
+
+  /**
+   * Mesma guarda para uma rota de módulo montado (ex.: `/v1/auth/login` do user-module), aplicada
+   * no host sem mudar o pacote. Só a rota indicada conta; as demais do módulo passam direto. O 429
+   * vira resposta pelo filtro de erro do router, no ramo de módulo montado.
+   */
+  protectMountedRoute(params: ProtectMountedRouteParams): MountedModuleRouter {
+    const { moduleRouter, method, pathname } = params
+    return {
+      match: (request) => moduleRouter.match(request),
+      handle: async (request) => {
+        if (request.method === method && new URL(request.url).pathname === pathname) {
+          await this.consume(resolveClientIp(Object.fromEntries(request.headers)))
+        }
+        return moduleRouter.handle(request)
+      },
     }
   }
 

@@ -41,10 +41,20 @@ import {
   CHECKOUT_QUOTE_RATE_LIMIT_PER_WINDOW,
   CHECKOUT_QUOTE_RATE_LIMIT_SCOPE,
   CHECKOUT_QUOTE_RATE_LIMIT_WINDOW_SECONDS,
+  STORE_REGISTER_RATE_LIMIT_PER_WINDOW,
+  STORE_REGISTER_RATE_LIMIT_SCOPE,
+  STORE_REGISTER_RATE_LIMIT_WINDOW_SECONDS,
 } from '@/modules/store/shared/Store.constant'
 import { RegisterCustomerUseCase } from '@/modules/store/application/use-cases/RegisterCustomer.use-case'
 import { ListMyOrdersUseCase } from '@/modules/store/application/use-cases/ListMyOrders.use-case'
 import { environment } from '@/infra/config/environment'
+import {
+  AUTH_LOGIN_RATE_LIMIT_PER_WINDOW,
+  AUTH_LOGIN_RATE_LIMIT_SCOPE,
+  AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS,
+  AUTH_LOGIN_ROUTE_METHOD,
+  AUTH_LOGIN_ROUTE_PATHNAME,
+} from '@/modules/user/shared/User.constant'
 
 export type CreateRouterParams = {
   readonly userModule: UserModule
@@ -98,15 +108,27 @@ export function createRouter({ userModule }: CreateRouterParams): Router {
    * `role` em `scope` é o produto, porque papel é vocabulário do produto.
    */
   const userRoutes = createUserRoutes({ module: userModule })
+  const rateLimitStore = new RedisRateLimitStore(redis)
+  const loginRateLimiter = new FixedWindowRateLimiter({
+    store: rateLimitStore,
+    scope: AUTH_LOGIN_RATE_LIMIT_SCOPE,
+    limit: AUTH_LOGIN_RATE_LIMIT_PER_WINDOW,
+    windowSeconds: AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS,
+  })
 
+  // A rota é do pacote; o limite é do host, aplicado na montagem sem mudar o pacote.
   router.mount(
-    createModuleFetchRouter({
-      routes: userRoutes,
-      basePath: '/v1',
-      authResolver: createUserAuthContextResolver({
-        userModule,
-        companyId: environment.WHATSAPP_COMPANY_ID,
+    loginRateLimiter.protectMountedRoute({
+      moduleRouter: createModuleFetchRouter({
+        routes: userRoutes,
+        basePath: '/v1',
+        authResolver: createUserAuthContextResolver({
+          userModule,
+          companyId: environment.WHATSAPP_COMPANY_ID,
+        }),
       }),
+      method: AUTH_LOGIN_ROUTE_METHOD,
+      pathname: AUTH_LOGIN_ROUTE_PATHNAME,
     }),
   )
 
@@ -154,13 +176,25 @@ export function createRouter({ userModule }: CreateRouterParams): Router {
   })
 
   const checkoutQuoteRateLimiter = new FixedWindowRateLimiter({
-    store: new RedisRateLimitStore(redis),
+    store: rateLimitStore,
     scope: CHECKOUT_QUOTE_RATE_LIMIT_SCOPE,
     limit: CHECKOUT_QUOTE_RATE_LIMIT_PER_WINDOW,
     windowSeconds: CHECKOUT_QUOTE_RATE_LIMIT_WINDOW_SECONDS,
   })
 
-  registerStoreRoutes({ router, storeController, checkoutQuoteRateLimiter })
+  const registerRateLimiter = new FixedWindowRateLimiter({
+    store: rateLimitStore,
+    scope: STORE_REGISTER_RATE_LIMIT_SCOPE,
+    limit: STORE_REGISTER_RATE_LIMIT_PER_WINDOW,
+    windowSeconds: STORE_REGISTER_RATE_LIMIT_WINDOW_SECONDS,
+  })
+
+  /*
+   * O webhook do WhatsApp fica SEM limite por IP de propósito: as requisições vêm da Meta, de
+   * poucos IPs compartilhados por todos os clientes — um teto por IP derrubaria mensagens reais.
+   * A proteção dele é a assinatura HMAC + nonce do meta-whatsapp-module.
+   */
+  registerStoreRoutes({ router, storeController, checkoutQuoteRateLimiter, registerRateLimiter })
 
   registerOpenApiRoutes({ router, notificationRoutes })
 

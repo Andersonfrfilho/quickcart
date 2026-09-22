@@ -20,6 +20,7 @@ import type { CartRepositoryInterface } from '@/modules/cart/domain/CartReposito
 import type { ProductRepositoryInterface } from '@/modules/catalog/domain/ProductRepository.interface'
 import type { RepeatLastOrderUseCase } from '@/modules/order/application/use-cases/RepeatLastOrder.use-case'
 import type { ConversationSessionRepositoryInterface } from '@/modules/webhook/domain/ConversationSessionRepository.interface'
+import type { CacheProvider } from '@/shared/providers/CacheProvider.interface'
 import type { WhatsAppSender } from '@/modules/webhook/infra/whatsapp/WhatsAppSender'
 import type {
   ConversationHandlerContext,
@@ -69,6 +70,8 @@ const SHOPPING_LIST_INTENT_STATES: ReadonlySet<string> = new Set([
 export type GlobalHandlerDependencies = {
   readonly conversationSessionRepository: ConversationSessionRepositoryInterface
   readonly whatsAppSender: WhatsAppSender
+  /** Cooldown do pedido de atendente. */
+  readonly cacheProvider: CacheProvider
   readonly cartRepository: CartRepositoryInterface
   readonly productRepository: ProductRepositoryInterface
   readonly repeatLastOrderUseCase: RepeatLastOrderUseCase
@@ -113,6 +116,7 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
         {
           conversationSessionRepository: this.dependencies.conversationSessionRepository,
           whatsAppSender: this.dependencies.whatsAppSender,
+          cacheProvider: this.dependencies.cacheProvider,
         },
         session.customerPhone,
       )

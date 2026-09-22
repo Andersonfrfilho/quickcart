@@ -281,6 +281,8 @@ export const MESSAGES = {
    * `takeover`/`release`.
    */
   AGENT_HUMAN_IN_PROGRESS: 'Você já está falando com a nossa equipe — é só mandar sua mensagem por aqui.',
+  /** Segundo pedido de atendente dentro do cooldown: a equipe já foi avisada, não reenfileira. */
+  AGENT_ALREADY_NOTIFIED: 'Já avisei a equipe — em instantes alguém te responde.',
   /**
    * Aviso de item que acabou. Diz o produto, o total novo e devolve a decisão ao cliente.
    *

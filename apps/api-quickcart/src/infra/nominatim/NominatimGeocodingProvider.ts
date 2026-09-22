@@ -24,6 +24,7 @@ import type {
 import { GEOCODE_PRECISION, type GeocodePrecision } from '@/modules/shared/address/Address.schema'
 import { logger } from '@/shared/logger'
 import { serializeError } from '@/shared/serializeError'
+import { maskCep } from '@/shared/maskCep'
 
 const nominatimLog = logger.child('NominatimGeocodingProvider')
 
@@ -89,7 +90,7 @@ export class NominatimGeocodingProvider implements GeocodingProviderInterface {
     try {
       const response = await fetch(url, { headers: { 'User-Agent': USER_AGENT } })
       if (!response.ok) {
-        nominatimLog.warn('geocode_http_error', { cep: digitsOnly, status: response.status })
+        nominatimLog.warn('geocode_http_error', { cep: maskCep(digitsOnly), status: response.status })
         return undefined
       }
 
@@ -104,7 +105,7 @@ export class NominatimGeocodingProvider implements GeocodingProviderInterface {
 
       return { latitude, longitude, precision: resolvePrecision(hit.address), provider: PROVIDER_NAME }
     } catch (error: unknown) {
-      nominatimLog.warn('geocode_failed', { cep: digitsOnly, error: serializeError(error) })
+      nominatimLog.warn('geocode_failed', { cep: maskCep(digitsOnly), error: serializeError(error) })
       return undefined
     }
   }

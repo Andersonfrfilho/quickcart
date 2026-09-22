@@ -32,13 +32,58 @@ Rota sem sessão: a loja web cota Subtotal, Taxa e Total antes de o cliente loga
   (`StoreController.priceQuoteItems`); `buildPricedOrderItems` segue distinguindo os dois porque o
   `CreateWebOrder` (cliente logado) precisa do motivo.
 
-## 2026-09-21 — Pré-existentes, abertos
+## 2026-09-21 — Pré-existentes (estado atualizado em 2026-09-22)
 
-- **M2 (médio) — sem rate limit global na API.** Só a cotação tem limite. Rotas públicas sem
-  limite: `POST /v1/store/register` (cadastro) e o webhook do WhatsApp. Próximo passo: aplicar o
-  mesmo `FixedWindowRateLimiter` com limites próprios (cadastro mais duro; webhook por
-  assinatura válida, não por IP da Meta).
-- **B5 (baixo) — headers de segurança ausentes e CEP em log.** O router não envia
-  `X-Frame-Options`, `X-Content-Type-Options: nosniff`, `Referrer-Policy` nem
-  `Strict-Transport-Security`. E `NominatimGeocodingProvider` loga o CEP em claro no evento
-  `geocode_failed`.
+- **M2 (médio) — sem rate limit global na API.** **Corrigido em 2026-09-22** para as rotas públicas:
+  - `POST /v1/store/register`: 10/min por IP (`STORE_REGISTER_RATE_LIMIT_*`,
+    `src/modules/store/shared/Store.constant.ts`). Teste: `src/modules/store/infra/http/StoreRoutes.test.ts`.
+  - `POST /v1/auth/login` (rota do `user-module`): 10/min por IP (`AUTH_LOGIN_RATE_LIMIT_*`,
+    `src/modules/user/shared/User.constant.ts`), aplicado na montagem do host por
+    `FixedWindowRateLimiter.protectMountedRoute` — o pacote não mudou. O 429 sai pelo filtro de erro
+    do router, no ramo de módulo montado. Teste: `src/infra/http/rate-limit/FixedWindowRateLimiter.test.ts`
+    (bloco `protectMountedRoute`).
+  - Mesmo limitador, mesmo `X-Real-IP` e mesmo fail-open com `warn` da cotação.
+  - **Decisão: o webhook do WhatsApp (`/v1/webhook/whatsapp`) fica SEM limite por IP.** As
+    requisições vêm da Meta, de poucos IPs compartilhados por todos os clientes; um teto por IP
+    derrubaria mensagens reais. A proteção dele é a assinatura HMAC + nonce do meta-whatsapp-module.
+    Registrado também em comentário em `src/infra/http/server.ts`.
+- **B5 (baixo) — headers de segurança ausentes e CEP em log.** **Corrigido em 2026-09-22.**
+  - Headers: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+    `Referrer-Policy: strict-origin-when-cross-origin` e `Permissions-Policy` restritiva em TODA
+    resposta (200, erro, 404, preflight e resposta de módulo montado), no mesmo ponto do router que
+    monta o CORS (`src/infra/http/router.ts`, valores em `securityHeaders.constant.ts`).
+    `Strict-Transport-Security: max-age=31536000; includeSubDomains` só com `NODE_ENV=production` ou
+    requisição por https (`X-Forwarded-Proto`) — em http local o HSTS forçaria https no localhost.
+    Teste: `src/infra/http/securityHeaders.test.ts`.
+  - CEP: `maskCep` (`src/shared/maskCep.ts`, `140*****`) em `geocode_http_error`, `geocode_failed`,
+    `cep_lookup_failed` e `coordinate_not_cached`. Teste: `tests/NominatimGeocodingProvider.test.ts`
+    (bloco "log sem CEP em claro") e `src/shared/serializeError.test.ts`.
+
+## 2026-09-22 — PII na mensagem de erro de provedor externo
+
+- **Achado:** `serializeError(error)` gravava a mensagem livre do erro. O fetch do Nominatim falha com
+  a URL inteira (com o `postalcode`); erro do Postgres ecoa o valor da chave; erro de e-mail/Meta
+  pode trazer destinatário ou telefone.
+- **Correção (opção de menor regressão):** o próprio `serializeError` (`src/shared/serializeError.ts`)
+  redige e-mail, telefone (10–13 dígitos) e CEP na mensagem (`redactPii`, padrões em
+  `src/shared/pii.constant.ts`). Trocar por um serializador só com `name`/`code` exigiria mexer em
+  ~40 call sites e apagaria o diagnóstico de todos; redigir no ponto central cobre os provedores de
+  hoje e os futuros sem depender de quem escreve o log. Risco residual aceito: número longo que não
+  é telefone (ex.: epoch em ms) também é redigido. `registry_mirror_failed` usava `String(error)` cru
+  e passou a usar `serializeError`. Teste: `src/shared/serializeError.test.ts`.
+
+## 2026-09-22 — B3 (baixo): pedido de atendente sem limite
+
+- **Corrigido em 2026-09-22.** `requestHumanHandoff` arma um cooldown de 10 minutos por telefone
+  (`SET NX` + TTL no Redis, chave `conversation:human-handoff-cooldown:<sha256 do telefone>`,
+  constantes em `src/modules/conversation/shared/HumanHandoff.constant.ts`). Em modo bot, um novo
+  pedido dentro da janela só responde `MESSAGES.AGENT_ALREADY_NOTIFIED`, sem chamar `requestHuman`.
+  Mode `human` mantém o aviso de atendimento em curso. Redis fora do ar: fail-open com `warn`.
+  Teste: `src/modules/conversation/application/handlers/support/requestHumanHandoff.test.ts`.
+
+## Pendentes
+
+- **Autorização por conversa atribuída (BOLA).** Atendente autenticado ainda alcança conversa que não
+  está atribuída a ele; falta checar posse por objeto nas rotas de conversa (security.md §2).
+- Rate limit por usuário autenticado (além do por IP) e limite nas demais rotas autenticadas que
+  disparam custo externo (envio de WhatsApp pelo painel).

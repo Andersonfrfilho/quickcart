@@ -13,7 +13,7 @@
 
 import { describe, expect, it } from 'bun:test'
 
-import { Router } from '@/infra/http/router'
+import { Router, type MountedModuleRouter } from '@/infra/http/router'
 
 import { FixedWindowRateLimiter, type RateLimitCounter, type RateLimitStore } from './FixedWindowRateLimiter'
 import { resolveClientIp } from './resolveClientIp'
@@ -80,6 +80,50 @@ describe('FixedWindowRateLimiter', () => {
 
     expect((await router.handle(quoteRequest('203.0.113.9'))).status).toBe(200)
     expect((await router.handle(quoteRequest('203.0.113.9'))).status).toBe(200)
+  })
+})
+
+function buildMountedRouter(store: RateLimitStore, limit: number): Router {
+  const limiter = new FixedWindowRateLimiter({ store, scope: 'login', limit, windowSeconds: WINDOW_SECONDS })
+  const moduleRouter: MountedModuleRouter = {
+    match: (request) => new URL(request.url).pathname.startsWith('/v1/auth/'),
+    handle: async () => new Response('{}', { status: 200 }),
+  }
+  const router = new Router()
+  router.mount(limiter.protectMountedRoute({ moduleRouter, method: 'POST', pathname: '/v1/auth/login' }))
+  return router
+}
+
+function mountedRequest(pathname: string): Request {
+  return new Request(`http://localhost${pathname}`, { method: 'POST', body: '{}', headers: { 'x-real-ip': '203.0.113.9' } })
+}
+
+describe('FixedWindowRateLimiter.protectMountedRoute (login do user-module)', () => {
+  it('excedeu o limite na rota do pacote → 429 com Retry-After', async () => {
+    const router = buildMountedRouter(new InMemoryRateLimitStore(), 2)
+
+    expect((await router.handle(mountedRequest('/v1/auth/login'))).status).toBe(200)
+    expect((await router.handle(mountedRequest('/v1/auth/login'))).status).toBe(200)
+    const blocked = await router.handle(mountedRequest('/v1/auth/login'))
+
+    expect(blocked.status).toBe(429)
+    expect(blocked.headers.get('Retry-After')).toBe(String(WINDOW_SECONDS))
+    expect(blocked.headers.get('x-content-type-options')).toBe('nosniff')
+  })
+
+  it('só a rota indicada conta: as outras do módulo passam', async () => {
+    const router = buildMountedRouter(new InMemoryRateLimitStore(), 1)
+
+    await router.handle(mountedRequest('/v1/auth/login'))
+
+    expect((await router.handle(mountedRequest('/v1/auth/refresh'))).status).toBe(200)
+  })
+
+  it('Redis fora do ar: fail-open, o login responde', async () => {
+    const router = buildMountedRouter(new FailingRateLimitStore(), 1)
+
+    expect((await router.handle(mountedRequest('/v1/auth/login'))).status).toBe(200)
+    expect((await router.handle(mountedRequest('/v1/auth/login'))).status).toBe(200)
   })
 })
 

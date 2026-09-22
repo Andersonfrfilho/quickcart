@@ -64,6 +64,11 @@ function buildDependencies(session: ConversationSession) {
         texts.push(text)
       },
     },
+    cacheProvider: {
+      async setIfNotExists() {
+        return true
+      },
+    },
     cartRepository: {},
     productRepository: {},
     repeatLastOrderUseCase: {},

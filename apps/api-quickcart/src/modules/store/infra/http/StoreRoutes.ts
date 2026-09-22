@@ -16,12 +16,13 @@ import type { StoreController } from './Store.controller'
 
 export type RegisterStoreRoutesParams = {
   readonly router: Router
-  readonly storeController: StoreController
+  readonly storeController: Pick<StoreController, 'handleRegister' | 'handleListMyOrders' | 'handleGetCheckoutQuote'>
   readonly checkoutQuoteRateLimiter: FixedWindowRateLimiter
+  readonly registerRateLimiter: FixedWindowRateLimiter
 }
 
 export function registerStoreRoutes(params: RegisterStoreRoutesParams): void {
-  params.router.post('/v1/store/register', params.storeController.handleRegister)
+  params.router.post('/v1/store/register', params.registerRateLimiter.protect(params.storeController.handleRegister))
   params.router.get('/v1/store/orders', params.storeController.handleListMyOrders)
   // Pública e sem sessão: teto de corpo e limite por IP só aqui (upload de mídia precisa de corpo grande).
   params.router.post(
