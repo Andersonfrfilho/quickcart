@@ -73,6 +73,7 @@ export async function seedOrders(): Promise<void> {
     geocodedAddressRepository: new DrizzleGeocodedAddressRepository(),
     geocodingProvider: new NominatimGeocodingProvider(),
     geocodeFailureRepository: new DrizzleGeocodeFailureRepository(),
+    storeCep: environment.STORE_CEP,
   })
   const quoteDeliveryFeeUseCase = new QuoteDeliveryFeeUseCase({
     deliveryFeeTierRepository: new DrizzleDeliveryFeeTierRepository(),

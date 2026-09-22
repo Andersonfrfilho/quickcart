@@ -25,7 +25,10 @@
 
 import type { GeocodedAddressRepositoryInterface } from '@/modules/shared/address/GeocodedAddressRepository.interface'
 import type { GeocodeFailureRepositoryInterface } from '@/modules/shared/address/GeocodeFailureRepository.interface'
-import type { GeocodingProviderInterface } from '@/modules/shared/address/GeocodingProvider.interface'
+import {
+  GEOCODE_OUTCOME_KIND,
+  type GeocodingProviderInterface,
+} from '@/modules/shared/address/GeocodingProvider.interface'
 import type { GeocodePrecision } from '@/modules/shared/address/Address.schema'
 import { logger } from '@/shared/logger'
 import { serializeError } from '@/shared/serializeError'
@@ -36,10 +39,15 @@ const useCaseLog = logger.child('ResolveCepCoordinate')
 /** 24h — mesma janela do cache negativo (spec §3.5). */
 export const GEOCODE_FAILURE_TTL_MS = 24 * 60 * 60 * 1000
 
+/** Teto da memória do processo: a rota pública aceita qualquer CEP, e um Map sem teto vira vazamento. */
+export const COORDINATE_MEMORY_CACHE_MAX_ENTRIES = 5000
+
 type ResolveCepCoordinateDependencies = {
   readonly geocodedAddressRepository: GeocodedAddressRepositoryInterface
   readonly geocodingProvider: GeocodingProviderInterface
   readonly geocodeFailureRepository?: GeocodeFailureRepositoryInterface
+  /** CEP da loja: nunca vai para o cache negativo — sem ele, toda entrega some por 24h. */
+  readonly storeCep?: string | undefined
   /** Injetável para teste; produção usa o relógio real. */
   readonly now?: () => Date
 }
@@ -59,16 +67,42 @@ export class ResolveCepCoordinateUseCase {
    * loja... em memória"). Vale para qualquer CEP, não só o da loja — a chave é o CEP normalizado.
    */
   private readonly memoryCache = new Map<string, ResolvedCoordinate>()
+  /** Mesmo CEP em paralelo espera a mesma resolução, em vez de gastar duas vagas do 1 req/s. */
+  private readonly inFlight = new Map<string, Promise<ResolvedCoordinate | undefined>>()
+  private readonly storeCepDigits: string | undefined
 
-  constructor(private readonly dependencies: ResolveCepCoordinateDependencies) {}
+  constructor(private readonly dependencies: ResolveCepCoordinateDependencies) {
+    this.storeCepDigits = dependencies.storeCep?.replace(/\D/g, '')
+  }
 
   async execute(params: { readonly cep: string }): Promise<ResolvedCoordinate | undefined> {
     const cep = params.cep.replace(/\D/g, '')
     if (cep.length !== 8) return undefined
 
     const memoized = this.memoryCache.get(cep)
-    if (memoized) return { ...memoized, fromCache: true }
+    if (memoized) {
+      this.remember(cep, memoized)
+      return { ...memoized, fromCache: true }
+    }
 
+    const pending = this.inFlight.get(cep)
+    if (pending) return pending
+
+    const resolution = this.resolve(cep).finally(() => this.inFlight.delete(cep))
+    this.inFlight.set(cep, resolution)
+    return resolution
+  }
+
+  /** LRU simples: o Map preserva ordem de inserção, então reinserir marca como recente e o primeiro é o mais antigo. */
+  private remember(cep: string, resolved: ResolvedCoordinate): void {
+    this.memoryCache.delete(cep)
+    this.memoryCache.set(cep, resolved)
+    if (this.memoryCache.size <= COORDINATE_MEMORY_CACHE_MAX_ENTRIES) return
+    const oldest = this.memoryCache.keys().next().value
+    if (oldest !== undefined) this.memoryCache.delete(oldest)
+  }
+
+  private async resolve(cep: string): Promise<ResolvedCoordinate | undefined> {
     const cached = await this.dependencies.geocodedAddressRepository.findByCep(cep)
     if (cached) {
       const resolved: ResolvedCoordinate = {
@@ -77,17 +111,20 @@ export class ResolveCepCoordinateUseCase {
         precision: cached.precision,
         fromCache: true,
       }
-      this.memoryCache.set(cep, resolved)
+      this.remember(cep, resolved)
       return resolved
     }
 
-    if (await this.hasRecentFailure(cep)) return undefined
+    const isStoreCep = cep === this.storeCepDigits
+    if (!isStoreCep && (await this.hasRecentFailure(cep))) return undefined
 
-    const geocoded = await this.dependencies.geocodingProvider.geocodeByCep(cep)
-    if (!geocoded) {
-      await this.recordFailure(cep)
+    const outcome = await this.dependencies.geocodingProvider.geocodeByCep(cep)
+    if (outcome.kind === GEOCODE_OUTCOME_KIND.TRANSIENT_ERROR) return undefined
+    if (outcome.kind === GEOCODE_OUTCOME_KIND.NOT_FOUND) {
+      if (!isStoreCep) await this.recordFailure(cep)
       return undefined
     }
+    const geocoded = outcome.coordinate
 
     await this.clearFailure(cep)
 
@@ -116,7 +153,7 @@ export class ResolveCepCoordinateUseCase {
       precision: geocoded.precision,
       fromCache: false,
     }
-    this.memoryCache.set(cep, resolved)
+    this.remember(cep, resolved)
     return resolved
   }
 

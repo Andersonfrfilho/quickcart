@@ -19,11 +19,17 @@ import type {
   GeocodedAddressRepositoryInterface,
   SaveGeocodedAddressParams,
 } from '@/modules/shared/address/GeocodedAddressRepository.interface'
-import type {
-  GeocodeResult,
-  GeocodingProviderInterface,
+import {
+  GEOCODE_OUTCOME_KIND,
+  type GeocodeOutcome,
+  type GeocodeResult,
+  type GeocodingProviderInterface,
 } from '@/modules/shared/address/GeocodingProvider.interface'
-import { GEOCODE_FAILURE_TTL_MS, ResolveCepCoordinateUseCase } from '@/modules/shared/address/ResolveCepCoordinate.use-case'
+import {
+  COORDINATE_MEMORY_CACHE_MAX_ENTRIES,
+  GEOCODE_FAILURE_TTL_MS,
+  ResolveCepCoordinateUseCase,
+} from '@/modules/shared/address/ResolveCepCoordinate.use-case'
 import type {
   GeocodeFailureRecord,
   GeocodeFailureRepositoryInterface,
@@ -48,13 +54,21 @@ class FakeGeocodedAddressRepository implements GeocodedAddressRepositoryInterfac
   }
 }
 
+const TRANSIENT: GeocodeOutcome = { kind: GEOCODE_OUTCOME_KIND.TRANSIENT_ERROR }
+
 class SpyGeocodingProvider implements GeocodingProviderInterface {
   callCount = 0
-  constructor(private readonly result: GeocodeResult | undefined) {}
+  private readonly outcome: GeocodeOutcome
 
-  async geocodeByCep(): Promise<GeocodeResult | undefined> {
+  constructor(result: GeocodeResult | GeocodeOutcome | undefined) {
+    if (result === undefined) this.outcome = { kind: GEOCODE_OUTCOME_KIND.NOT_FOUND }
+    else if ('kind' in result) this.outcome = result
+    else this.outcome = { kind: GEOCODE_OUTCOME_KIND.FOUND, coordinate: result }
+  }
+
+  async geocodeByCep(): Promise<GeocodeOutcome> {
     this.callCount += 1
-    return this.result
+    return this.outcome
   }
 }
 
@@ -218,5 +232,77 @@ describe('ResolveCepCoordinateUseCase', () => {
     expect(result?.latitude).toBe(COORDINATE.latitude)
     expect(geocodeFailureRepository.removeCalls).toEqual(['01310100'])
     expect(geocodeFailureRepository.rows.has('01310100')).toBe(false)
+  })
+
+  it('erro transitório (timeout, 429, fila cheia) não grava no cache negativo', async () => {
+    const geocodeFailureRepository = new FakeGeocodeFailureRepository()
+    const useCase = new ResolveCepCoordinateUseCase({
+      geocodedAddressRepository: new FakeGeocodedAddressRepository(),
+      geocodingProvider: new SpyGeocodingProvider(TRANSIENT),
+      geocodeFailureRepository,
+    })
+
+    expect(await useCase.execute({ cep: '01310-100' })).toBeUndefined()
+    expect(geocodeFailureRepository.rows.size).toBe(0)
+  })
+
+  it('CEP da loja sem resultado nunca entra no cache negativo, nem é bloqueado por ele', async () => {
+    const geocodeFailureRepository = new FakeGeocodeFailureRepository()
+    const notFoundProvider = new SpyGeocodingProvider(undefined)
+    const useCase = new ResolveCepCoordinateUseCase({
+      geocodedAddressRepository: new FakeGeocodedAddressRepository(),
+      geocodingProvider: notFoundProvider,
+      geocodeFailureRepository,
+      storeCep: '01415-000',
+    })
+
+    expect(await useCase.execute({ cep: '01415000' })).toBeUndefined()
+    expect(geocodeFailureRepository.rows.size).toBe(0)
+
+    await geocodeFailureRepository.save({ cep: '01415000', failedAt: new Date() })
+    await useCase.execute({ cep: '01415-000' })
+    expect(notFoundProvider.callCount).toBe(2)
+  })
+
+  it('mesmo CEP em paralelo chama o provedor uma vez só', async () => {
+    const geocodingProvider = new SpyGeocodingProvider(COORDINATE)
+    const useCase = new ResolveCepCoordinateUseCase({
+      geocodedAddressRepository: new FakeGeocodedAddressRepository(),
+      geocodingProvider,
+    })
+
+    const results = await Promise.all([
+      useCase.execute({ cep: '01310-100' }),
+      useCase.execute({ cep: '01310100' }),
+      useCase.execute({ cep: '01310-100' }),
+    ])
+
+    expect(geocodingProvider.callCount).toBe(1)
+    expect(results.map((result) => result?.latitude)).toEqual([
+      COORDINATE.latitude,
+      COORDINATE.latitude,
+      COORDINATE.latitude,
+    ])
+  })
+
+  it('memória do processo tem teto: acima dele, o CEP mais antigo é despejado', async () => {
+    const geocodedAddressRepository = new FakeGeocodedAddressRepository()
+    const provider = new SpyGeocodingProvider(COORDINATE)
+    const useCase = new ResolveCepCoordinateUseCase({ geocodedAddressRepository, geocodingProvider: provider })
+    const toCep = (index: number): string => String(10000000 + index)
+
+    for (let index = 0; index <= COORDINATE_MEMORY_CACHE_MAX_ENTRIES; index += 1) {
+      await useCase.execute({ cep: toCep(index) })
+    }
+    // Sem o banco, o despejado só pode ser respondido pelo provedor; o recente, pela memória.
+    geocodedAddressRepository.rows.clear()
+    const callsBefore = provider.callCount
+
+    const newest = await useCase.execute({ cep: toCep(COORDINATE_MEMORY_CACHE_MAX_ENTRIES) })
+    const evicted = await useCase.execute({ cep: toCep(0) })
+
+    expect(newest?.fromCache).toBe(true)
+    expect(evicted?.fromCache).toBe(false)
+    expect(provider.callCount).toBe(callsBefore + 1)
   })
 })

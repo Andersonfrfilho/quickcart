@@ -252,6 +252,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     geocodedAddressRepository: new DrizzleGeocodedAddressRepository(),
     geocodingProvider: new NominatimGeocodingProvider(),
     geocodeFailureRepository: new DrizzleGeocodeFailureRepository(),
+    storeCep: environment.STORE_CEP,
   })
   const deliveryFeeTierRepository = new DrizzleDeliveryFeeTierRepository()
   const quoteDeliveryFeeUseCase = new QuoteDeliveryFeeUseCase({

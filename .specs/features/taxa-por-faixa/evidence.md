@@ -584,3 +584,14 @@ Resultado: vazio (nenhuma ocorrência).
 
 **Commits:**
 Commit único com as mudanças acima. Mensagem em português com o porquê, conforme rules.
+
+## T6.2 — correções da revisão
+
+### A) Geocodificação
+- `NominatimGeocodingProvider`: slot reservado antes de dormir (3 chamadas simultâneas saem a 0 / 1,1 / 2,2 s),
+  teto de `MAX_PENDING_GEOCODE_CALLS = 10` (fila cheia → transitório), `AbortSignal.timeout(3000)`.
+- Provider devolve união `found | not_found | transient_error`; transitório (rede, timeout, 429/5xx, fila cheia)
+  não grava `geocode_failures`.
+- `ResolveCepCoordinate`: CEP da loja (`storeCep`) nunca lê nem grava o cache negativo; dedup em andamento
+  (`Map<cep, Promise>`); memória LRU com teto `COORDINATE_MEMORY_CACHE_MAX_ENTRIES = 5000`.
+- Gates: typecheck limpo (api, worker, frontend); api 666 pass / 0 fail; frontend 48 pass / 0 fail.

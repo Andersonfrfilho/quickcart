@@ -19,9 +19,11 @@ import type {
   GeocodedAddressRepositoryInterface,
   SaveGeocodedAddressParams,
 } from '@/modules/shared/address/GeocodedAddressRepository.interface'
-import type {
-  GeocodeResult,
-  GeocodingProviderInterface,
+import {
+  GEOCODE_OUTCOME_KIND,
+  type GeocodeOutcome,
+  type GeocodeResult,
+  type GeocodingProviderInterface,
 } from '@/modules/shared/address/GeocodingProvider.interface'
 import type { DeliveryFeeTier, DeliveryFeeTierRepositoryInterface } from '@/modules/order/domain/DeliveryFeeTierRepository.interface'
 import { ResolveCepCoordinateUseCase } from '@/modules/shared/address/ResolveCepCoordinate.use-case'
@@ -68,8 +70,9 @@ class InMemoryGeocodedAddressRepository implements GeocodedAddressRepositoryInte
 }
 
 class MapGeocodingProvider implements GeocodingProviderInterface {
-  async geocodeByCep(cep: string): Promise<GeocodeResult | undefined> {
-    return COORDINATES[cep.replace(/\D/g, '')]
+  async geocodeByCep(cep: string): Promise<GeocodeOutcome> {
+    const coordinate = COORDINATES[cep.replace(/\D/g, '')]
+    return coordinate ? { kind: GEOCODE_OUTCOME_KIND.FOUND, coordinate } : { kind: GEOCODE_OUTCOME_KIND.NOT_FOUND }
   }
 }
 
