@@ -75,7 +75,7 @@ function buildListReply(listId: string): ParsedInboundMessage {
 }
 
 describe('CartHandler — edição paginada', () => {
-  it('pagina a lista de edição quando os itens passam do teto', async () => {
+  it('pagina a lista de edição quando os itens passam do teto, sem "anterior" na primeira página', async () => {
     const harness = buildHarness(12)
 
     await harness.handler.handle(
@@ -86,11 +86,12 @@ describe('CartHandler — edição paginada', () => {
       ),
     )
 
-    expect(harness.sentLists[0]?.rowIds).toHaveLength(10)
+    expect(harness.sentLists[0]?.rowIds.length).toBeLessThanOrEqual(10)
     expect(harness.sentLists[0]?.rowIds.at(-1)).toBe(EDITING_CART_ROW_ID.NEXT_PAGE)
+    expect(harness.sentLists[0]?.rowIds).not.toContain(EDITING_CART_ROW_ID.PREVIOUS_PAGE)
   })
 
-  it('avança de página ao tocar em próxima página e chega na última sem repetir a navegação', async () => {
+  it('avança de página ao tocar em próxima página, chega na última com "anterior" e sem repetir "próxima"', async () => {
     const harness = buildHarness(12)
 
     await harness.handler.handle(
@@ -98,8 +99,51 @@ describe('CartHandler — edição paginada', () => {
     )
 
     expect(harness.sentLists[0]?.rowIds).not.toContain(EDITING_CART_ROW_ID.NEXT_PAGE)
+    expect(harness.sentLists[0]?.rowIds).toContain(EDITING_CART_ROW_ID.PREVIOUS_PAGE)
     expect(harness.sentLists[0]?.rowIds).toContain(EDITING_CART_ROW_ID.DONE)
-    expect(harness.sentLists[0]?.rowIds.filter((id) => id.startsWith(EDITING_CART_ROW_PREFIX.ITEM))).toHaveLength(4)
+    expect(harness.sentLists[0]?.rowIds.length).toBeLessThanOrEqual(10)
     expect(harness.updatedContexts.at(-1)).toEqual({ editingCartPage: 2 })
+  })
+
+  it('volta para a primeira página ao tocar em anterior, com o mesmo conteúdo de antes (round-trip)', async () => {
+    const harness = buildHarness(12)
+
+    await harness.handler.handle(
+      buildContext(
+        { kind: 'button_reply', from: CUSTOMER_PHONE, waMessageId: 'w', buttonId: 'edit_cart', buttonTitle: 'Editar' },
+        {},
+        CONVERSATION_STATE.CART_REVIEW,
+      ),
+    )
+    const firstPageRowIds = harness.sentLists[0]?.rowIds
+
+    await harness.handler.handle(buildContext(buildListReply(EDITING_CART_ROW_ID.NEXT_PAGE), { editingCartPage: 1 }))
+    await harness.handler.handle(buildContext(buildListReply(EDITING_CART_ROW_ID.PREVIOUS_PAGE), { editingCartPage: 2 }))
+
+    expect(harness.sentLists.at(-1)?.rowIds).toEqual(firstPageRowIds)
+    expect(harness.updatedContexts.at(-1)).toEqual({ editingCartPage: 1 })
+  })
+
+  it('nunca passa do teto de 10 linhas e alcança todos os itens exatamente uma vez', async () => {
+    const harness = buildHarness(12)
+
+    await harness.handler.handle(
+      buildContext(
+        { kind: 'button_reply', from: CUSTOMER_PHONE, waMessageId: 'w', buttonId: 'edit_cart', buttonTitle: 'Editar' },
+        {},
+        CONVERSATION_STATE.CART_REVIEW,
+      ),
+    )
+    await harness.handler.handle(buildContext(buildListReply(EDITING_CART_ROW_ID.NEXT_PAGE), { editingCartPage: 1 }))
+
+    for (const sentList of harness.sentLists) {
+      expect(sentList.rowIds.length).toBeLessThanOrEqual(10)
+    }
+
+    const firstPageItemIds = harness.sentLists[0]?.rowIds.filter((id) => id.startsWith(EDITING_CART_ROW_PREFIX.ITEM)) ?? []
+    const secondPageItemIds = harness.sentLists[1]?.rowIds.filter((id) => id.startsWith(EDITING_CART_ROW_PREFIX.ITEM)) ?? []
+
+    expect(firstPageItemIds.length + secondPageItemIds.length).toBe(12)
+    expect(new Set([...firstPageItemIds, ...secondPageItemIds]).size).toBe(12)
   })
 })

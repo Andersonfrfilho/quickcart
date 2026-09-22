@@ -136,17 +136,18 @@ describe('BrowseHandler — texto livre ao navegar', () => {
     expect(harness.sentTexts).toEqual([MESSAGES.BROWSE_UNEXPECTED_INPUT])
   })
 
-  it('pagina a busca: primeira página tem 9 produtos + próxima página', async () => {
+  it('pagina a busca: primeira página tem 8 produtos + próxima página, sem anterior', async () => {
     const harness = buildHarness(buildManySearchResults(12))
 
     await harness.handler.handle(buildContext(buildTextMessage('arroz')))
 
-    expect(harness.sentLists[0]?.rowIds).toHaveLength(10)
+    expect(harness.sentLists[0]?.rowIds).toHaveLength(9)
     expect(harness.sentLists[0]?.rowIds.at(-1)).toBe(BROWSE_ROW_ID.NEXT_SEARCH_PAGE)
+    expect(harness.sentLists[0]?.rowIds).not.toContain(BROWSE_ROW_ID.PREVIOUS_SEARCH_PAGE)
     expect(harness.updatedContexts.at(-1)).toEqual({ browsingSearchTerm: 'arroz', browsingSearchPage: 1 })
   })
 
-  it('avança para a última página da busca ao tocar em próxima página, sem repetir a linha de navegação', async () => {
+  it('avança para a última página da busca ao tocar em próxima página, com anterior e sem repetir a navegação', async () => {
     const harness = buildHarness(buildManySearchResults(12))
 
     await harness.handler.handle(
@@ -154,8 +155,25 @@ describe('BrowseHandler — texto livre ao navegar', () => {
     )
 
     expect(harness.searchedTerms).toEqual(['arroz'])
-    expect(harness.sentLists[0]?.rowIds).toHaveLength(3)
+    expect(harness.sentLists[0]?.rowIds).toHaveLength(5)
     expect(harness.sentLists[0]?.rowIds).not.toContain(BROWSE_ROW_ID.NEXT_SEARCH_PAGE)
+    expect(harness.sentLists[0]?.rowIds).toContain(BROWSE_ROW_ID.PREVIOUS_SEARCH_PAGE)
     expect(harness.updatedContexts.at(-1)).toEqual({ browsingSearchTerm: 'arroz', browsingSearchPage: 2 })
+  })
+
+  it('volta para a primeira página da busca ao tocar em anterior, com o mesmo conteúdo de antes', async () => {
+    const harness = buildHarness(buildManySearchResults(12))
+
+    await harness.handler.handle(buildContext(buildTextMessage('arroz')))
+    const firstPageRowIds = harness.sentLists[0]?.rowIds
+
+    await harness.handler.handle(
+      buildContext(buildListReply(BROWSE_ROW_ID.NEXT_SEARCH_PAGE), { browsingSearchTerm: 'arroz', browsingSearchPage: 1 }),
+    )
+    await harness.handler.handle(
+      buildContext(buildListReply(BROWSE_ROW_ID.PREVIOUS_SEARCH_PAGE), { browsingSearchTerm: 'arroz', browsingSearchPage: 2 }),
+    )
+
+    expect(harness.sentLists.at(-1)?.rowIds).toEqual(firstPageRowIds)
   })
 })

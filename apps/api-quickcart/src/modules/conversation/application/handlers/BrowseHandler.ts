@@ -112,11 +112,29 @@ export class BrowseHandler implements ConversationHandlerInterface {
       return
     }
 
+    if (message.listId === BROWSE_ROW_ID.PREVIOUS_PAGE && browseContext.browsingCategoryId) {
+      await this.sendProductPage({
+        session,
+        categoryId: browseContext.browsingCategoryId,
+        page: Math.max(FIRST_PAGE, (browseContext.browsingPage ?? FIRST_PAGE) - 1),
+      })
+      return
+    }
+
     if (message.listId === BROWSE_ROW_ID.NEXT_SEARCH_PAGE && browseContext.browsingSearchTerm) {
       await this.sendSearchResults({
         session,
         term: browseContext.browsingSearchTerm,
         page: (browseContext.browsingSearchPage ?? FIRST_PAGE) + 1,
+      })
+      return
+    }
+
+    if (message.listId === BROWSE_ROW_ID.PREVIOUS_SEARCH_PAGE && browseContext.browsingSearchTerm) {
+      await this.sendSearchResults({
+        session,
+        term: browseContext.browsingSearchTerm,
+        page: Math.max(FIRST_PAGE, (browseContext.browsingSearchPage ?? FIRST_PAGE) - 1),
       })
       return
     }
@@ -167,7 +185,11 @@ export class BrowseHandler implements ConversationHandlerInterface {
       return
     }
 
-    const { pageItems, hasNextPage } = paginateRows({ items: matches, page, itemsPerPage: BROWSE_PRODUCTS_PER_PAGE })
+    const { pageItems, hasNextPage, hasPreviousPage } = paginateRows({
+      items: matches,
+      page,
+      itemsPerPage: BROWSE_PRODUCTS_PER_PAGE,
+    })
     const existingContext = (session.context ?? {}) as ConversationContext
 
     await this.dependencies.conversationSessionRepository.updateStateByPhone({
@@ -176,7 +198,13 @@ export class BrowseHandler implements ConversationHandlerInterface {
       context: { ...existingContext, browsingSearchTerm: term, browsingSearchPage: page },
     })
 
-    const section = buildProductSection(pageItems, hasNextPage, BROWSE_ROW_ID.NEXT_SEARCH_PAGE)
+    const section = buildProductSection({
+      products: pageItems,
+      hasNextPage,
+      hasPreviousPage,
+      nextPageRowId: BROWSE_ROW_ID.NEXT_SEARCH_PAGE,
+      previousPageRowId: BROWSE_ROW_ID.PREVIOUS_SEARCH_PAGE,
+    })
     await this.dependencies.whatsAppSender.sendInteractiveList(
       session.customerPhone,
       MESSAGES.BROWSE_SEARCH_RESULTS.replace('{termo}', term),
@@ -202,6 +230,7 @@ export class BrowseHandler implements ConversationHandlerInterface {
     }
 
     const hasNextPage = page * BROWSE_PRODUCTS_PER_PAGE < total
+    const hasPreviousPage = page > FIRST_PAGE
     const existingContext = (session.context ?? {}) as ConversationContext
 
     await this.dependencies.conversationSessionRepository.updateStateByPhone({
@@ -210,7 +239,7 @@ export class BrowseHandler implements ConversationHandlerInterface {
       context: { ...existingContext, browsingCategoryId: categoryId, browsingPage: page },
     })
 
-    const section = buildProductSection(items, hasNextPage)
+    const section = buildProductSection({ products: items, hasNextPage, hasPreviousPage })
     await this.dependencies.whatsAppSender.sendInteractiveList(session.customerPhone, MESSAGES.BROWSE_PICK_PRODUCT, 'Ver produtos', [section])
   }
 
