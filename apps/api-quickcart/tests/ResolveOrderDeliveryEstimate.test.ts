@@ -23,6 +23,7 @@ import type {
   GeocodeResult,
   GeocodingProviderInterface,
 } from '@/modules/shared/address/GeocodingProvider.interface'
+import type { DeliveryFeeTier, DeliveryFeeTierRepositoryInterface } from '@/modules/order/domain/DeliveryFeeTierRepository.interface'
 import { ResolveCepCoordinateUseCase } from '@/modules/shared/address/ResolveCepCoordinate.use-case'
 import { ResolveOrderDeliveryEstimateUseCase } from '@/modules/order/application/use-cases/ResolveOrderDeliveryEstimate.use-case'
 import type { OrderRecord } from '@/modules/order/domain/OrderRepository.interface'
@@ -72,17 +73,31 @@ class MapGeocodingProvider implements GeocodingProviderInterface {
   }
 }
 
-function buildUseCase(overrides: { readonly storeCep?: string | undefined; readonly deliveryRadiusKm?: number } = {}) {
+class InMemoryDeliveryFeeTierRepository implements DeliveryFeeTierRepositoryInterface {
+  constructor(private readonly tiers: readonly DeliveryFeeTier[]) {}
+
+  async listOrdered(): Promise<readonly DeliveryFeeTier[]> {
+    return this.tiers
+  }
+
+  async replaceAll(): Promise<void> {
+    throw new Error('not implemented')
+  }
+}
+
+function buildUseCase(overrides: { readonly storeCep?: string | undefined; readonly maxDeliveryRadiusKm?: number } = {}) {
   return new ResolveOrderDeliveryEstimateUseCase({
     resolveCepCoordinateUseCase: new ResolveCepCoordinateUseCase({
       geocodedAddressRepository: new InMemoryGeocodedAddressRepository(),
       geocodingProvider: new MapGeocodingProvider(),
     }),
+    deliveryFeeTierRepository: new InMemoryDeliveryFeeTierRepository([
+      { maxDistanceKm: overrides.maxDeliveryRadiusKm ?? 8, feeInCents: 0 },
+    ]),
     storeCep: 'storeCep' in overrides ? overrides.storeCep : STORE_CEP,
     detourFactor: 1.35,
     averageSpeedKmh: 25,
     preparationMinutes: 20,
-    deliveryRadiusKm: overrides.deliveryRadiusKm ?? 8,
   })
 }
 
@@ -169,7 +184,7 @@ describe('ResolveOrderDeliveryEstimateUseCase', () => {
   })
 
   it('avisa fora do raio sem impedir nada — a decisão é da pessoa (spec §8 Q2)', async () => {
-    const apertado = await buildUseCase({ deliveryRadiusKm: 0.5 }).execute({ order: buildOrder() })
+    const apertado = await buildUseCase({ maxDeliveryRadiusKm: 0.5 }).execute({ order: buildOrder() })
 
     expect(apertado?.isOutsideRadius).toBe(true)
     // O aviso não apaga a estimativa: quem decide atender ainda quer saber quanto tempo leva.

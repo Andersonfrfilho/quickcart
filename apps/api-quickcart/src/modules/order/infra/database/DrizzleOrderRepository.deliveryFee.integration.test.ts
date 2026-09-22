@@ -174,7 +174,7 @@ describe('DrizzleOrderRepository — taxa de entrega fora do total', () => {
     expect(stored.itemCount).toBe(2)
   })
 
-  test('retirada grava taxa 0 mesmo com DELIVERY_FEE_CENTS configurada', async () => {
+  test('retirada grava taxa 0', async () => {
     const productA = await createProduct(1000)
 
     const orderId = await createOrder({ deliveryType: DELIVERY_TYPE.PICKUP, items: [{ productId: productA, quantity: 1 }] })

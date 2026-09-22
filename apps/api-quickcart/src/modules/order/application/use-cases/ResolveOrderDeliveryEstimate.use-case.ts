@@ -18,6 +18,7 @@
 import { DELIVERY_TYPE } from '@/modules/order/shared/Order.constant'
 import { estimateDelivery, worstPrecision } from '@/modules/shared/address/deliveryEstimate'
 import type { ResolveCepCoordinateUseCase } from '@/modules/shared/address/ResolveCepCoordinate.use-case'
+import type { DeliveryFeeTierRepositoryInterface } from '@/modules/order/domain/DeliveryFeeTierRepository.interface'
 import type { OrderRecord } from '@/modules/order/domain/OrderRepository.interface'
 
 export type OrderDeliveryEstimate = {
@@ -34,11 +35,11 @@ export type OrderDeliveryEstimate = {
 
 type ResolveOrderDeliveryEstimateDependencies = {
   readonly resolveCepCoordinateUseCase: ResolveCepCoordinateUseCase
+  readonly deliveryFeeTierRepository: DeliveryFeeTierRepositoryInterface
   readonly storeCep: string | undefined
   readonly detourFactor: number
   readonly averageSpeedKmh: number
   readonly preparationMinutes: number
-  readonly deliveryRadiusKm: number
 }
 
 /** O CEP do endereço do pedido, se o endereço for estruturado. Texto legado não tem CEP confiável. */
@@ -61,9 +62,10 @@ export class ResolveOrderDeliveryEstimateUseCase {
     const customerCep = extractCep(params.order.address)
     if (!customerCep) return undefined
 
-    const [storeCoordinate, customerCoordinate] = await Promise.all([
+    const [storeCoordinate, customerCoordinate, tiers] = await Promise.all([
       this.dependencies.resolveCepCoordinateUseCase.execute({ cep: storeCep }),
       this.dependencies.resolveCepCoordinateUseCase.execute({ cep: customerCep }),
+      this.dependencies.deliveryFeeTierRepository.listOrdered(),
     ])
 
     if (!storeCoordinate || !customerCoordinate) return undefined
@@ -78,12 +80,15 @@ export class ResolveOrderDeliveryEstimateUseCase {
       preparationMinutes: this.dependencies.preparationMinutes,
     })
 
+    // Raio máximo é o fim da última faixa; lista vazia = raio zero (não entrega).
+    const maxDeliveryRadiusKm = tiers.length > 0 ? tiers[tiers.length - 1]!.maxDistanceKm : 0
+
     return {
       distanceKm: estimate.roadDistanceKm,
       ...(estimate.minMinutes !== undefined ? { minMinutes: estimate.minMinutes } : {}),
       ...(estimate.maxMinutes !== undefined ? { maxMinutes: estimate.maxMinutes } : {}),
       isApproximate: estimate.isApproximate,
-      isOutsideRadius: estimate.roadDistanceKm > this.dependencies.deliveryRadiusKm,
+      isOutsideRadius: estimate.roadDistanceKm > maxDeliveryRadiusKm,
     }
   }
 }

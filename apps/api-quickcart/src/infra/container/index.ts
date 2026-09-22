@@ -279,11 +279,11 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
   const updateOrderStatusUseCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier, receiptQueue })
   const resolveOrderDeliveryEstimateUseCase = new ResolveOrderDeliveryEstimateUseCase({
     resolveCepCoordinateUseCase,
+    deliveryFeeTierRepository,
     storeCep: environment.STORE_CEP,
     detourFactor: environment.DISTANCE_DETOUR_FACTOR,
     averageSpeedKmh: environment.DELIVERY_AVERAGE_SPEED_KMH,
     preparationMinutes: environment.STORE_PREPARATION_MINUTES,
-    deliveryRadiusKm: environment.STORE_DELIVERY_RADIUS_KM,
   })
   const getAdminOrderDetailUseCase = new GetAdminOrderDetailUseCase({
     orderRepository,

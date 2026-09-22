@@ -536,3 +536,51 @@ aplicadas): api-quickcart 659 pass / 0 fail (97 arquivos) — base 648 + 8
 (`DeliveryFeeTiers.controller.test.ts`) + 3 (`ReplaceDeliveryFeeTiers.use-case.test.ts`) = +11;
 frontend-web 48 pass / 0 fail (11 arquivos) — base 40 + 5 (`deliveryFeeTiers.constant.test.ts`) + 3
 (`OrderDetailView.deliveryTier.test.tsx`) = +8.
+
+## T6.1 — Remover env e atualizar documentação
+
+**Variáveis removidas:**
+- `environment.ts` — `DELIVERY_FEE_CENTS` e `STORE_DELIVERY_RADIUS_KM` removidas do schema.
+- `.env.example` — linha com `DELIVERY_FEE_CENTS=0` removida.
+- `envs/env.dev` — linhas com `STORE_DELIVERY_RADIUS_KM=8` e `DELIVERY_FEE_CENTS=0` removidas.
+- Seed (`OrderSeedRunner.ts`) — não lê essas variáveis (usa `QuoteDeliveryFeeUseCase` que já recebe
+  repositório de faixas).
+
+**Código afetado:**
+- `ResolveOrderDeliveryEstimate.use-case.ts` — `deliveryRadiusKm` removido de dependências; agora
+  injeta `DeliveryFeeTierRepositoryInterface` e obtém o raio máximo como fim da última faixa
+  (`tiers.length > 0 ? tiers[tiers.length - 1]!.maxDistanceKm : 0`).
+- `container/index.ts:286` — atualizado para injetar `deliveryFeeTierRepository` em vez de
+  `deliveryRadiusKm: environment.STORE_DELIVERY_RADIUS_KM`.
+- Testes:
+  - `ResolveOrderDeliveryEstimate.test.ts` — `buildUseCase` agora recebe `maxDeliveryRadiusKm`
+    (injetado como última faixa no mock `InMemoryDeliveryFeeTierRepository`).
+  - `DrizzleOrderRepository.deliveryFee.integration.test.ts` — nome do teste alterado para remover
+    menção a env ("retirada grava taxa 0").
+
+**Documentação atualizada:**
+- `init-claude.md` — seção "Roteiro de atendimento" simplificada (removida menção a `DELIVERY_FEE_CENTS`
+  como env fixa); nova seção "Taxa de entrega por faixa de distância" descreve tabela, cotação,
+  painel, colunas do pedido.
+- `.specs/features/delivery-distance/spec.md` — Q2 (linha 229) atualizado para avisar que
+  `STORE_DELIVERY_RADIUS_KM` foi removido; o raio máximo agora vem da última faixa.
+- `.specs/features/roteiro-atendimento/spec.md` — seção 3.4 atualizada com nota de que a taxa deixou
+  de ser fixa por env e passa a ser por faixa.
+
+**Grep final (código + configs):**
+```
+$ grep -rn "DELIVERY_FEE_CENTS\|STORE_DELIVERY_RADIUS_KM" \
+  --include="*.ts" --include="*.tsx" --include="*.env.*" \
+  apps/api-quickcart apps/worker-quickcart apps/frontend-web envs .env.example
+```
+Resultado: vazio (nenhuma ocorrência).
+
+**Gates:**
+- `docker start quickcart-test-postgres quickcart-test-redis` — OK.
+- `bun run typecheck` — limpo em api-quickcart, worker-quickcart, frontend-web.
+- `bun run test`:
+  - `apps/api-quickcart`: 659 pass / 0 fail (base 659 conforme esperado).
+  - `apps/frontend-web`: 48 pass / 0 fail (base 48 conforme esperado).
+
+**Commits:**
+Commit único com as mudanças acima. Mensagem em português com o porquê, conforme rules.
