@@ -174,3 +174,57 @@ confere as quatro colunas nullable). `bun run test`: api-quickcart 609 pass / 0 
 7 em `CreateWebOrder.use-case.test.ts`, 2 em `CreateOrderFromCart.use-case.test.ts`, mais os 2 de
 integração do repositório substituem os 2 antigos sem aumentar a contagem líquida); worker-quickcart 21
 pass / 0 fail (base 20 + 1 novo, rótulo "(até N km)").
+
+## T3.1 — Máquina de estados do checkout no WhatsApp
+
+**Arquivos** (em `apps/api-quickcart/src/`):
+- `modules/webhook/application/parseInboundMessage.ts` + `types/WhatsAppWebhookPayload.types.ts` — novo `kind: 'location'` (lat/lng), só com coordenada finita e dentro de ±90/±180; senão `unsupported`.
+- `modules/conversation/shared/ConversationState.constant.ts` — estado novo `AWAITING_OUT_OF_RANGE_DECISION`.
+- `modules/conversation/shared/ConversationContext.types.ts` — `checkoutDeliveryDistanceKm`, `checkoutDeliveryTierMaxKm`, `checkoutDeliveryTierFeeInCents`, `checkoutDeliveryLocationSource`, `checkoutLocationDraft`.
+- `modules/conversation/shared/deliveryQuoteContext.ts` — `withoutDeliveryQuote` (função única que apaga taxa, distância, faixa e fonte), `toDeliveryQuoteContext` (resultado → campos do contexto) e `withoutCheckoutAddress`.
+- `modules/conversation/shared/resolveCheckoutDeliveryFeeInCents.ts` — só lê o contexto: retirada → 0; entrega **com** fonte de cotação → a taxa; entrega **sem** fonte → `undefined` (nunca 0 nem env).
+- `modules/conversation/shared/extractRememberedLocation.ts` — localização do endereço lembrado (coordenada ou CEP de 8 dígitos; texto livre → `undefined`).
+- `modules/shared/address/WhatsAppLocationAddress.ts` + `formatAddressLine.ts` — endereço de quem mandou localização (`latitude`, `longitude`, `number`, `complement?`); a linha para o cliente não mostra coordenada.
+- `modules/conversation/application/handlers/support/deliveryQuoteMessages.ts`, `support/returnToAddressForMissingQuote.ts`.
+- `CheckoutHandler.ts` — máquina de estados (abaixo); dependência `quoteDeliveryFeeUseCase` no lugar de `configuredDeliveryFeeInCents`.
+- `enterConfirming.ts`, `CashChangeHandler.ts`, `GetConversationCheckoutContext.use-case.ts` — sem `configuredDeliveryFeeInCents`.
+- `CreateOrderFromCart.use-case.ts` — não usa mais `resolveDeliveryFeeInCents`: retirada 0, entrega = `quotedDeliveryFeeInCents`.
+- `infra/container/index.ts` — `quoteDeliveryFeeUseCase` exposto pelo `OrderModule` e injetado no `CheckoutHandler`; `AWAITING_ADDRESS_NUMBER` **e** `AWAITING_OUT_OF_RANGE_DECISION` registrados no roteamento.
+- `Messages.constant.ts` — textos novos e botões `ADDRESS_DECISION_BUTTON_ID` (Retirar na loja / Outro endereço).
+
+**Caminhos cobertos** (`CheckoutHandler.deliveryQuote.test.ts`, 22 casos, salvo indicação):
+1. Clique em "Entrega" → `AWAITING_ADDRESS`, sem cotar e sem taxa no contexto (`deliveryFee.test`).
+2. Retirada → taxa 0 direto, sem cotar (`deliveryFee.test`).
+3. CEP que resolve → `AWAITING_ADDRESS_NUMBER`, sem cotar ainda.
+4. Número com rascunho de CEP → cota `{ kind: 'cep' }`: `quoted` grava taxa/distância/faixa/fonte, manda "Taxa de entrega para seu endereço (2,4 km): R$ 5,00" e pergunta o pagamento; `approximate_max_tier` grava a maior faixa sem distância e manda "(estimativa pela cidade)"; `out_of_range` e `unavailable` → `AWAITING_OUT_OF_RANGE_DECISION` com a mensagem certa e os dois botões, sem endereço nem cotação no contexto.
+5. CEP que não resolve e texto livre sem CEP → não gravam endereço; pedem CEP ou localização com o botão "Retirar na loja"; o botão vira retirada com taxa 0.
+6. Localização → cota `{ kind: 'coordinates' }`, grava a cotação e `checkoutLocationDraft`, mostra a taxa e pede número/referência; o número grava o endereço com lat/lng e segue ao pagamento **sem recotar**; fora do raio → decisão, sem guardar a coordenada.
+7. `AWAITING_OUT_OF_RANGE_DECISION`: "Retirar na loja" → retirada, taxa 0, pagamento; "Outro endereço" → `AWAITING_ADDRESS` mantendo a entrega; entrada inesperada → repete as opções sem mudar de estado.
+8. "Isso mesmo": entrega lembrada recota (coordenada ou CEP lembrado) e segue; fora do raio / indisponível / endereço lembrado sem CEP nem coordenada → descarta o atalho, avisa e volta a `AWAITING_DELIVERY_TYPE`; retirada lembrada → 0 sem cotar. Invariantes do troco e da maquininha (`rememberedCheckout.test`).
+9. "Alterar" → o contexto novo leva só `rememberedCheckout` (nenhum campo de cotação); o "Isso mesmo" seguinte recota. "Quero mudar" e o clique em "Entrega" passam por `withoutDeliveryQuote`.
+10. `confirmOrder` passa `quotedDelivery*` do contexto e não chama a cotação (`deliveryFee.test`).
+11. Sessão antiga (entrega sem fonte de cotação): `confirmOrder` não cria pedido e volta a `AWAITING_ADDRESS` (`confirmCashChange.test`); `enterConfirming` idem (`enterConfirming.test`); `CashChangeHandler` não valida troco sem taxa e volta ao endereço (`CashChangeHandler.test`). Endereço, rascunhos, cotação e troco saem do contexto; tipo, pagamento e recibo ficam.
+12. Novo pagamento descarta o troco de uma escolha anterior (quem volta ao endereço e escolhe Pix não leva troco velho).
+13. Coordenada nunca em log: spy em `Logger.prototype.{debug,info,warn,error}` (antes do filtro de nível) no fluxo localização → número → confirmação, com um log real disparado; nenhum contém latitude/longitude.
+14. `tests/parseInboundMessage.test.ts` (3): localização válida, fora da faixa, sem o objeto.
+
+**Testes existentes alterados (spec mudou o comportamento):**
+- `CheckoutHandler.deliveryFee.test.ts` — "entrega grava a taxa configurada" virou "clique em Entrega não cota"; "confirmar usa a taxa do contexto, não a configurada" virou "passa a cotação do contexto (os cinco campos) sem recotar". A env deixou de existir no caminho.
+- `CheckoutHandler.rememberedCheckout.test.ts` — o lembrado de entrega ganhou endereço e o dublê da cotação; os casos de dinheiro/cartão/pix esperam a mensagem da taxa antes (a recotação é mostrada) e o contexto com a cotação. Invariantes (troco perguntado, aviso da maquininha) mantidos.
+- `CheckoutHandler.confirmCashChange.test.ts` — o caso "sessão antiga cobra a taxa configurada" virou "sessão antiga não cria pedido e volta ao endereço" (item 10 da tarefa). Revalidação do troco no `confirmOrder` segue coberta pelos outros casos.
+- `CheckoutHandler.deliveryEstimate.test.ts` — o contexto de entrega ganhou a fonte da cotação (sem ela, confirmar agora volta ao endereço).
+- `CashChangeHandler.test.ts` — contexto com taxa passou a ter tipo e fonte (`resolveCheckoutDeliveryFeeInCents` não aceita mais taxa solta sem entrega cotada); o caso "sessão antiga cota a env" virou "volta ao endereço".
+- `enterConfirming.test.ts` — contextos de entrega com fonte; "sessão antiga cota a env" virou "não mostra resumo e volta ao endereço".
+- `resolveCheckoutDeliveryFeeInCents.test.ts` — nova assinatura (só o contexto); entrega sem fonte → `undefined`, inclusive com a taxa 0 antiga da env no contexto.
+- `GetConversationCheckoutContext.use-case.test.ts` — sem `configuredDeliveryFeeInCents`; o card de sessão antiga mostra taxa 0 em vez da env.
+- `CheckoutHandler.alterCheckout.test.ts` — só perdeu a dependência removida. `CartHandler.rememberedCheckout*.test.ts` passaram sem alteração (a memória não carrega cotação).
+
+**Decisões e desvios:**
+- **`addressSchema` NÃO tem lat/lng** (o design.md dizia que tinha; foram removidos na revisão da spec `delivery-distance`, e o comentário do schema explica que o web não pode injetar coordenada). O endereço por localização é um tipo próprio, `WhatsAppLocationAddress`, gravado no `jsonb` do pedido; o `addressSchema` do web ficou intocado.
+- **Bug pré-existente corrigido:** `AWAITING_ADDRESS_NUMBER` não estava no mapa de handlers do container — o cliente que mandava o número caía no `FALLBACK_STATE_NOT_READY`. Registrado junto com o estado novo.
+- A taxa aparece em texto antes do pagamento; na localização, ela sai já ao receber a coordenada (antes do número), porque o número não muda a distância.
+- "Isso mesmo" com recotação ok também mostra a taxa (o cliente de dinheiro precisa dela para o troco).
+- Fora do raio no "Isso mesmo" volta à escolha do tipo de entrega (caminho longo), não à decisão Retirar/Outro endereço — como pedido na tarefa.
+- `withoutDeliveryQuote` no "Alterar": o contexto novo já nasce só com `rememberedCheckout`, então a cotação some por construção; a função é usada nos caminhos que preservam o contexto.
+- **Pendente para T3.2/T3.3/Fase 4:** `enterConfirming` ainda não recota sessão antiga (volta ao endereço); o card (`GetConversationCheckoutContext`) mostra taxa 0 para entrega ainda sem cotação e não mostra a faixa; `resolveDeliveryFeeInCents` e `DELIVERY_FEE_CENTS` seguem só em `Store.controller.ts`/`server.ts` (cotação web, Fase 4); a previsão de entrega (`ResolveOrderDeliveryEstimate`) lê o CEP do pedido, então pedido por localização fica sem a linha de previsão; o painel ainda não tem link de mapa para o endereço por localização. `CheckoutHandler.ts` passou de 651 para ~850 linhas — dívida de tamanho de arquivo já existente, não dividida aqui para não misturar refatoração com a máquina de estados.
+- O transcript de mensagens recebidas é gravado pelo pacote `meta-whatsapp-module` (fora deste repositório); o código do QuickCart não loga coordenada em ponto nenhum.

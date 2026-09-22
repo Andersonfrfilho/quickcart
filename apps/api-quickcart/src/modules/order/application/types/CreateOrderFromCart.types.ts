@@ -22,15 +22,13 @@ export type CreateOrderFromCartParams = {
   /** Troco no pagamento em dinheiro. Ausente ou `null` = não precisa, ou pagamento não é em dinheiro. */
   readonly cashChangeForInCents?: number | null | undefined
   /**
-   * A taxa cotada quando o cliente escolheu a entrega, gravada no contexto do checkout.
-   * Vem daqui, e não da env, para o pedido cobrar o mesmo valor contra o qual o troco foi validado.
+   * A taxa cotada pela faixa quando o endereço ficou pronto, gravada no contexto do checkout. Vem daqui,
+   * e não de uma recotação, para o pedido cobrar o mesmo valor contra o qual o troco foi validado.
    */
   readonly quotedDeliveryFeeInCents: number
   /**
-   * Snapshot da cotação feita no contexto do checkout (spec §3.7): distância, teto e taxa da
-   * faixa aplicada, e a fonte da localização. Opcional por transição — enquanto a Fase 3 não monta
-   * a cotação no contexto, o caminho atual do WhatsApp continua chamando sem eles, e as quatro
-   * colunas gravam `null` (T3.1 fecha essa lacuna).
+   * Snapshot da mesma cotação (spec §3.7): distância, teto e taxa da faixa, e a fonte da localização.
+   * Nulos na retirada; opcionais porque o checkout web monta o pedido por outro use case.
    */
   readonly quotedDeliveryDistanceKm?: number | null | undefined
   readonly quotedDeliveryTierMaxKm?: number | null | undefined

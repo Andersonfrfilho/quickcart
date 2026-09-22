@@ -33,7 +33,6 @@ type GetConversationCheckoutContextUseCaseDependencies = {
   readonly customerRepository: Pick<CustomerRepositoryInterface, 'findByPhone'>
   readonly cartRepository: Pick<CartRepositoryInterface, 'findOpenByCustomer' | 'listItems'>
   readonly productRepository: Pick<ProductRepositoryInterface, 'findByIds'>
-  readonly configuredDeliveryFeeInCents: number
 }
 
 type CheckoutItem = ConversationCheckoutContext['items'][number]
@@ -49,10 +48,8 @@ export class GetConversationCheckoutContextUseCase {
     if (items.length === 0 && !hasCheckout) return undefined
 
     const subtotalInCents = items.reduce((sum, item) => sum + item.lineTotalInCents, 0)
-    const deliveryFeeInCents = resolveCheckoutDeliveryFeeInCents({
-      context,
-      configuredFeeInCents: this.dependencies.configuredDeliveryFeeInCents,
-    })
+    // Entrega ainda sem cotação (endereço não informado) aparece sem taxa no card; a T3.3 mostra a faixa.
+    const deliveryFeeInCents = resolveCheckoutDeliveryFeeInCents(context) ?? 0
 
     return CHECKOUT_CONTEXT_RESPONSE_SCHEMA.parse({
       items,

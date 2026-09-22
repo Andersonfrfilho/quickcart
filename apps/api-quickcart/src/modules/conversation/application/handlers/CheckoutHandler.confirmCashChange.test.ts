@@ -28,7 +28,6 @@ const CUSTOMER = { id: 'customer-1' } as Customer
 
 type Scenario = {
   readonly unitPriceInCents: number
-  readonly configuredDeliveryFeeInCents?: number
 }
 
 function buildSession(context: ConversationContext): ConversationSession {
@@ -94,7 +93,6 @@ function buildDependencies(scenario: Scenario) {
     resolveOrderDeliveryEstimateUseCase: {},
     addressLookupProvider: {},
     storePreparationMinutes: 20,
-    configuredDeliveryFeeInCents: scenario.configuredDeliveryFeeInCents ?? 0,
   } as unknown as CheckoutHandlerDependencies
 
   return { dependencies, texts, stateUpdates, createOrderCalls }
@@ -141,12 +139,14 @@ describe('CheckoutHandler.confirmOrder — troco', () => {
     expect(texts[0]).toContain(MESSAGES.ORDER_CONFIRMED_CASH_CHANGE_LINE.replace('{valor}', formatPriceInCents(15000)))
   })
 
-  it('sessão anterior ao deploy (sem checkoutDeliveryFeeInCents) com entrega: cobra a taxa configurada, não 0', async () => {
-    const { dependencies, createOrderCalls } = buildDependencies({ unitPriceInCents: 4800, configuredDeliveryFeeInCents: 800 })
+  it('sessão anterior ao deploy (entrega sem cotação por faixa): não cria o pedido, volta ao endereço', async () => {
+    const { dependencies, createOrderCalls, stateUpdates, texts } = buildDependencies({ unitPriceInCents: 4800 })
 
     await new CheckoutHandler(dependencies).handle({
       session: buildSession({
         checkoutDeliveryType: DELIVERY_TYPE.DELIVERY,
+        checkoutDeliveryFeeInCents: 0,
+        checkoutAddress: 'Rua X, 123',
         checkoutPaymentMethod: PAYMENT_METHOD.PIX,
         checkoutReceiptPreference: RECEIPT_PREFERENCE.WHATSAPP,
       }),
@@ -154,6 +154,13 @@ describe('CheckoutHandler.confirmOrder — troco', () => {
       message: CONFIRM,
     })
 
-    expect(createOrderCalls[0]?.quotedDeliveryFeeInCents).toBe(800)
+    expect(createOrderCalls).toEqual([])
+    expect(stateUpdates[0]?.currentState).toBe(CONVERSATION_STATE.AWAITING_ADDRESS)
+    expect(stateUpdates[0]?.context).toEqual({
+      checkoutDeliveryType: DELIVERY_TYPE.DELIVERY,
+      checkoutPaymentMethod: PAYMENT_METHOD.PIX,
+      checkoutReceiptPreference: RECEIPT_PREFERENCE.WHATSAPP,
+    })
+    expect(texts).toEqual([MESSAGES.CHECKOUT_DELIVERY_QUOTE_MISSING])
   })
 })

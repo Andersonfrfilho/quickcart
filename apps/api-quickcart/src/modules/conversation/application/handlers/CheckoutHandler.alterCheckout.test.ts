@@ -92,7 +92,6 @@ function buildDependencies(hasCart = true) {
     resolveOrderDeliveryEstimateUseCase: {},
     addressLookupProvider: {},
     storePreparationMinutes: 30,
-    configuredDeliveryFeeInCents: 0,
   } as unknown as CheckoutHandlerDependencies
 
   return { dependencies, texts, buttonMessages, stateUpdates }

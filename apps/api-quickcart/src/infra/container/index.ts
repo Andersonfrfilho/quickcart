@@ -230,6 +230,7 @@ type OrderModule = {
   readonly listOrdersUseCase: ListOrdersUseCase
   readonly orderController: OrderController
   readonly resolveOrderDeliveryEstimateUseCase: ResolveOrderDeliveryEstimateUseCase
+  readonly quoteDeliveryFeeUseCase: QuoteDeliveryFeeUseCase
 }
 
 function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
@@ -367,6 +368,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     listOrdersUseCase,
     orderController,
     resolveOrderDeliveryEstimateUseCase,
+    quoteDeliveryFeeUseCase,
   }
 }
 
@@ -412,6 +414,7 @@ type ConversationModuleDependencies = {
   readonly updateCartItemQuantityUseCase: UpdateCartItemQuantityUseCase
   readonly createOrderFromCartUseCase: CreateOrderFromCartUseCase
   readonly resolveOrderDeliveryEstimateUseCase: ResolveOrderDeliveryEstimateUseCase
+  readonly quoteDeliveryFeeUseCase: QuoteDeliveryFeeUseCase
   readonly repeatLastOrderUseCase: RepeatLastOrderUseCase
   readonly resolveCustomerDecisionUseCase: ResolveCustomerDecisionUseCase
   readonly resolveItemSubstitutionUseCase: ResolveItemSubstitutionUseCase
@@ -437,6 +440,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     updateCartItemQuantityUseCase,
     createOrderFromCartUseCase,
     resolveOrderDeliveryEstimateUseCase,
+    quoteDeliveryFeeUseCase,
     repeatLastOrderUseCase,
     resolveCustomerDecisionUseCase,
     resolveItemSubstitutionUseCase,
@@ -509,14 +513,13 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     resolveOrderDeliveryEstimateUseCase,
     addressLookupProvider,
     storePreparationMinutes: environment.STORE_PREPARATION_MINUTES,
-    configuredDeliveryFeeInCents: environment.DELIVERY_FEE_CENTS,
+    quoteDeliveryFeeUseCase,
   })
   const cashChangeHandler = new CashChangeHandler({
     conversationSessionRepository,
     whatsAppSender,
     cartRepository,
     productRepository,
-    configuredDeliveryFeeInCents: environment.DELIVERY_FEE_CENTS,
   })
   const globalHandler = new GlobalHandler({
     conversationSessionRepository,
@@ -548,6 +551,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
       [CONVERSATION_STATE.AWAITING_DELIVERY_TYPE]: checkoutHandler,
       [CONVERSATION_STATE.AWAITING_ADDRESS]: checkoutHandler,
       [CONVERSATION_STATE.AWAITING_ADDRESS_NUMBER]: checkoutHandler,
+      [CONVERSATION_STATE.AWAITING_OUT_OF_RANGE_DECISION]: checkoutHandler,
       [CONVERSATION_STATE.AWAITING_PAYMENT]: checkoutHandler,
       [CONVERSATION_STATE.AWAITING_CASH_CHANGE]: cashChangeHandler,
       [CONVERSATION_STATE.AWAITING_CASH_CHANGE_AMOUNT]: cashChangeHandler,
@@ -817,6 +821,7 @@ const conversationModule = buildConversationModule({
   updateCartItemQuantityUseCase: cartModule.updateCartItemQuantityUseCase,
   createOrderFromCartUseCase: orderModule.createOrderFromCartUseCase,
   resolveOrderDeliveryEstimateUseCase: orderModule.resolveOrderDeliveryEstimateUseCase,
+  quoteDeliveryFeeUseCase: orderModule.quoteDeliveryFeeUseCase,
   repeatLastOrderUseCase: orderModule.repeatLastOrderUseCase,
   resolveCustomerDecisionUseCase: orderModule.resolveCustomerDecisionUseCase,
   resolveItemSubstitutionUseCase: orderModule.resolveItemSubstitutionUseCase,
@@ -926,7 +931,6 @@ export const container = {
       customerRepository: webhookRepositories.customerRepository,
       cartRepository: cartModule.cartRepository,
       productRepository: catalogModule.productRepository,
-      configuredDeliveryFeeInCents: environment.DELIVERY_FEE_CENTS,
     }),
   }),
   internal: buildInternalModule({

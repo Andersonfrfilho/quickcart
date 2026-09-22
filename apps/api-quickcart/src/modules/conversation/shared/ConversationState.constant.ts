@@ -23,10 +23,12 @@ export const CONVERSATION_STATE = {
   CART_REVIEW: 'cart_review',
   EDITING_CART: 'editing_cart',
   AWAITING_DELIVERY_TYPE: 'awaiting_delivery_type',
-  /** Pede o CEP. Rua/bairro/cidade/UF vêm do ViaCEP; se não resolver, cai para o endereço em texto livre. */
+  /** Pede o CEP ou a localização do WhatsApp. Texto livre sem CEP não serve para entrega (não dá para cotar). */
   AWAITING_ADDRESS: 'awaiting_address',
-  /** Só existe quando o CEP resolveu — pede número (e complemento) para completar o endereço estruturado. */
+  /** CEP resolvido ou localização recebida — pede número (e complemento) para completar o endereço. */
   AWAITING_ADDRESS_NUMBER: 'awaiting_address_number',
+  /** Cotação fora do raio ou indisponível: o cliente escolhe entre retirar na loja e outro endereço. */
+  AWAITING_OUT_OF_RANGE_DECISION: 'awaiting_out_of_range_decision',
   AWAITING_PAYMENT: 'awaiting_payment',
   /** Só existe quando o pagamento é em dinheiro (roteiro §9): pergunta sim/não sobre troco. */
   AWAITING_CASH_CHANGE: 'awaiting_cash_change',

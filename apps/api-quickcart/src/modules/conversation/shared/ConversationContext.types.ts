@@ -55,11 +55,17 @@ export type ConversationContext = {
   readonly editingCartItemId?: string
   readonly checkoutDeliveryType?: string
   /**
-   * Taxa de entrega cotada quando o tipo de entrega foi escolhido (retirada = 0). Troco e pedido usam ESTE
-   * valor, nunca a env relida: se `DELIVERY_FEE_CENTS` mudar no meio do checkout, o troco já validado
-   * continua valendo. Ausente (sessão anterior à T2.1) vale 0.
+   * Taxa cotada pela faixa quando o endereço ficou pronto (retirada = 0). Troco e pedido usam ESTE valor,
+   * nunca uma recotação: o troco já foi validado contra ele. Entrega sem `checkoutDeliveryLocationSource`
+   * é sessão anterior à cotação por faixa e não vale como cotação (`resolveCheckoutDeliveryFeeInCents`).
    */
   readonly checkoutDeliveryFeeInCents?: number
+  /** Só em cotação `quoted` — a aproximada pela cidade não calcula distância. */
+  readonly checkoutDeliveryDistanceKm?: number
+  readonly checkoutDeliveryTierMaxKm?: number
+  readonly checkoutDeliveryTierFeeInCents?: number
+  /** `whatsapp_location` | `cep` | `cep_approximate`: presente em toda entrega cotada. */
+  readonly checkoutDeliveryLocationSource?: string
   readonly checkoutAddress?: unknown
   /**
    * CEP resolvido, à espera do número (e complemento) para virar `checkoutAddress` completo.
@@ -74,6 +80,11 @@ export type ConversationContext = {
     readonly neighborhood: string
     readonly city: string
     readonly state: string
+  }
+  /** Localização do WhatsApp já cotada, à espera do número/complemento para o entregador. */
+  readonly checkoutLocationDraft?: {
+    readonly latitude: number
+    readonly longitude: number
   }
   readonly checkoutPaymentMethod?: string
   /**

@@ -32,21 +32,48 @@ import { sendCartSummary } from '@/modules/conversation/application/handlers/sup
 import { enterConfirming } from '@/modules/conversation/application/handlers/support/enterConfirming'
 import { calculateCartTotalInCents } from '@/modules/conversation/application/handlers/support/cartTotal'
 import { resolveCheckoutDeliveryFeeInCents } from '@/modules/conversation/shared/resolveCheckoutDeliveryFeeInCents'
-import type { AskCashChangeAgainParams } from '@/modules/conversation/application/types/CheckoutHandler.types'
+import type {
+  AcceptedDeliveryQuote,
+  AcceptLocationParams,
+  ApplyRememberedCheckoutParams,
+  AskCashChangeAgainParams,
+  AskPaymentAfterQuoteParams,
+  CheckoutStepParams,
+  DeclineDeliveryParams,
+  DeliveryQuoteOutcome,
+} from '@/modules/conversation/application/types/CheckoutHandler.types'
 import { requiresCardMachine } from '@/modules/order/shared/requiresCardMachine'
-import { amountDueInCents, resolveDeliveryFeeInCents } from '@/modules/order/shared/amountDue'
+import { amountDueInCents } from '@/modules/order/shared/amountDue'
 import { DELIVERY_TYPE } from '@/modules/order/shared/Order.constant'
+import { CUSTOMER_LOCATION_KIND } from '@/modules/order/shared/DeliveryFeeQuote.constant'
+import type { QuoteDeliveryFeeUseCase } from '@/modules/order/application/use-cases/QuoteDeliveryFee.use-case'
+import type { CustomerLocation } from '@/modules/order/application/types/QuoteDeliveryFee.types'
+import {
+  toDeliveryQuoteContext,
+  withoutCheckoutAddress,
+  withoutDeliveryQuote,
+} from '@/modules/conversation/shared/deliveryQuoteContext'
+import { extractRememberedLocation } from '@/modules/conversation/shared/extractRememberedLocation'
+import {
+  buildDeliveryDeclinedMessage,
+  buildDeliveryFeeQuotedMessage,
+} from '@/modules/conversation/application/handlers/support/deliveryQuoteMessages'
+import { returnToAddressForMissingQuote } from '@/modules/conversation/application/handlers/support/returnToAddressForMissingQuote'
+import type { WhatsAppLocationAddress } from '@/modules/shared/address/WhatsAppLocationAddress'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInCents'
 import { logger } from '@/shared/logger'
 import { serializeError } from '@/shared/serializeError'
 import {
+  ADDRESS_DECISION_BUTTON_ID,
+  ADDRESS_PICKUP_INSTEAD_BUTTONS,
   CASH_CHANGE_BUTTONS,
   CONFIRMING_BUTTON_ID,
   REMEMBERED_CHECKOUT_BUTTON_ID,
   DELIVERY_TYPE_BUTTON_ID,
   DELIVERY_TYPE_BUTTONS,
   MESSAGES,
+  OUT_OF_RANGE_DECISION_BUTTONS,
   PAYMENT_METHOD_BUTTON_ID,
   PAYMENT_METHOD_BUTTONS,
   RECEIPT_PREFERENCE_BUTTON_ID,
@@ -70,9 +97,10 @@ export type CheckoutHandlerDependencies = {
   readonly resolveOrderDeliveryEstimateUseCase: ResolveOrderDeliveryEstimateUseCase
   readonly addressLookupProvider: AddressLookupProviderInterface
   readonly storePreparationMinutes: number
-  /** `DELIVERY_FEE_CENTS`. Lida só ao escolher a entrega; dali em diante vale a cotada no contexto. */
-  readonly configuredDeliveryFeeInCents: number
+  /** Chamada quando o endereço fica pronto (CEP, localização ou endereço lembrado); nunca no clique em "Entrega". */
+  readonly quoteDeliveryFeeUseCase: Pick<QuoteDeliveryFeeUseCase, 'execute'>
 }
+
 
 /**
  * Tira a memória do contexto depois de usada (ou recusada).
@@ -100,6 +128,9 @@ export class CheckoutHandler implements ConversationHandlerInterface {
       case CONVERSATION_STATE.AWAITING_ADDRESS_NUMBER:
         await this.handleAwaitingAddressNumber(context)
         return
+      case CONVERSATION_STATE.AWAITING_OUT_OF_RANGE_DECISION:
+        await this.handleAwaitingOutOfRangeDecision(context)
+        return
       case CONVERSATION_STATE.AWAITING_PAYMENT:
         await this.handleAwaitingPayment(context)
         return
@@ -114,8 +145,12 @@ export class CheckoutHandler implements ConversationHandlerInterface {
     }
   }
 
-  private quoteDeliveryFeeInCents(deliveryType: string): number {
-    return resolveDeliveryFeeInCents({ deliveryType, configuredFeeInCents: this.dependencies.configuredDeliveryFeeInCents })
+  /** `undefined` quando a cotação não permite entregar; o chamador oferece retirada ou outro endereço. */
+  private async quoteDelivery(location: CustomerLocation): Promise<DeliveryQuoteOutcome> {
+    const result = await this.dependencies.quoteDeliveryFeeUseCase.execute({ deliveryType: DELIVERY_TYPE.DELIVERY, location })
+    const context = toDeliveryQuoteContext(result)
+    const message = buildDeliveryFeeQuotedMessage(result)
+    return context && message ? { result, accepted: { context, message } } : { result }
   }
 
   private async handleAwaitingDeliveryType({ session, customer, message }: ConversationHandlerContext): Promise<void> {
@@ -139,40 +174,7 @@ export class CheckoutHandler implements ConversationHandlerInterface {
      * passa pela tela de confirmar/cancelar — este atalho corta as perguntas, não a última palavra.
      */
     if (remembered && message.buttonId === REMEMBERED_CHECKOUT_BUTTON_ID.SAME_AS_LAST) {
-      const rememberedContext: ConversationContext = {
-        ...withoutRememberedCheckout(checkoutContext),
-        checkoutDeliveryType: remembered.deliveryType,
-        checkoutDeliveryFeeInCents: this.quoteDeliveryFeeInCents(remembered.deliveryType),
-        ...(remembered.address !== undefined ? { checkoutAddress: remembered.address } : {}),
-        checkoutPaymentMethod: remembered.paymentMethod,
-        checkoutReceiptPreference: remembered.receiptPreference,
-        ...(remembered.email ? { checkoutEmail: remembered.email } : {}),
-      }
-
-      if (remembered.paymentMethod === PAYMENT_METHOD_BUTTON_ID.CASH) {
-        await this.dependencies.conversationSessionRepository.updateStateByPhone({
-          customerPhone: session.customerPhone,
-          currentState: CONVERSATION_STATE.AWAITING_CASH_CHANGE,
-          context: rememberedContext,
-        })
-        await this.dependencies.whatsAppSender.sendInteractiveButtons(
-          session.customerPhone,
-          MESSAGES.CHECKOUT_ASK_CASH_CHANGE,
-          CASH_CHANGE_BUTTONS,
-        )
-        return
-      }
-
-      if (requiresCardMachine({ paymentMethod: remembered.paymentMethod, deliveryType: remembered.deliveryType })) {
-        await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_CARD_ON_DELIVERY_MACHINE_NOTICE)
-      }
-
-      await enterConfirming({
-        dependencies: this.dependencies,
-        customerPhone: session.customerPhone,
-        customerId: customer.id,
-        checkoutContext: rememberedContext,
-      })
+      await this.applyRememberedCheckout({ session, customer, checkoutContext, remembered })
       return
     }
 
@@ -181,7 +183,7 @@ export class CheckoutHandler implements ConversationHandlerInterface {
       await this.dependencies.conversationSessionRepository.updateStateByPhone({
         customerPhone: session.customerPhone,
         currentState: CONVERSATION_STATE.AWAITING_DELIVERY_TYPE,
-        context: withoutRememberedCheckout(checkoutContext),
+        context: withoutDeliveryQuote(withoutRememberedCheckout(checkoutContext)),
       })
       await this.dependencies.whatsAppSender.sendInteractiveButtons(
         session.customerPhone,
@@ -191,35 +193,19 @@ export class CheckoutHandler implements ConversationHandlerInterface {
       return
     }
 
+    // A taxa depende do endereço (spec §3.4): o clique em "Entrega" só pede o endereço, sem cotar.
     if (message.buttonId === DELIVERY_TYPE_BUTTON_ID.DELIVERY) {
       await this.dependencies.conversationSessionRepository.updateStateByPhone({
         customerPhone: session.customerPhone,
         currentState: CONVERSATION_STATE.AWAITING_ADDRESS,
-        context: {
-          ...checkoutContext,
-          checkoutDeliveryType: message.buttonId,
-          checkoutDeliveryFeeInCents: this.quoteDeliveryFeeInCents(message.buttonId),
-        },
+        context: { ...withoutCheckoutAddress(withoutDeliveryQuote(checkoutContext)), checkoutDeliveryType: DELIVERY_TYPE.DELIVERY },
       })
       await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_ASK_ADDRESS)
       return
     }
 
     if (message.buttonId === DELIVERY_TYPE_BUTTON_ID.PICKUP) {
-      await this.dependencies.conversationSessionRepository.updateStateByPhone({
-        customerPhone: session.customerPhone,
-        currentState: CONVERSATION_STATE.AWAITING_PAYMENT,
-        context: {
-          ...checkoutContext,
-          checkoutDeliveryType: message.buttonId,
-          checkoutDeliveryFeeInCents: this.quoteDeliveryFeeInCents(message.buttonId),
-        },
-      })
-      await this.dependencies.whatsAppSender.sendInteractiveButtons(
-        session.customerPhone,
-        MESSAGES.CHECKOUT_ASK_PAYMENT,
-        PAYMENT_METHOD_BUTTONS,
-      )
+      await this.choosePickup({ session, checkoutContext })
       return
     }
 
@@ -227,40 +213,94 @@ export class CheckoutHandler implements ConversationHandlerInterface {
   }
 
   /**
-   * CEP primeiro (spec §8 Q1): 8 dígitos que resolvem no ViaCEP avançam para o passo estruturado
-   * (só falta número/complemento). Qualquer outra coisa — CEP que não resolve, ou o cliente já
-   * mandando o endereço inteiro, apesar da pergunta — vira o endereço final em texto livre, como
-   * sempre foi. CEP que não resolve NÃO trava: pede o endereço completo e segue.
+   * "Isso mesmo": aplica em bloco o que o cliente ACABOU de ler e vai direto à confirmação final —
+   * EXCETO o troco (correção T1.1/T1.2): o troco depende do total DESTA compra, não da anterior,
+   * então dinheiro lembrado ainda precisa perguntar de novo, com tudo o mais já preenchido no
+   * contexto. Cartão na entrega lembrado passa pelo mesmo aviso da maquininha que o caminho longo.
+   *
+   * Entrega lembrada é RECOTADA com a localização lembrada (a faixa pode ter mudado desde o último
+   * pedido); sem localização utilizável, fora do raio ou indisponível, o atalho cai e o cliente
+   * escolhe de novo. Os demais valores vêm do contexto, não do banco: ele viu um resumo, e aplicar
+   * algo diferente do que estava na tela trairia a confirmação.
    */
-  private async handleAwaitingAddress({ session, message }: ConversationHandlerContext): Promise<void> {
-    const checkoutContext = (session.context ?? {}) as ConversationContext
+  private async applyRememberedCheckout(params: ApplyRememberedCheckoutParams): Promise<void> {
+    const { session, customer, checkoutContext, remembered } = params
+    const isDelivery = remembered.deliveryType === DELIVERY_TYPE.DELIVERY
+    const accepted = isDelivery ? await this.quoteRememberedDelivery(remembered.address) : undefined
 
-    if (message.kind !== 'text' || message.body.trim().length === 0) {
-      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_ASK_ADDRESS)
+    if (isDelivery && !accepted) {
+      await this.declineRememberedDelivery({ session, checkoutContext })
       return
     }
 
-    const digitsOnly = message.body.replace(/\D/g, '')
-    if (digitsOnly.length === 8) {
-      const found = await this.dependencies.addressLookupProvider.lookupByCep(digitsOnly)
-      if (found) {
-        await this.dependencies.conversationSessionRepository.updateStateByPhone({
-          customerPhone: session.customerPhone,
-          currentState: CONVERSATION_STATE.AWAITING_ADDRESS_NUMBER,
-          context: { ...checkoutContext, checkoutAddressDraft: { cep: digitsOnly, ...found } },
-        })
-        await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_ASK_ADDRESS_NUMBER)
-        return
-      }
+    const rememberedContext: ConversationContext = {
+      ...withoutDeliveryQuote(withoutRememberedCheckout(checkoutContext)),
+      checkoutDeliveryType: remembered.deliveryType,
+      ...(accepted ? accepted.context : { checkoutDeliveryFeeInCents: 0 }),
+      ...(remembered.address !== undefined ? { checkoutAddress: remembered.address } : {}),
+      checkoutPaymentMethod: remembered.paymentMethod,
+      checkoutReceiptPreference: remembered.receiptPreference,
+      ...(remembered.email ? { checkoutEmail: remembered.email } : {}),
+    }
+    if (accepted) await this.dependencies.whatsAppSender.sendText(session.customerPhone, accepted.message)
 
-      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_ASK_ADDRESS_FALLBACK)
+    if (remembered.paymentMethod === PAYMENT_METHOD_BUTTON_ID.CASH) {
+      await this.dependencies.conversationSessionRepository.updateStateByPhone({
+        customerPhone: session.customerPhone,
+        currentState: CONVERSATION_STATE.AWAITING_CASH_CHANGE,
+        context: rememberedContext,
+      })
+      await this.dependencies.whatsAppSender.sendInteractiveButtons(
+        session.customerPhone,
+        MESSAGES.CHECKOUT_ASK_CASH_CHANGE,
+        CASH_CHANGE_BUTTONS,
+      )
       return
     }
 
+    if (requiresCardMachine({ paymentMethod: remembered.paymentMethod, deliveryType: remembered.deliveryType })) {
+      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_CARD_ON_DELIVERY_MACHINE_NOTICE)
+    }
+
+    await enterConfirming({
+      dependencies: this.dependencies,
+      customerPhone: session.customerPhone,
+      customerId: customer.id,
+      checkoutContext: rememberedContext,
+    })
+  }
+
+  private async quoteRememberedDelivery(address: unknown): Promise<AcceptedDeliveryQuote | undefined> {
+    const location = extractRememberedLocation(address)
+    if (!location) return undefined
+    const { accepted } = await this.quoteDelivery(location)
+    return accepted
+  }
+
+  private async declineRememberedDelivery({ session, checkoutContext }: CheckoutStepParams): Promise<void> {
+    await this.dependencies.conversationSessionRepository.updateStateByPhone({
+      customerPhone: session.customerPhone,
+      currentState: CONVERSATION_STATE.AWAITING_DELIVERY_TYPE,
+      context: withoutDeliveryQuote(withoutRememberedCheckout(checkoutContext)),
+    })
+    await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_REMEMBERED_DELIVERY_NOT_QUOTED)
+    await this.dependencies.whatsAppSender.sendInteractiveButtons(
+      session.customerPhone,
+      MESSAGES.CHECKOUT_ASK_DELIVERY_TYPE,
+      DELIVERY_TYPE_BUTTONS,
+    )
+  }
+
+  /** Retirada não cota (spec §3.4): taxa 0 direto, e qualquer endereço ou cotação anterior some. */
+  private async choosePickup({ session, checkoutContext }: CheckoutStepParams): Promise<void> {
     await this.dependencies.conversationSessionRepository.updateStateByPhone({
       customerPhone: session.customerPhone,
       currentState: CONVERSATION_STATE.AWAITING_PAYMENT,
-      context: { ...checkoutContext, checkoutAddress: message.body.trim() },
+      context: {
+        ...withoutCheckoutAddress(withoutDeliveryQuote(checkoutContext)),
+        checkoutDeliveryType: DELIVERY_TYPE.PICKUP,
+        checkoutDeliveryFeeInCents: 0,
+      },
     })
     await this.dependencies.whatsAppSender.sendInteractiveButtons(
       session.customerPhone,
@@ -269,17 +309,131 @@ export class CheckoutHandler implements ConversationHandlerInterface {
     )
   }
 
+  /** Fora do raio ou sem cotação: não entrega com este endereço, oferece retirada ou outro endereço (D6). */
+  private async declineDelivery(params: DeclineDeliveryParams): Promise<void> {
+    const { session, checkoutContext, result } = params
+    await this.dependencies.conversationSessionRepository.updateStateByPhone({
+      customerPhone: session.customerPhone,
+      currentState: CONVERSATION_STATE.AWAITING_OUT_OF_RANGE_DECISION,
+      context: withoutCheckoutAddress(withoutDeliveryQuote(checkoutContext)),
+    })
+    await this.dependencies.whatsAppSender.sendInteractiveButtons(
+      session.customerPhone,
+      buildDeliveryDeclinedMessage(result),
+      OUT_OF_RANGE_DECISION_BUTTONS,
+    )
+  }
+
+  private async askPaymentAfterQuote(params: AskPaymentAfterQuoteParams): Promise<void> {
+    const { session } = params
+    await this.dependencies.conversationSessionRepository.updateStateByPhone({
+      customerPhone: session.customerPhone,
+      currentState: CONVERSATION_STATE.AWAITING_PAYMENT,
+      context: params.context,
+    })
+    if (params.quoteMessage) await this.dependencies.whatsAppSender.sendText(session.customerPhone, params.quoteMessage)
+    await this.dependencies.whatsAppSender.sendInteractiveButtons(
+      session.customerPhone,
+      MESSAGES.CHECKOUT_ASK_PAYMENT,
+      PAYMENT_METHOD_BUTTONS,
+    )
+  }
+
+  /**
+   * CEP primeiro (spec §8 Q1), ou a localização do WhatsApp (D2). 8 dígitos que resolvem no ViaCEP
+   * avançam para o número; a cotação sai quando o endereço fica pronto. Texto livre sem CEP e CEP que
+   * não resolve NÃO servem para entrega — sem CEP nem coordenada não há distância para cotar a faixa.
+   */
+  private async handleAwaitingAddress({ session, message }: ConversationHandlerContext): Promise<void> {
+    const checkoutContext = (session.context ?? {}) as ConversationContext
+
+    if (message.kind === 'button_reply' && message.buttonId === ADDRESS_DECISION_BUTTON_ID.PICKUP_INSTEAD) {
+      await this.choosePickup({ session, checkoutContext })
+      return
+    }
+
+    if (message.kind === 'location') {
+      await this.acceptLocation({
+        session,
+        checkoutContext,
+        coordinates: { latitude: message.latitude, longitude: message.longitude },
+      })
+      return
+    }
+
+    if (message.kind !== 'text' || message.body.trim().length === 0) {
+      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_ASK_ADDRESS)
+      return
+    }
+
+    const digitsOnly = message.body.replace(/\D/g, '')
+    if (digitsOnly.length !== 8) {
+      await this.dependencies.whatsAppSender.sendInteractiveButtons(
+        session.customerPhone,
+        MESSAGES.CHECKOUT_ADDRESS_NEEDS_CEP_OR_LOCATION,
+        ADDRESS_PICKUP_INSTEAD_BUTTONS,
+      )
+      return
+    }
+
+    const found = await this.dependencies.addressLookupProvider.lookupByCep(digitsOnly)
+    if (!found) {
+      await this.dependencies.whatsAppSender.sendInteractiveButtons(
+        session.customerPhone,
+        MESSAGES.CHECKOUT_ASK_ADDRESS_FALLBACK,
+        ADDRESS_PICKUP_INSTEAD_BUTTONS,
+      )
+      return
+    }
+
+    await this.dependencies.conversationSessionRepository.updateStateByPhone({
+      customerPhone: session.customerPhone,
+      currentState: CONVERSATION_STATE.AWAITING_ADDRESS_NUMBER,
+      context: {
+        ...withoutCheckoutAddress(withoutDeliveryQuote(checkoutContext)),
+        checkoutAddressDraft: { cep: digitsOnly, ...found },
+      },
+    })
+    await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_ASK_ADDRESS_NUMBER)
+  }
+
+  /** Localização cota pela coordenada exata antes do número: o número é para o entregador, não para a taxa. */
+  private async acceptLocation(params: AcceptLocationParams): Promise<void> {
+    const { session, checkoutContext, coordinates } = params
+    const { result, accepted } = await this.quoteDelivery({ kind: CUSTOMER_LOCATION_KIND.COORDINATES, ...coordinates })
+    if (!accepted) {
+      await this.declineDelivery({ session, checkoutContext, result })
+      return
+    }
+
+    await this.dependencies.conversationSessionRepository.updateStateByPhone({
+      customerPhone: session.customerPhone,
+      currentState: CONVERSATION_STATE.AWAITING_ADDRESS_NUMBER,
+      context: {
+        ...withoutCheckoutAddress(withoutDeliveryQuote(checkoutContext)),
+        ...accepted.context,
+        checkoutLocationDraft: coordinates,
+      },
+    })
+    await this.dependencies.whatsAppSender.sendText(session.customerPhone, accepted.message)
+    await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_ASK_LOCATION_ADDRESS_NUMBER)
+  }
+
   /**
    * "412, apto 71" → número e complemento. Regra estrutural única (o que vem antes da primeira
-   * vírgula é o número), não interpretação de texto livre — o endereço nasce estruturado porque
-   * cada campo tem seu próprio passo, este é só o último.
+   * vírgula é o número), não interpretação de texto livre. Com CEP, a cotação sai AQUI, quando o
+   * endereço fica pronto; com localização, ela já saiu ao receber a coordenada e está no contexto.
    */
   private async handleAwaitingAddressNumber({ session, message }: ConversationHandlerContext): Promise<void> {
     const checkoutContext = (session.context ?? {}) as ConversationContext
     const draft = checkoutContext.checkoutAddressDraft
+    const locationDraft = checkoutContext.checkoutLocationDraft
 
-    if (message.kind !== 'text' || message.body.trim().length === 0 || !draft) {
-      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_ASK_ADDRESS_NUMBER)
+    if (message.kind !== 'text' || message.body.trim().length === 0 || (!draft && !locationDraft)) {
+      await this.dependencies.whatsAppSender.sendText(
+        session.customerPhone,
+        locationDraft ? MESSAGES.CHECKOUT_ASK_LOCATION_ADDRESS_NUMBER : MESSAGES.CHECKOUT_ASK_ADDRESS_NUMBER,
+      )
       return
     }
 
@@ -287,14 +441,24 @@ export class CheckoutHandler implements ConversationHandlerInterface {
 
     // O rascunho não sobrevive a este passo — mantê-lo ao lado do endereço final seria dois valores
     // competindo pela mesma pergunta ("qual endereço vale, o rascunho ou o final?").
-    const contextWithoutDraft = { ...checkoutContext }
-    delete (contextWithoutDraft as { checkoutAddressDraft?: unknown }).checkoutAddressDraft
+    if (locationDraft) {
+      const address: WhatsAppLocationAddress = { ...locationDraft, number, ...(complement ? { complement } : {}) }
+      await this.askPaymentAfterQuote({ session, context: { ...withoutCheckoutAddress(checkoutContext), checkoutAddress: address } })
+      return
+    }
 
-    await this.dependencies.conversationSessionRepository.updateStateByPhone({
-      customerPhone: session.customerPhone,
-      currentState: CONVERSATION_STATE.AWAITING_PAYMENT,
+    if (!draft) return
+    const { result, accepted } = await this.quoteDelivery({ kind: CUSTOMER_LOCATION_KIND.CEP, cep: draft.cep })
+    if (!accepted) {
+      await this.declineDelivery({ session, checkoutContext, result })
+      return
+    }
+
+    await this.askPaymentAfterQuote({
+      session,
       context: {
-        ...contextWithoutDraft,
+        ...withoutCheckoutAddress(withoutDeliveryQuote(checkoutContext)),
+        ...accepted.context,
         checkoutAddress: {
           cep: draft.cep,
           street: draft.street,
@@ -305,11 +469,32 @@ export class CheckoutHandler implements ConversationHandlerInterface {
           state: draft.state,
         },
       },
+      quoteMessage: accepted.message,
     })
+  }
+
+  private async handleAwaitingOutOfRangeDecision({ session, message }: ConversationHandlerContext): Promise<void> {
+    const checkoutContext = (session.context ?? {}) as ConversationContext
+
+    if (message.kind === 'button_reply' && message.buttonId === ADDRESS_DECISION_BUTTON_ID.PICKUP_INSTEAD) {
+      await this.choosePickup({ session, checkoutContext })
+      return
+    }
+
+    if (message.kind === 'button_reply' && message.buttonId === ADDRESS_DECISION_BUTTON_ID.OTHER_ADDRESS) {
+      await this.dependencies.conversationSessionRepository.updateStateByPhone({
+        customerPhone: session.customerPhone,
+        currentState: CONVERSATION_STATE.AWAITING_ADDRESS,
+        context: withoutCheckoutAddress(withoutDeliveryQuote(checkoutContext)),
+      })
+      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_ASK_ADDRESS)
+      return
+    }
+
     await this.dependencies.whatsAppSender.sendInteractiveButtons(
       session.customerPhone,
-      MESSAGES.CHECKOUT_ASK_PAYMENT,
-      PAYMENT_METHOD_BUTTONS,
+      MESSAGES.CHECKOUT_OUT_OF_RANGE_UNEXPECTED_INPUT,
+      OUT_OF_RANGE_DECISION_BUTTONS,
     )
   }
 
@@ -321,7 +506,10 @@ export class CheckoutHandler implements ConversationHandlerInterface {
       return
     }
 
-    const nextContext = { ...checkoutContext, checkoutPaymentMethod: message.buttonId }
+    // Troco de uma escolha anterior (o cliente voltou ao endereço e pagamento de novo) não vale mais.
+    const contextWithoutCashChange: Record<string, unknown> = { ...checkoutContext }
+    delete contextWithoutCashChange.checkoutCashChangeForInCents
+    const nextContext: ConversationContext = { ...contextWithoutCashChange, checkoutPaymentMethod: message.buttonId }
 
     /*
      * Só dinheiro pergunta troco (roteiro §9). Os outros meios seguem direto para o recibo, como
@@ -451,8 +639,8 @@ export class CheckoutHandler implements ConversationHandlerInterface {
    * ao fechar o pedido de novo — sem isso o `rememberedCheckout` só nasceria do ÚLTIMO PEDIDO
    * confirmado no banco, que não existe ainda neste ponto (o cliente está alterando ANTES de
    * confirmar). Ele passa pelo MESMO caminho do atalho lembrado
-   * (`handleAwaitingDeliveryType`), então troco é reperguntado e a taxa de entrega é recotada do
-   * contexto atual, nunca copiados direto do que já tinha sido escolhido (correção T1.1/T1.2).
+   * (`applyRememberedCheckout`), então troco é reperguntado e a entrega é recotada pela localização
+   * lembrada — a cotação desta sessão NÃO é levada: o contexto novo tem só a memória.
    */
   private async alterCheckout(session: ConversationSession, customer: Customer, checkoutContext: ConversationContext): Promise<void> {
     const { checkoutDeliveryType, checkoutAddress, checkoutPaymentMethod, checkoutReceiptPreference, checkoutEmail } = checkoutContext
@@ -502,6 +690,13 @@ export class CheckoutHandler implements ConversationHandlerInterface {
       return
     }
 
+    // A cotação do contexto, a mesma contra a qual o troco foi validado — nunca recalculada aqui.
+    const deliveryFeeInCents = resolveCheckoutDeliveryFeeInCents(checkoutContext)
+    if (deliveryFeeInCents === undefined) {
+      await returnToAddressForMissingQuote({ dependencies: this.dependencies, customerPhone: session.customerPhone, checkoutContext })
+      return
+    }
+
     const cart = await this.dependencies.cartRepository.findOpenByCustomer(customer.id, CHANNEL.WHATSAPP)
     if (!cart) {
       await this.dependencies.conversationSessionRepository.updateStateByPhone({
@@ -513,10 +708,6 @@ export class CheckoutHandler implements ConversationHandlerInterface {
       return
     }
 
-    const deliveryFeeInCents = resolveCheckoutDeliveryFeeInCents({
-      context: checkoutContext,
-      configuredFeeInCents: this.dependencies.configuredDeliveryFeeInCents,
-    })
     if (await this.askCashChangeAgainIfTotalChanged({ session, cartId: cart.id, checkoutContext, deliveryFeeInCents })) return
 
     try {
@@ -530,6 +721,10 @@ export class CheckoutHandler implements ConversationHandlerInterface {
         receiptPreference: checkoutReceiptPreference,
         cashChangeForInCents: checkoutContext.checkoutCashChangeForInCents,
         quotedDeliveryFeeInCents: deliveryFeeInCents,
+        quotedDeliveryDistanceKm: checkoutContext.checkoutDeliveryDistanceKm ?? null,
+        quotedDeliveryTierMaxKm: checkoutContext.checkoutDeliveryTierMaxKm ?? null,
+        quotedDeliveryTierFeeInCents: checkoutContext.checkoutDeliveryTierFeeInCents ?? null,
+        quotedDeliveryLocationSource: checkoutContext.checkoutDeliveryLocationSource ?? null,
       })
 
       await this.dependencies.conversationSessionRepository.updateStateByPhone({

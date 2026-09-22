@@ -87,4 +87,12 @@ export type ParsedInboundMessage =
       readonly listId: string
       readonly listTitle: string
     }
+  | {
+      /** Localização enviada pelo WhatsApp. Coordenada é dado pessoal: nunca vai para log. */
+      readonly kind: 'location'
+      readonly from: string
+      readonly waMessageId: string
+      readonly latitude: number
+      readonly longitude: number
+    }
   | { readonly kind: 'unsupported'; readonly from: string; readonly waMessageId: string; readonly type: string }

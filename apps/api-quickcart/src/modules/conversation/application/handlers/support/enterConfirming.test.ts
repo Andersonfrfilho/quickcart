@@ -12,8 +12,11 @@
  */
 
 import { describe, expect, it } from 'bun:test'
+import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
+import { DELIVERY_LOCATION_SOURCE } from '@/modules/order/shared/DeliveryFeeQuote.constant'
 import {
   DELIVERY_TYPE_BUTTON_ID,
+  MESSAGES,
   PAYMENT_METHOD_BUTTON_ID,
   RECEIPT_PREFERENCE_BUTTON_ID,
 } from '@/modules/conversation/shared/Messages.constant'
@@ -23,7 +26,9 @@ import { enterConfirming, type EnterConfirmingDependencies } from './enterConfir
 const PHONE = '5511988887777'
 const CUSTOMER_ID = 'customer-1'
 
-function buildDependencies(configuredDeliveryFeeInCents = 0) {
+function buildDependencies() {
+  const texts: string[] = []
+  const stateUpdates: { currentState: string; context: Record<string, unknown> }[] = []
   const buttonMessages: { body: string; buttons: readonly { id: string; title: string }[] }[] = []
 
   const dependencies = {
@@ -41,22 +46,23 @@ function buildDependencies(configuredDeliveryFeeInCents = 0) {
       },
     },
     conversationSessionRepository: {
-      async updateStateByPhone() {
+      async updateStateByPhone(params: { currentState: string; context: Record<string, unknown> }) {
+        stateUpdates.push({ currentState: params.currentState, context: params.context })
         return undefined
       },
     },
     whatsAppSender: {
-      async sendText() {
+      async sendText(_phone: string, text: string) {
+        texts.push(text)
         return undefined
       },
       async sendInteractiveButtons(_phone: string, body: string, buttons: readonly { id: string; title: string }[]) {
         buttonMessages.push({ body, buttons })
       },
     },
-    configuredDeliveryFeeInCents,
   } as unknown as EnterConfirmingDependencies
 
-  return { dependencies, buttonMessages }
+  return { dependencies, buttonMessages, texts, stateUpdates }
 }
 
 describe('enterConfirming — resumo antes de confirmar', () => {
@@ -70,6 +76,7 @@ describe('enterConfirming — resumo antes de confirmar', () => {
       checkoutContext: {
         checkoutDeliveryType: DELIVERY_TYPE_BUTTON_ID.DELIVERY,
         checkoutDeliveryFeeInCents: 800,
+        checkoutDeliveryLocationSource: DELIVERY_LOCATION_SOURCE.CEP,
         checkoutAddress: {
           street: 'Rua X',
           number: '123',
@@ -91,8 +98,8 @@ describe('enterConfirming — resumo antes de confirmar', () => {
     expect(summary).toContain('Recibo: 📱 WhatsApp')
   })
 
-  it('sessão anterior ao deploy (sem checkoutDeliveryFeeInCents): resumo cota a taxa configurada, não "grátis"', async () => {
-    const { dependencies, buttonMessages } = buildDependencies(800)
+  it('sessão anterior ao deploy (entrega sem cotação por faixa): não mostra resumo, volta ao endereço', async () => {
+    const { dependencies, buttonMessages, texts, stateUpdates } = buildDependencies()
 
     await enterConfirming({
       dependencies,
@@ -100,15 +107,22 @@ describe('enterConfirming — resumo antes de confirmar', () => {
       customerId: CUSTOMER_ID,
       checkoutContext: {
         checkoutDeliveryType: DELIVERY_TYPE_BUTTON_ID.DELIVERY,
-        checkoutAddress: { street: 'Rua X', number: '123', neighborhood: 'Bairro', city: 'São Paulo', state: 'SP' },
-        checkoutPaymentMethod: PAYMENT_METHOD_BUTTON_ID.PIX,
+        checkoutDeliveryFeeInCents: 0,
+        checkoutAddress: 'Rua X, 123',
+        checkoutPaymentMethod: PAYMENT_METHOD_BUTTON_ID.CASH,
+        checkoutCashChangeForInCents: 10000,
         checkoutReceiptPreference: RECEIPT_PREFERENCE_BUTTON_ID.WHATSAPP,
       },
     })
 
-    const summary = buttonMessages[0]?.body ?? ''
-    expect(summary).toContain(`Taxa de entrega: ${formatPriceInCents(800)}`)
-    expect(summary).toContain(`Total: ${formatPriceInCents(5780)}`)
+    expect(buttonMessages).toEqual([])
+    expect(texts).toEqual([MESSAGES.CHECKOUT_DELIVERY_QUOTE_MISSING])
+    expect(stateUpdates[0]?.currentState).toBe(CONVERSATION_STATE.AWAITING_ADDRESS)
+    expect(stateUpdates[0]?.context).toEqual({
+      checkoutDeliveryType: DELIVERY_TYPE_BUTTON_ID.DELIVERY,
+      checkoutPaymentMethod: PAYMENT_METHOD_BUTTON_ID.CASH,
+      checkoutReceiptPreference: RECEIPT_PREFERENCE_BUTTON_ID.WHATSAPP,
+    })
   })
 
   it('entrega grátis: mostra "grátis" em vez de R$ 0,00', async () => {
@@ -121,6 +135,7 @@ describe('enterConfirming — resumo antes de confirmar', () => {
       checkoutContext: {
         checkoutDeliveryType: DELIVERY_TYPE_BUTTON_ID.DELIVERY,
         checkoutDeliveryFeeInCents: 0,
+        checkoutDeliveryLocationSource: DELIVERY_LOCATION_SOURCE.CEP,
         checkoutAddress: {
           street: 'Rua X',
           number: '123',
@@ -148,6 +163,7 @@ describe('enterConfirming — resumo antes de confirmar', () => {
       checkoutContext: {
         checkoutDeliveryType: DELIVERY_TYPE_BUTTON_ID.PICKUP,
         checkoutDeliveryFeeInCents: 0,
+        checkoutDeliveryLocationSource: DELIVERY_LOCATION_SOURCE.CEP,
         checkoutPaymentMethod: PAYMENT_METHOD_BUTTON_ID.PIX,
         checkoutReceiptPreference: RECEIPT_PREFERENCE_BUTTON_ID.WHATSAPP,
       },
@@ -169,6 +185,7 @@ describe('enterConfirming — resumo antes de confirmar', () => {
       checkoutContext: {
         checkoutDeliveryType: DELIVERY_TYPE_BUTTON_ID.DELIVERY,
         checkoutDeliveryFeeInCents: 800,
+        checkoutDeliveryLocationSource: DELIVERY_LOCATION_SOURCE.CEP,
         checkoutAddress: {
           street: 'Rua X',
           number: '123',
