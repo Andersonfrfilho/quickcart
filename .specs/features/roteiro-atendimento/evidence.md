@@ -264,3 +264,128 @@ em `handleAwaitingPayment`.
 
 Nenhum. O fluxo normal (pagamento em dinheiro sem atalho lembrado) continua perguntando o recibo
 depois do troco, exatamente como antes desta correção.
+
+## T2.1 — Taxa de entrega
+
+Plano seguido: `t2.1-validacao-architect.md` (aprovado com ajustes; amplia o `tasks.md`).
+Commits: `13cfa17` (api + migration), `4ccb8e0` (worker), `c418194` (web).
+
+### Arquivos
+
+**api-quickcart**
+- `src/infra/config/environment.ts` — `DELIVERY_FEE_CENTS: z.coerce.number().int().nonnegative().default(0)`.
+- `envs/env.dev`, `.env.example` — `DELIVERY_FEE_CENTS=0` com aviso do contador.
+- `drizzle/migrations/0021_order_delivery_fee.sql` + `meta/_journal.json` (idx 21).
+- `src/infra/database/schema/orders.ts` — `deliveryFeeInCents` (`delivery_fee_in_cents integer not null default 0`).
+- `src/modules/order/shared/amountDue.ts` (novo) — `resolveDeliveryFeeInCents` e `amountDueInCents`.
+  `conversation/application/handlers/support/amountDue.ts` **removido**.
+- `order/domain/OrderRepository.interface.ts`, `order/infra/database/DrizzleOrderRepository.ts` —
+  `OrderRecord.deliveryFeeInCents`; `createWithStockDecrement` grava `params.deliveryFeeInCents` (não decide).
+- `order/application/use-cases/CreateOrderFromCart.use-case.ts` (+ types) — recebe `quotedDeliveryFeeInCents`.
+- `order/application/use-cases/CreateWebOrder.use-case.ts` — dependência `configuredDeliveryFeeInCents`.
+- `infra/container/index.ts`, `infra/http/server.ts`, `infra/database/seeds/OrderSeedRunner.ts` — wiring da env.
+- `conversation/shared/ConversationContext.types.ts` — `checkoutDeliveryFeeInCents`.
+- `conversation/application/handlers/CheckoutHandler.ts` — cota a taxa ao escolher entrega/retirada e no
+  atalho lembrado; `confirmOrder` repassa a do contexto; confirmação ganha `Total: {amountDue}`.
+- `conversation/application/handlers/CashChangeHandler.ts` — troco contra itens + taxa do contexto.
+- `order/shared/customerDecisionMessage.ts`, `GlobalHandler.ts`, `registerQuickCartFlowActions.ts` — amountDue.
+- `order/infra/http/Order.controller.ts` — DTO ganha `amountDueInCents` (`deliveryFeeInCents` já vem do record).
+- `store/infra/http/Store.controller.ts`, `StoreRoutes.ts` — "Meus pedidos" com `amountDueInCents`;
+  rota nova `GET /v1/store/checkout-config`.
+- `conversation/shared/Messages.constant.ts` — `ORDER_CONFIRMED_TOTAL_LINE`.
+
+**worker-quickcart**
+- `infra/database/schema/orders.ts` — coluna.
+- `receipt/.../DrizzleOrderReceiptRepository.ts`, `OrderReceiptData.types.ts`, `ReceiptProvider.interface.ts`,
+  `ProcessReceiptJob.use-case.ts` — repassam `deliveryFeeInCents`.
+- `receipt/infra/providers/SimpleReceiptProvider.ts` — subtotal, taxa ("grátis" se 0, ausente na retirada) e
+  total cobrado. `shared/amountDue.ts` (espelho), `receipt/shared/Receipt.constant.ts`, `DELIVERY_TYPE` no
+  `shared/Order.constant.ts`.
+- `FiscalReceiptProvider.ts` — **não alterado**.
+
+**frontend-web**
+- `shared/api/api.types.ts` — `Order.deliveryFeeInCents`, `Order.amountDueInCents`, `CheckoutConfig`.
+- `shared/api/client.ts`, `store/shared/queries/useCheckoutConfig.query.ts` — leitura da config.
+- `store/hooks/useCheckoutPage.hook.ts`, `store/pages/Checkout.page.tsx` — linha da taxa antes de confirmar.
+- `admin/components/OrderDetailView.tsx` (Total = amountDue, com itens e taxa; recado de novo total),
+  `OrdersTableView.tsx`, `store/pages/MyOrders.page.tsx` — exibem amountDue.
+- `shared/order/deliveryFee.constant.ts` — rótulos repetidos; previews com taxa de exemplo.
+
+### Decisões
+
+1. **Taxa cotada uma vez no WhatsApp (risco 3 do architect).** O `CheckoutHandler` resolve a taxa
+   (`resolveDeliveryFeeInCents` com a env) no momento em que o tipo de entrega é escolhido — inclusive no
+   atalho "Isso mesmo" — e grava `checkoutDeliveryFeeInCents` no contexto. `CashChangeHandler` e
+   `confirmOrder` usam esse valor; a env não é relida. `CreateOrderFromCart` recebe
+   `quotedDeliveryFeeInCents` e ainda passa por `resolveDeliveryFeeInCents` (retirada = 0 continua garantido
+   no use case, sem duplicar a regra). Sessão anterior ao deploy, sem o campo, vale 0 (o padrão da env).
+2. **Web lê a env no use case** (`configuredDeliveryFeeInCents` injetado): não há etapa anterior que
+   congele a taxa. O seed herda a mesma via `environment.DELIVERY_FEE_CENTS` (0 em `env.dev`).
+3. **Exposição da taxa na web: `GET /v1/store/checkout-config`**, pública, no `StoreController` que já
+   serve a loja. Devolve `{ data: { deliveryFeeInCentsByDeliveryType: { delivery, pickup } } }`, cada
+   valor calculado por `resolveDeliveryFeeInCents` — a tela só consulta, não reimplementa "retirada = 0".
+   Por que não uma prévia do checkout: exigiria mandar o carrinho e duplicaria a validação do
+   `CreateWebOrder`; a config pública é uma leitura sem dado de cliente. Sem `VITE_` duplicado.
+4. **Checkout web mostra Subtotal + Taxa, não o total somado.** Somar na tela seria a segunda cópia de
+   `amountDueInCents`; o resumo com total é da T2.2. A linha antes rotulada "Total" virou "Subtotal".
+5. **Confirmação do WhatsApp ganhou `Total: R$ X.`** com `amountDueInCents(order)` — antes não mostrava
+   total nenhum; a spec pede o valor cobrado na confirmação.
+6. **Worker espelha `amountDueInCents`** em `shared/amountDue.ts`, no mesmo padrão do `Order.constant.ts`
+   espelhado: os dois processos não compartilham código.
+7. **Ordenação por total segue pelos itens** (`Order.constant.ts`, `ListOrders.types.ts`,
+   `OrderRepository.interface.ts`, `OrdersTableView` linha do cabeçalho); a coluna exibe o cobrado. Com
+   taxa fixa por pedido, a ordem só diverge entre entrega e retirada de valores próximos. Aceito.
+8. **`z.coerce.number()` aceita `""` como 0** — aceitável (0 é o padrão seguro).
+
+### Consumidores de `totalInCents` (conferidos contra a tabela do architect)
+
+Todos os marcados **amountDue** foram migrados: `customerDecisionMessage.ts` (aviso e pergunta),
+`GlobalHandler` `{total}` da troca, histórico (`registerQuickCartFlowActions`), confirmação
+(`CheckoutHandler`), troco (`CashChangeHandler`), `OrderDetailView` (card Total e recado), `OrdersTableView`,
+`MyOrders.page`, recibo simples. Seguem com itens, por decisão: schema, criação/falta/substituição no
+repositório, ordenação, `itemSubstitutionMessage` (diferença entre itens), `CartSummary` (carrinho — o rótulo
+"Subtotal" no WhatsApp fica com a T2.2, junto do resumo), linhas de item, `cartStore`/`Cart.page`,
+`FiscalReceiptProvider` (**não mexido**). Tela do motorista: não exibe valor.
+
+### Migration
+
+- Journal verificado por script (`check-journal.py` no scratchpad): 22 entradas, `idx` contíguo 0..21,
+  `when` estritamente crescente (21: `1790036900738` > 20: `1790034492528`, epoch em ms real), todos os
+  `.sql` existem.
+- Aplicada no banco de teste (`migrate.ts` + `migrateCustomer.ts`, `DATABASE_URL` da porta 5443):
+  `delivery_fee_in_cents | integer | NOT NULL | default 0` em `information_schema.columns`.
+
+### Typecheck
+
+`bun run typecheck` limpo em api-quickcart, worker-quickcart e frontend-web.
+
+### Testes (`bun run test`)
+
+| app | antes | depois |
+|---|---|---|
+| api-quickcart | 333 | **351** (0 falhas) |
+| worker-quickcart | 14 | **19** (0 falhas) |
+| frontend-web | 12 | **12** (0 falhas) |
+
+Novos: `amountDue.test.ts` (soma; retirada = 0); `CreateOrderFromCart`/`CreateWebOrder` (taxa gravada na
+entrega, 0 na retirada, fora do total); `DrizzleOrderRepository.deliveryFee.integration.test.ts` (banco real:
+taxa na coluna, `total_in_cents == soma dos order_items` — falha se a taxa entrar no total —, nenhuma linha de
+item para a taxa, falta e substituição recalculam o total e preservam a taxa, retirada = 0);
+`CheckoutHandler.deliveryFee.test.ts` (cota ao escolher; retirada 0; `confirmOrder` usa a do contexto mesmo
+com a env mudada; confirmação mostra itens + taxa); `CashChangeHandler` (troco recusado contra itens + taxa,
+aceito acima); `Order.controller.test` (`amountDueInCents` no DTO); worker `FiscalReceiptProvider.test.ts`
+(taxa 800: pagamento e `totalAmount` da NFC-e == soma dos itens) e `SimpleReceiptProvider.test.ts`.
+
+### ⚠️ Risco fiscal — levar ao contador antes de `DELIVERY_FEE_CENTS > 0`
+
+Com taxa ligada, o cliente paga itens + taxa, mas a NFC-e registra só os itens (sem grupo de frete,
+`modFrete = 9`). Falta definir como a taxa é documentada (serviço à parte, recibo, etc.). Com o padrão `0`
+nada muda no fiscal. Nenhum env commitado liga a taxa.
+
+### Desvios / pendências
+
+- Checkout web sem linha de total somado (decisão 4) — entra na T2.2.
+- `CART_SUMMARY_TOTAL_PREFIX` ("Total:") do carrinho no WhatsApp não foi renomeado para "Subtotal": o
+  architect marca o carrinho como itens, e a troca de rótulo acompanha o resumo da T2.2.
+- `GET /v1/store/checkout-config` sem teste de controller dedicado (a regra que ele usa é testada em
+  `amountDue.test.ts`).
