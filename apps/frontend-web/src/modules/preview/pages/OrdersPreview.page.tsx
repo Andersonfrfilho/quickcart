@@ -26,6 +26,8 @@ const ORDER_SAMPLES: readonly {
   readonly status: string
   readonly deliveryType: string
   readonly totalInCents: number
+  readonly deliveryFeeInCents: number
+  readonly amountDueInCents: number
   readonly allowedNextStatuses: readonly string[]
   readonly deliveryFailureReason?: string
 }[] = [
@@ -37,6 +39,8 @@ const ORDER_SAMPLES: readonly {
     status: 'pending_confirmation',
     deliveryType: 'delivery',
     totalInCents: 71548,
+    deliveryFeeInCents: 800,
+    amountDueInCents: 72348,
     allowedNextStatuses: ['confirmed', 'cancelled'],
   },
   {
@@ -53,6 +57,8 @@ const ORDER_SAMPLES: readonly {
     status: 'pending_confirmation',
     deliveryType: 'pickup',
     totalInCents: 4990,
+    deliveryFeeInCents: 0,
+    amountDueInCents: 4990,
     allowedNextStatuses: ['confirmed', 'cancelled'],
   },
   {
@@ -64,6 +70,8 @@ const ORDER_SAMPLES: readonly {
     status: 'confirmed',
     deliveryType: 'delivery',
     totalInCents: 128390,
+    deliveryFeeInCents: 800,
+    amountDueInCents: 129190,
     allowedNextStatuses: ['preparing', 'cancelled'],
   },
   {
@@ -74,6 +82,8 @@ const ORDER_SAMPLES: readonly {
     status: 'preparing',
     deliveryType: 'delivery',
     totalInCents: 23480,
+    deliveryFeeInCents: 800,
+    amountDueInCents: 24280,
     allowedNextStatuses: ['separated', 'cancelled'],
   },
   {
@@ -85,6 +95,8 @@ const ORDER_SAMPLES: readonly {
     deliveryType: 'pickup',
     allowedNextStatuses: ['ready_for_pickup', 'cancelled'],
     totalInCents: 8990,
+    deliveryFeeInCents: 0,
+    amountDueInCents: 8990,
   },
   {
     shortCode: 'QC-1006',
@@ -94,6 +106,8 @@ const ORDER_SAMPLES: readonly {
     status: 'out_for_delivery',
     deliveryType: 'delivery',
     totalInCents: 45900,
+    deliveryFeeInCents: 800,
+    amountDueInCents: 46700,
     allowedNextStatuses: ['completed'],
   },
   {
@@ -104,6 +118,8 @@ const ORDER_SAMPLES: readonly {
     status: 'ready_for_pickup',
     deliveryType: 'pickup',
     totalInCents: 15790,
+    deliveryFeeInCents: 0,
+    amountDueInCents: 15790,
     allowedNextStatuses: ['completed'],
   },
   {
@@ -115,6 +131,8 @@ const ORDER_SAMPLES: readonly {
     status: 'completed',
     deliveryType: 'delivery',
     totalInCents: 6250,
+    deliveryFeeInCents: 800,
+    amountDueInCents: 7050,
     allowedNextStatuses: [],
   },
   {
@@ -132,6 +150,8 @@ const ORDER_SAMPLES: readonly {
     status: 'delivery_failed',
     deliveryType: 'delivery',
     totalInCents: 9840,
+    deliveryFeeInCents: 800,
+    amountDueInCents: 10640,
     allowedNextStatuses: ['out_for_delivery', 'cancelled'],
     deliveryFailureReason: 'customer_absent',
   },
@@ -143,11 +163,12 @@ const ORDER_SAMPLES: readonly {
     status: 'cancelled',
     deliveryType: 'delivery',
     totalInCents: 3190,
+    deliveryFeeInCents: 800,
+    amountDueInCents: 3990,
     allowedNextStatuses: [],
   },
 ]
 
-const PREVIEW_DELIVERY_FEE_IN_CENTS = 800
 
 function buildPreviewOrders(now: number): Order[] {
   return ORDER_SAMPLES.map((sample, index) => ({
@@ -160,9 +181,9 @@ function buildPreviewOrders(now: number): Order[] {
     paymentMethod: 'pix' as Order['paymentMethod'],
     createdAt: new Date(now - sample.minutesAgo * MINUTE).toISOString(),
     totalInCents: sample.totalInCents,
-    // Vitrine: taxa de exemplo na entrega. Na tela real os dois valores vêm prontos do backend.
-    deliveryFeeInCents: sample.deliveryType === 'delivery' ? PREVIEW_DELIVERY_FEE_IN_CENTS : 0,
-    amountDueInCents: sample.totalInCents + (sample.deliveryType === 'delivery' ? PREVIEW_DELIVERY_FEE_IN_CENTS : 0),
+    // Valores prontos na fixture, como o backend entrega: a tela não soma itens + taxa.
+    deliveryFeeInCents: sample.deliveryFeeInCents,
+    amountDueInCents: sample.amountDueInCents,
     allowedNextStatuses: sample.allowedNextStatuses,
     // Fixture paga sempre no Pix — nunca precisa de maquininha.
     requiresCardMachine: false,

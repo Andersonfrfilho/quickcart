@@ -38,7 +38,7 @@ function buildCustomer(): Customer {
   return { id: CUSTOMER_ID } as unknown as Customer
 }
 
-function buildDependencies() {
+function buildDependencies(configuredDeliveryFeeInCents = 0) {
   const texts: string[] = []
   const buttonMessages: { body: string; buttons: readonly { id: string; title: string }[] }[] = []
   const stateUpdates: { currentState: string; context: Record<string, unknown> }[] = []
@@ -71,6 +71,7 @@ function buildDependencies() {
         return { name: 'Arroz 5kg', priceInCents: 5000 }
       },
     },
+    configuredDeliveryFeeInCents,
   }
 
   return { dependencies, texts, buttonMessages, stateUpdates }
@@ -115,24 +116,57 @@ describe('CashChangeHandler', () => {
     await handler.handle({
       session: buildSession({ currentState: CONVERSATION_STATE.AWAITING_CASH_CHANGE_AMOUNT }),
       customer: buildCustomer(),
-      message: { kind: 'text', from: PHONE, waMessageId: 'wa-2', body: '100' },
+      message: { kind: 'text', from: PHONE, waMessageId: 'wa-2', body: '90' },
     })
 
     expect(texts).toEqual([MESSAGES.CHECKOUT_CASH_CHANGE_TOO_LOW.replace('{total}', 'R$ 100,00')])
     expect(stateUpdates).toEqual([])
   })
 
-  it('recusa valor igual ao total (troco zero não é troco)', async () => {
-    const { dependencies, texts } = buildDependencies()
+  it('valor EXATO do total ("vou pagar com 100") vale como "não preciso de troco": grava null e segue', async () => {
+    const { dependencies, texts, stateUpdates } = buildDependencies()
     const handler = new CashChangeHandler(dependencies)
 
     await handler.handle({
       session: buildSession({ currentState: CONVERSATION_STATE.AWAITING_CASH_CHANGE_AMOUNT }),
       customer: buildCustomer(),
-      message: { kind: 'text', from: PHONE, waMessageId: 'wa-2', body: '100,00' },
+      message: { kind: 'text', from: PHONE, waMessageId: 'wa-2', body: 'vou pagar com 100' },
     })
 
-    expect(texts).toEqual([MESSAGES.CHECKOUT_CASH_CHANGE_TOO_LOW.replace('{total}', 'R$ 100,00')])
+    expect(texts).toEqual([])
+    expect(stateUpdates).toEqual([
+      { currentState: CONVERSATION_STATE.AWAITING_RECEIPT_PREFERENCE, context: { checkoutCashChangeForInCents: null } },
+    ])
+  })
+
+  it('em AWAITING_CASH_CHANGE, valor digitado ("troco pra 150") vale como "Preciso de troco" + valor', async () => {
+    const { dependencies, stateUpdates, buttonMessages } = buildDependencies()
+    const handler = new CashChangeHandler(dependencies)
+
+    await handler.handle({
+      session: buildSession(),
+      customer: buildCustomer(),
+      message: { kind: 'text', from: PHONE, waMessageId: 'wa-3', body: 'troco pra 150' },
+    })
+
+    expect(stateUpdates).toEqual([
+      { currentState: CONVERSATION_STATE.AWAITING_RECEIPT_PREFERENCE, context: { checkoutCashChangeForInCents: 15000 } },
+    ])
+    expect(buttonMessages[0]?.body).toBe(MESSAGES.CHECKOUT_ASK_RECEIPT_PREFERENCE)
+  })
+
+  it('em AWAITING_CASH_CHANGE, valor digitado passa pela mesma validação (não cobre → recusa)', async () => {
+    const { dependencies, texts, stateUpdates } = buildDependencies()
+    const handler = new CashChangeHandler(dependencies)
+
+    await handler.handle({
+      session: buildSession(),
+      customer: buildCustomer(),
+      message: { kind: 'text', from: PHONE, waMessageId: 'wa-3', body: 'troco pra 80' },
+    })
+
+    expect(texts).toEqual([MESSAGES.CHECKOUT_CASH_CHANGE_TOO_LOW.replace('{total}', formatPriceInCents(10000))])
+    expect(stateUpdates).toEqual([])
   })
 
   it('valor válido (acima do total) grava o troco e segue para o recibo', async () => {
@@ -174,6 +208,23 @@ describe('CashChangeHandler', () => {
         session: buildSession({
           currentState: CONVERSATION_STATE.AWAITING_CASH_CHANGE_AMOUNT,
           context: { checkoutDeliveryFeeInCents: 800 },
+        }),
+        customer: buildCustomer(),
+        message: { kind: 'text', from: PHONE, waMessageId: 'wa-2', body: '105' },
+      })
+
+      expect(texts).toEqual([MESSAGES.CHECKOUT_CASH_CHANGE_TOO_LOW.replace('{total}', formatPriceInCents(10800))])
+      expect(stateUpdates).toEqual([])
+    })
+
+    it('sessão anterior ao deploy (sem checkoutDeliveryFeeInCents): cota a taxa configurada, não entrega grátis', async () => {
+      const { dependencies, texts, stateUpdates } = buildDependencies(800)
+      const handler = new CashChangeHandler(dependencies)
+
+      await handler.handle({
+        session: buildSession({
+          currentState: CONVERSATION_STATE.AWAITING_CASH_CHANGE_AMOUNT,
+          context: { checkoutDeliveryType: 'delivery' },
         }),
         customer: buildCustomer(),
         message: { kind: 'text', from: PHONE, waMessageId: 'wa-2', body: '105' },

@@ -21,6 +21,9 @@ describe('parseCashAmountToCents', () => {
     ['1.500,00', 150000],
     ['1.500', 150000],
     ['  150  ', 15000],
+    ['troco pra 100', 10000],
+    ['vou pagar com 50', 5000],
+    ['troco para R$ 150,00', 15000],
   ]
 
   for (const [text, expectedCents] of validCases) {
@@ -29,7 +32,7 @@ describe('parseCashAmountToCents', () => {
     })
   }
 
-  const invalidCases: readonly string[] = ['', '   ', 'abc', '-150', '0', '0,00', 'cento e cinquenta']
+  const invalidCases: readonly string[] = ['', '   ', 'abc', '-150', '0', '0,00', 'cento e cinquenta', '2 notas de 50', 'troco pra -100']
 
   for (const text of invalidCases) {
     it(`recusa "${text}"`, () => {

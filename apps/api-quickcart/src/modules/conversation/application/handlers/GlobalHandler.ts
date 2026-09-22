@@ -27,9 +27,12 @@ import type {
 } from '@/modules/conversation/application/handlers/ConversationHandler.interface'
 import { looksLikeShoppingList } from '@/modules/conversation/application/looksLikeShoppingList'
 import { sendCartSummary } from '@/modules/conversation/application/handlers/support/CartSummary'
+import { carryRememberedCheckout } from '@/modules/conversation/application/handlers/support/carryRememberedCheckout'
+import type { HandleRepeatOrderParams } from '@/modules/conversation/application/types/GlobalHandler.types'
 import { requestHumanHandoff } from '@/modules/conversation/application/handlers/support/requestHumanHandoff'
 import { isHumanHandoffRequest } from '@/modules/conversation/shared/isHumanHandoffRequest'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
+import type { ConversationContext } from '@/modules/conversation/shared/ConversationContext.types'
 import { GLOBAL_TRIGGER, MENU_BUTTON_ID, MESSAGES } from '@/modules/conversation/shared/Messages.constant'
 import {
   ORDER_DECISION,
@@ -152,7 +155,11 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
     }
 
     if (this.isRepeatOrderTrigger(message)) {
-      await this.handleRepeatOrder(session.customerPhone, customer.id)
+      await this.handleRepeatOrder({
+        customerPhone: session.customerPhone,
+        customerId: customer.id,
+        sessionContext: (session.context ?? {}) as ConversationContext,
+      })
       return true
     }
 
@@ -294,7 +301,8 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
     )
   }
 
-  private async handleRepeatOrder(customerPhone: string, customerId: string): Promise<void> {
+  private async handleRepeatOrder(params: HandleRepeatOrderParams): Promise<void> {
+    const { customerPhone, customerId, sessionContext } = params
     try {
       const result = await this.dependencies.repeatLastOrderUseCase.execute({ customerId, channel: CHANNEL.WHATSAPP })
 
@@ -306,7 +314,8 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
       await this.dependencies.conversationSessionRepository.updateStateByPhone({
         customerPhone,
         currentState: CONVERSATION_STATE.CART_REVIEW,
-        context: {},
+        // Mesma regra do CartHandler: repetir o pedido não pode apagar a memória do "Alterar".
+        context: carryRememberedCheckout(sessionContext),
       })
       await this.dependencies.whatsAppSender.sendText(customerPhone, MESSAGES.REPEAT_ORDER_ADDED)
       await sendCartSummary({

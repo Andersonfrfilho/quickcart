@@ -17,7 +17,7 @@ import type { Customer } from '@/infra/database/schema'
 import type { ConversationSession } from '@/modules/webhook/domain/Conversation.types'
 import type { ParsedInboundMessage } from '@/modules/webhook/application/types/WhatsAppWebhookPayload.types'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
-import { MESSAGES } from '@/modules/conversation/shared/Messages.constant'
+import { MENU_BUTTON_ID, MESSAGES } from '@/modules/conversation/shared/Messages.constant'
 import { GlobalHandler, type GlobalHandlerDependencies } from './GlobalHandler'
 
 const PHONE = '5511988887777'
@@ -170,5 +170,39 @@ describe('GlobalHandler — pedido de atendente por palavra-chave (T3.1)', () =>
     expect(handled).toBe(false)
     expect(requestHumanCalls).toEqual([])
     expect(texts).toEqual([])
+  })
+})
+
+describe('GlobalHandler — repetir pedido preserva a memória do "Alterar" (Q3)', () => {
+  it('grava CART_REVIEW com rememberedCheckout, em vez de context vazio', async () => {
+    const rememberedCheckout = { deliveryType: 'delivery', paymentMethod: 'pix', receiptPreference: 'whatsapp' }
+    const session = buildSession({
+      currentState: CONVERSATION_STATE.MAIN_MENU,
+      context: { rememberedCheckout, checkoutPaymentMethod: 'cash' },
+    })
+    const stateUpdates: { currentState: string; context: Record<string, unknown> }[] = []
+    const { dependencies } = buildDependencies(session)
+    const handler = new GlobalHandler({
+      ...dependencies,
+      conversationSessionRepository: {
+        ...dependencies.conversationSessionRepository,
+        async updateStateByPhone(params: { currentState: string; context: Record<string, unknown> }) {
+          stateUpdates.push({ currentState: params.currentState, context: params.context })
+          return session
+        },
+      },
+      whatsAppSender: { ...dependencies.whatsAppSender, async sendInteractiveButtons() {} },
+      cartRepository: { async listItems() { return [] } },
+      productRepository: { async findById() { return undefined } },
+      repeatLastOrderUseCase: { async execute() { return { cart: { id: 'cart-1' }, skippedItems: [] } } },
+    } as unknown as GlobalHandlerDependencies)
+
+    await handler.tryHandle({
+      session,
+      customer: CUSTOMER as Customer,
+      message: { kind: 'button_reply', from: PHONE, waMessageId: 'wa-9', buttonId: MENU_BUTTON_ID.REPEAT_ORDER, buttonTitle: 'Repetir' },
+    })
+
+    expect(stateUpdates).toEqual([{ currentState: CONVERSATION_STATE.CART_REVIEW, context: { rememberedCheckout } }])
   })
 })

@@ -491,6 +491,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     whatsAppSender,
     cartRepository,
     productRepository,
+    configuredDeliveryFeeInCents: environment.DELIVERY_FEE_CENTS,
   })
   const globalHandler = new GlobalHandler({
     conversationSessionRepository,
@@ -851,6 +852,7 @@ export const container = {
       customerRepository: webhookRepositories.customerRepository,
       cartRepository: cartModule.cartRepository,
       productRepository: catalogModule.productRepository,
+      configuredDeliveryFeeInCents: environment.DELIVERY_FEE_CENTS,
     }),
   }),
   internal: buildInternalModule({

@@ -156,9 +156,14 @@ function resolvePreviewAddressCase(addressCase: string): PreviewAddressCase {
   }
 }
 
-/** Taxa de exemplo da vitrine. Na tela real ela e o valor cobrado vêm prontos do backend. */
-const PREVIEW_DELIVERY_FEE_IN_CENTS = 800
-const PREVIEW_ITEMS_TOTAL_IN_CENTS = PREVIEW_ITEMS.reduce((total, item) => total + item.totalInCents, 0)
+/**
+ * Valores prontos, como o backend entrega: a tela nunca soma itens + taxa (spec §3.4), e a vitrine
+ * não pode ensinar o contrário. Itens sem o `preview-item-4`, que abre marcado em falta.
+ */
+const PREVIEW_AMOUNTS_BY_DELIVERY_TYPE = {
+  delivery: { totalInCents: 71548, deliveryFeeInCents: 800, amountDueInCents: 72348 },
+  pickup: { totalInCents: 71548, deliveryFeeInCents: 0, amountDueInCents: 71548 },
+} as const
 
 const PREVIEW_ORDER: OrderDetail = {
   id: 'preview-order',
@@ -178,9 +183,7 @@ const PREVIEW_ORDER: OrderDetail = {
   cashChangeForInCents: null,
   // Uma hora atrás: cai na faixa de atraso, que é o estado em que a tela mais precisa funcionar.
   createdAt: new Date(Date.now() - 62 * 60 * 1000).toISOString(),
-  totalInCents: PREVIEW_ITEMS_TOTAL_IN_CENTS,
-  deliveryFeeInCents: PREVIEW_DELIVERY_FEE_IN_CENTS,
-  amountDueInCents: PREVIEW_ITEMS_TOTAL_IN_CENTS + PREVIEW_DELIVERY_FEE_IN_CENTS,
+  ...PREVIEW_AMOUNTS_BY_DELIVERY_TYPE.delivery,
   items: PREVIEW_ITEMS,
   allowedNextStatuses: [],
   // Preview base paga no Pix — nunca precisa de maquininha.
@@ -248,16 +251,8 @@ export function OrderDetailPreviewPage() {
 
   const visibleItems = hidePickedItems ? items.filter((item) => !pickedItemIds.includes(item.id)) : items
 
-  /**
-   * Total recalculado também aqui.
-   *
-   * No produto quem recalcula é o servidor; no preview, deixar o total parado enquanto um item sai da
-   * lista faria a tela ensinar errado — e é justamente o número que eu preciso conferir olhando.
-   */
-  const itemsTotalInCents = items
-    .filter((item) => item.unavailableAt === null)
-    .reduce((total, item) => total + item.totalInCents, 0)
-  const deliveryFeeInCents = deliveryType === 'pickup' ? 0 : PREVIEW_DELIVERY_FEE_IN_CENTS
+  // Total fixo da fixture: marcar falta aqui não recalcula — no produto quem recalcula é o servidor.
+  const amounts = deliveryType === 'pickup' ? PREVIEW_AMOUNTS_BY_DELIVERY_TYPE.pickup : PREVIEW_AMOUNTS_BY_DELIVERY_TYPE.delivery
   const order: OrderDetail = {
     ...PREVIEW_ORDER,
     status: status as OrderDetail['status'],
@@ -286,9 +281,7 @@ export function OrderDetailPreviewPage() {
           return deliveryEstimate ? { deliveryEstimate } : {}
         })()),
     items,
-    totalInCents: itemsTotalInCents,
-    deliveryFeeInCents,
-    amountDueInCents: itemsTotalInCents + deliveryFeeInCents,
+    ...amounts,
   }
 
   return (

@@ -23,7 +23,7 @@ import { enterConfirming, type EnterConfirmingDependencies } from './enterConfir
 const PHONE = '5511988887777'
 const CUSTOMER_ID = 'customer-1'
 
-function buildDependencies() {
+function buildDependencies(configuredDeliveryFeeInCents = 0) {
   const buttonMessages: { body: string; buttons: readonly { id: string; title: string }[] }[] = []
 
   const dependencies = {
@@ -53,6 +53,7 @@ function buildDependencies() {
         buttonMessages.push({ body, buttons })
       },
     },
+    configuredDeliveryFeeInCents,
   } as unknown as EnterConfirmingDependencies
 
   return { dependencies, buttonMessages }
@@ -88,6 +89,26 @@ describe('enterConfirming — resumo antes de confirmar', () => {
     expect(summary).toContain('Entrega: Rua X, 123 — Bairro, São Paulo/SP')
     expect(summary).toContain('Pagamento: 💳 Pix')
     expect(summary).toContain('Recibo: 📱 WhatsApp')
+  })
+
+  it('sessão anterior ao deploy (sem checkoutDeliveryFeeInCents): resumo cota a taxa configurada, não "grátis"', async () => {
+    const { dependencies, buttonMessages } = buildDependencies(800)
+
+    await enterConfirming({
+      dependencies,
+      customerPhone: PHONE,
+      customerId: CUSTOMER_ID,
+      checkoutContext: {
+        checkoutDeliveryType: DELIVERY_TYPE_BUTTON_ID.DELIVERY,
+        checkoutAddress: { street: 'Rua X', number: '123', neighborhood: 'Bairro', city: 'São Paulo', state: 'SP' },
+        checkoutPaymentMethod: PAYMENT_METHOD_BUTTON_ID.PIX,
+        checkoutReceiptPreference: RECEIPT_PREFERENCE_BUTTON_ID.WHATSAPP,
+      },
+    })
+
+    const summary = buttonMessages[0]?.body ?? ''
+    expect(summary).toContain(`Taxa de entrega: ${formatPriceInCents(800)}`)
+    expect(summary).toContain(`Total: ${formatPriceInCents(5780)}`)
   })
 
   it('entrega grátis: mostra "grátis" em vez de R$ 0,00', async () => {

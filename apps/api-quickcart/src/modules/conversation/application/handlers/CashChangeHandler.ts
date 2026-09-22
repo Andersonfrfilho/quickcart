@@ -34,7 +34,9 @@ import {
 } from '@/modules/conversation/shared/Messages.constant'
 import { parseCashAmountToCents } from '@/modules/conversation/shared/parseCashAmountToCents'
 import { CHANNEL } from '@/modules/shared/shared.constant'
+import type { AcceptCashChangeAmountParams } from '@/modules/conversation/application/types/CashChangeHandler.types'
 import { amountDueInCents as calculateAmountDueInCents } from '@/modules/order/shared/amountDue'
+import { resolveCheckoutDeliveryFeeInCents } from '@/modules/conversation/shared/resolveCheckoutDeliveryFeeInCents'
 
 /** Portas estreitas: só o que este handler usa, para o teste não precisar de repositório inteiro. */
 export type CashChangeHandlerDependencies = EnterConfirmingDependencies
@@ -54,6 +56,13 @@ export class CashChangeHandler implements ConversationHandlerInterface {
 
   private async handleAwaitingCashChange({ session, customer, message }: ConversationHandlerContext): Promise<void> {
     const checkoutContext = (session.context ?? {}) as ConversationContext
+
+    // Digitou o valor em vez de tocar o botão ("troco pra 100"): vale como "Preciso de troco" + valor.
+    const typedCashChangeInCents = message.kind === 'text' ? parseCashAmountToCents(message.body) : undefined
+    if (typedCashChangeInCents !== undefined) {
+      await this.acceptCashChangeAmount({ session, customer, checkoutContext, cashChangeForInCents: typedCashChangeInCents })
+      return
+    }
 
     if (message.kind !== 'button_reply') {
       await this.dependencies.whatsAppSender.sendInteractiveButtons(
@@ -103,6 +112,11 @@ export class CashChangeHandler implements ConversationHandlerInterface {
       return
     }
 
+    await this.acceptCashChangeAmount({ session, customer, checkoutContext, cashChangeForInCents })
+  }
+
+  private async acceptCashChangeAmount(params: AcceptCashChangeAmountParams): Promise<void> {
+    const { session, customer, checkoutContext, cashChangeForInCents } = params
     const cart = await this.dependencies.cartRepository.findOpenByCustomer(customer.id, CHANNEL.WHATSAPP)
     const cartTotalInCents = cart
       ? await calculateCartTotalInCents({
@@ -113,10 +127,19 @@ export class CashChangeHandler implements ConversationHandlerInterface {
       : 0
     const amountDueInCents = calculateAmountDueInCents({
       totalInCents: cartTotalInCents,
-      deliveryFeeInCents: checkoutContext.checkoutDeliveryFeeInCents ?? 0,
+      deliveryFeeInCents: resolveCheckoutDeliveryFeeInCents({
+        context: checkoutContext,
+        configuredFeeInCents: this.dependencies.configuredDeliveryFeeInCents,
+      }),
     })
 
-    if (cashChangeForInCents <= amountDueInCents) {
+    // Valor exato: vai pagar sem troco. Grava null, como o botão "Não preciso".
+    if (cashChangeForInCents === amountDueInCents) {
+      await this.finishCashChange(session.customerPhone, customer.id, { ...checkoutContext, checkoutCashChangeForInCents: null })
+      return
+    }
+
+    if (cashChangeForInCents < amountDueInCents) {
       await this.dependencies.whatsAppSender.sendText(
         session.customerPhone,
         MESSAGES.CHECKOUT_CASH_CHANGE_TOO_LOW.replace('{total}', formatPriceInCents(amountDueInCents)),

@@ -21,6 +21,24 @@ const THOUSANDS_DOT_FOLLOWED_BY_THREE_DIGITS = /\.(?=\d{3}(\D|$))/g
  * Zero não é aceito porque "troco para zero" não é pedido de troco — é ausência de sentido.
  */
 export function parseCashAmountToCents(text: string): number | undefined {
+  return parseBareAmountToCents(text) ?? parseAmountInsidePhraseToCents(text)
+}
+
+/*
+ * "troco pra 100", "vou pagar com 50": o cliente escreve a frase, não só o número. Só vale quando há
+ * UM número na frase — "2 notas de 50" é ambíguo e cai na pergunta de novo. Sinal de menos recusa.
+ */
+const AMOUNT_TOKEN_PATTERN = /-?(?:r\$\s*)?\d(?:[\d.,]*\d)?/gi
+
+function parseAmountInsidePhraseToCents(text: string): number | undefined {
+  const tokens = text.match(AMOUNT_TOKEN_PATTERN) ?? []
+  if (tokens.length !== 1) return undefined
+  const [token] = tokens
+  if (!token || token.startsWith('-')) return undefined
+  return parseBareAmountToCents(token)
+}
+
+function parseBareAmountToCents(text: string): number | undefined {
   const trimmed = text.trim()
   if (trimmed.length === 0) return undefined
 

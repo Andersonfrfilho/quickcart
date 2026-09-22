@@ -351,6 +351,8 @@ export const MESSAGES = {
   CHECKOUT_CASH_CHANGE_INVALID: 'Não entendi esse valor 🤔 Pode me mandar só o número? Ex.: 150.',
   /** `{total}` é o total a pagar — a mensagem some se o troco pedido não cobrir a compra. */
   CHECKOUT_CASH_CHANGE_TOO_LOW: 'Esse valor não cobre a compra de {total}. Troco para quanto?',
+  /** Ao confirmar, o total recalculado passou do troco aceito antes (preço mudou): pergunta de novo. */
+  CHECKOUT_CASH_CHANGE_TOTAL_CHANGED: 'O total da compra mudou para {total}. Troco para quanto?',
   CHECKOUT_ASK_RECEIPT_PREFERENCE: 'Como você quer receber a nota/recibo?',
   CHECKOUT_ASK_EMAIL: '📧 Pode me mandar seu e-mail?',
   CHECKOUT_EMAIL_INVALID: 'Esse e-mail não parece válido 🤔 Pode conferir e mandar de novo?',

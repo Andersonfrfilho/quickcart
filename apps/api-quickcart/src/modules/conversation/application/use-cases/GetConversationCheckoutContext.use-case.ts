@@ -21,6 +21,7 @@ import { CHECKOUT_CONTEXT_RESPONSE_SCHEMA } from '@/modules/conversation/shared/
 import { CHANNEL } from '@/modules/shared/shared.constant'
 import { amountDueInCents } from '@/modules/order/shared/amountDue'
 import { formatAddressLine } from '@/modules/shared/address/formatAddressLine'
+import { resolveCheckoutDeliveryFeeInCents } from '@/modules/conversation/shared/resolveCheckoutDeliveryFeeInCents'
 import type {
   ConversationCheckoutContext,
   GetConversationCheckoutContextParams,
@@ -32,6 +33,7 @@ type GetConversationCheckoutContextUseCaseDependencies = {
   readonly customerRepository: Pick<CustomerRepositoryInterface, 'findByPhone'>
   readonly cartRepository: Pick<CartRepositoryInterface, 'findOpenByCustomer' | 'listItems'>
   readonly productRepository: Pick<ProductRepositoryInterface, 'findByIds'>
+  readonly configuredDeliveryFeeInCents: number
 }
 
 type CheckoutItem = ConversationCheckoutContext['items'][number]
@@ -47,7 +49,10 @@ export class GetConversationCheckoutContextUseCase {
     if (items.length === 0 && !hasCheckout) return undefined
 
     const subtotalInCents = items.reduce((sum, item) => sum + item.lineTotalInCents, 0)
-    const deliveryFeeInCents = context.checkoutDeliveryFeeInCents ?? 0
+    const deliveryFeeInCents = resolveCheckoutDeliveryFeeInCents({
+      context,
+      configuredFeeInCents: this.dependencies.configuredDeliveryFeeInCents,
+    })
 
     return CHECKOUT_CONTEXT_RESPONSE_SCHEMA.parse({
       items,

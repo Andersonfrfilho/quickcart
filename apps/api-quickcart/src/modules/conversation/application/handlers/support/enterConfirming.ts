@@ -25,6 +25,7 @@ import { CHANNEL } from '@/modules/shared/shared.constant'
 import type { UpdateConversationSessionStateByPhoneParams } from '@/modules/webhook/domain/ConversationSessionRepository.interface'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import { amountDueInCents } from '@/modules/order/shared/amountDue'
+import { resolveCheckoutDeliveryFeeInCents } from '@/modules/conversation/shared/resolveCheckoutDeliveryFeeInCents'
 import { DELIVERY_TYPE } from '@/modules/order/shared/Order.constant'
 
 type InteractiveButtonOption = { readonly id: string; readonly title: string }
@@ -45,6 +46,8 @@ export type EnterConfirmingDependencies = {
     sendText(phone: string, text: string): Promise<unknown>
     sendInteractiveButtons(phone: string, bodyText: string, buttons: ReadonlyArray<InteractiveButtonOption>): Promise<unknown>
   }
+  /** `DELIVERY_FEE_CENTS`: só usada quando a sessão é anterior à chave `checkoutDeliveryFeeInCents`. */
+  readonly configuredDeliveryFeeInCents: number
 }
 
 export type EnterConfirmingParams = {
@@ -75,7 +78,10 @@ async function buildConfirmingSummary(dependencies: EnterConfirmingDependencies,
    * `CheckoutHandler` ao escolher entrega/retirada — não relida da env aqui: se a env mudar entre
    * a escolha e a confirmação, o resumo continua batendo com o que será cobrado (t2.1-validacao).
    */
-  const deliveryFeeInCents = checkoutContext.checkoutDeliveryFeeInCents ?? 0
+  const deliveryFeeInCents = resolveCheckoutDeliveryFeeInCents({
+    context: checkoutContext,
+    configuredFeeInCents: dependencies.configuredDeliveryFeeInCents,
+  })
   const isPickup = checkoutContext.checkoutDeliveryType === DELIVERY_TYPE.PICKUP
   const amountDue = amountDueInCents({ totalInCents, deliveryFeeInCents })
 

@@ -30,6 +30,9 @@ import type { ConversationHandlerContext, ConversationHandlerInterface } from '@
 import type { ConversationContext } from '@/modules/conversation/shared/ConversationContext.types'
 import { sendCartSummary } from '@/modules/conversation/application/handlers/support/CartSummary'
 import { enterConfirming } from '@/modules/conversation/application/handlers/support/enterConfirming'
+import { calculateCartTotalInCents } from '@/modules/conversation/application/handlers/support/cartTotal'
+import { resolveCheckoutDeliveryFeeInCents } from '@/modules/conversation/shared/resolveCheckoutDeliveryFeeInCents'
+import type { AskCashChangeAgainParams } from '@/modules/conversation/application/types/CheckoutHandler.types'
 import { requiresCardMachine } from '@/modules/order/shared/requiresCardMachine'
 import { amountDueInCents, resolveDeliveryFeeInCents } from '@/modules/order/shared/amountDue'
 import { DELIVERY_TYPE } from '@/modules/order/shared/Order.constant'
@@ -510,6 +513,12 @@ export class CheckoutHandler implements ConversationHandlerInterface {
       return
     }
 
+    const deliveryFeeInCents = resolveCheckoutDeliveryFeeInCents({
+      context: checkoutContext,
+      configuredFeeInCents: this.dependencies.configuredDeliveryFeeInCents,
+    })
+    if (await this.askCashChangeAgainIfTotalChanged({ session, cartId: cart.id, checkoutContext, deliveryFeeInCents })) return
+
     try {
       const { order } = await this.dependencies.createOrderFromCartUseCase.execute({
         cartId: cart.id,
@@ -520,7 +529,7 @@ export class CheckoutHandler implements ConversationHandlerInterface {
         paymentMethod: checkoutPaymentMethod,
         receiptPreference: checkoutReceiptPreference,
         cashChangeForInCents: checkoutContext.checkoutCashChangeForInCents,
-        quotedDeliveryFeeInCents: checkoutContext.checkoutDeliveryFeeInCents ?? 0,
+        quotedDeliveryFeeInCents: deliveryFeeInCents,
       })
 
       await this.dependencies.conversationSessionRepository.updateStateByPhone({
@@ -542,6 +551,36 @@ export class CheckoutHandler implements ConversationHandlerInterface {
     } catch (error) {
       await this.handleConfirmOrderError(session, cart.id, error)
     }
+  }
+
+  /**
+   * O troco foi validado contra o total da hora em que foi pedido; se um preço mudou enquanto o
+   * cliente estava em CONFIRMING, o pedido sairia com troco menor que o cobrado. Revalida aqui e,
+   * se não cobre mais, volta à pergunta do valor em vez de criar o pedido.
+   */
+  private async askCashChangeAgainIfTotalChanged(params: AskCashChangeAgainParams): Promise<boolean> {
+    const { session, cartId, checkoutContext, deliveryFeeInCents } = params
+    const cashChangeForInCents = checkoutContext.checkoutCashChangeForInCents
+    if (cashChangeForInCents === undefined || cashChangeForInCents === null) return false
+
+    const cartTotalInCents = await calculateCartTotalInCents({
+      cartId,
+      cartRepository: this.dependencies.cartRepository,
+      productRepository: this.dependencies.productRepository,
+    })
+    const currentAmountDueInCents = amountDueInCents({ totalInCents: cartTotalInCents, deliveryFeeInCents })
+    if (cashChangeForInCents > currentAmountDueInCents) return false
+
+    await this.dependencies.conversationSessionRepository.updateStateByPhone({
+      customerPhone: session.customerPhone,
+      currentState: CONVERSATION_STATE.AWAITING_CASH_CHANGE_AMOUNT,
+      context: checkoutContext,
+    })
+    await this.dependencies.whatsAppSender.sendText(
+      session.customerPhone,
+      MESSAGES.CHECKOUT_CASH_CHANGE_TOTAL_CHANGED.replace('{total}', formatPriceInCents(currentAmountDueInCents)),
+    )
+    return true
   }
 
   private async handleConfirmOrderError(session: ConversationSession, cartId: string, error: unknown): Promise<void> {

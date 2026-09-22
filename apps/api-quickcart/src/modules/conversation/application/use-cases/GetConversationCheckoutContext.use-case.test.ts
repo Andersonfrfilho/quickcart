@@ -25,6 +25,7 @@ const NOW = new Date('2026-09-21T12:00:00Z')
 type Scenario = {
   readonly context?: Record<string, unknown>
   readonly hasCart?: boolean
+  readonly configuredDeliveryFeeInCents?: number
 }
 
 function buildUseCase(scenario: Scenario): GetConversationCheckoutContextUseCase {
@@ -64,6 +65,7 @@ function buildUseCase(scenario: Scenario): GetConversationCheckoutContextUseCase
       listItems: async () => [cartItem(RICE_ID, 2), cartItem(BEANS_ID, 1)],
     },
     productRepository: { findByIds: async () => products },
+    configuredDeliveryFeeInCents: scenario.configuredDeliveryFeeInCents ?? 0,
   })
 }
 
@@ -111,6 +113,23 @@ describe('GetConversationCheckoutContextUseCase', () => {
     expect(Object.keys(result ?? {}).sort()).toEqual(
       ['address', 'amountDueInCents', 'cashChangeForInCents', 'deliveryFeeInCents', 'deliveryType', 'items', 'paymentMethod', 'subtotalInCents'],
     )
+  })
+
+  it('sessão anterior ao deploy (sem checkoutDeliveryFeeInCents) com entrega: cota a taxa configurada (800), não 0', async () => {
+    const result = await buildUseCase({
+      hasCart: true,
+      configuredDeliveryFeeInCents: 800,
+      context: { checkoutDeliveryType: 'delivery', checkoutPaymentMethod: 'cash' },
+    }).execute({ whatsappNumber: PHONE })
+
+    expect(result?.deliveryFeeInCents).toBe(800)
+    expect(result?.amountDueInCents).toBe(6679)
+  })
+
+  it('card do painel não leva o CEP no endereço (S3)', async () => {
+    const result = await buildUseCase({ hasCart: true, context: FULL_CHECKOUT_CONTEXT }).execute({ whatsappNumber: PHONE })
+
+    expect(result?.address).not.toContain('01001')
   })
 
   it('carrinho ainda sem checkout: retirada/pagamento nulos e taxa zero', async () => {
