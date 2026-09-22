@@ -820,3 +820,116 @@ canal WhatsApp; contexto da sessão só para as escolhas de checkout. O comentá
 
 **Números:** api 402 → 412 (0 falhas, typecheck limpo) · frontend 12 → 17 (0 falhas, typecheck limpo).
 Pendente, fora do escopo: autorização por objeto continua só por papel (igual às rotas vizinhas, tenant único).
+
+## T4.1 — Auditoria
+
+Auditoria do `code-standart.md` §15 sobre `git diff origin/main...HEAD` (117 arquivos,
++6528/-127) e do `security.md` §1 (PII em log).
+
+### 1. N+1 e I/O
+
+- **Confirmado**: `buildPricedOrderItems` (`order/shared/buildPricedOrderItems.ts`) já faz
+  `findByIds` uma vez para todos os itens (corrigido na T2.2, revisão de N+1) — nenhum `await`
+  por item nos arquivos alterados. `for` sem I/O dentro (só somas/validações síncronas) em
+  `CreateOrderFromCart.use-case.ts:38`, `DrizzleOrderRepository.ts:179,664`,
+  `SimpleReceiptProvider.ts:76,85`, `isHumanHandoffRequest.ts:37`, `OrderSeedRunner.ts:99`
+  (script de seed, sequencial de propósito, fora de rota HTTP).
+- **Previsão de entrega (T1.3)**: confirmado que `ResolveOrderDeliveryEstimateUseCase` geocodifica
+  até 2 CEPs por confirmação (loja + cliente) e que `ResolveCepCoordinateUseCase` cacheia o
+  resultado em Postgres via `DrizzleGeocodedAddressRepository` — o CEP da loja paga
+  geocodificação só na primeira confirmação do processo; o do cliente, só na primeira vez que
+  aparece. Nenhuma mudança necessária: o cache existente cobre o volume de uma confirmação
+  (já registrado na T1.3, consolidado aqui).
+- **`GET /v1/admin/conversations/:number/checkout-context`** (`GetConversationCheckoutContext.use-case.ts`):
+  confirmado UMA ida ao banco por tabela — `conversationSessionRepository.findByPhone` (sessão),
+  `customerRepository.findByPhone` (cliente), `cartRepository.findOpenByCustomer` +
+  `listItems` (carrinho, 2 chamadas fixas, não por item), `productRepository.findByIds`
+  (produtos em lote, uma chamada para todos os itens do carrinho). O `.map` sobre os itens do
+  carrinho é síncrono (usa o `Map` já montado), sem I/O por item. A rota é chamada a cada 15s
+  por conversa aberta (`ORDER_IN_PROGRESS_REFETCH_INTERVAL_MS`) — cada chamada continua sendo
+  4 idas ao banco, independente do tamanho do carrinho.
+
+### 2. Logs sem PII
+
+- Varredura de `git diff` por `log.`/`logger.` em linhas adicionadas: **nenhum log novo** no
+  diff inteiro (único `logger`/`log.*` que toca dado de checkout é
+  `checkoutLog.warn('delivery_estimate_unavailable', { orderId, error })`, da T1.3, que já loga
+  só `orderId` — nunca telefone/endereço/CEP/valor do troco).
+  Confirmado que troco (`checkoutCashChangeForInCents`) e endereço (`checkoutAddress`) não
+  aparecem em nenhum `logger.*`/`console.*` novo.
+
+### 3. Sanitização/validação nas rotas novas
+
+- **`POST /v1/store/checkout-quote`**: `validateBody(checkoutQuoteBodySchema, ...)` (Zod,
+  `items` 1..100 com `productId` uuid e `quantity` positiva, `deliveryType` enum) antes de
+  qualquer lógica; erros de domínio (`ProductNotFoundError` 404, `CartProductUnavailableError`
+  409) e de schema (`ValidationError` 400) — nenhum `try/catch` no controller, propagam para o
+  exception filter global, que não vaza stack trace ao cliente.
+- **`GET /v1/admin/conversations/:number/checkout-context`**: `requireSession` com
+  `ADMIN_AND_ATTENDANT` antes de tudo; parâmetro de rota validado (`ValidationError` se
+  ausente); resposta passa por `CHECKOUT_CONTEXT_RESPONSE_SCHEMA.parse` (Zod `.strict()`) —
+  garante que só as chaves do recorte saem, nunca o contexto bruto da sessão. Nenhum
+  `try/catch` local; erro desconhecido cai no filtro global (500 genérico, sem stack trace).
+
+### 4. Strings repetidas (§16)
+
+- Varredura de literais repetidos 2+ vezes nas linhas adicionadas do diff: os casos com
+  repetição real são fixtures de teste (`'Arroz 5kg'`, `'Maria'`, `'Rua X'`, `'Cliente Teste'`,
+  `'Bairro'`) — dado de teste, não regra de domínio, fora do escopo do §16. Valores de domínio
+  repetidos (`'delivery'`, `'pickup'`, `'cash'`, `'button_reply'`, `'atendente'`/`'humano'`/
+  `'pessoa'`) já vêm de constantes centralizadas (`DELIVERY_TYPE`, `PAYMENT_METHOD`,
+  `HUMAN_HANDOFF_PHRASES` em `Messages.constant.ts`) — nenhuma string de domínio nova precisou
+  de extração.
+
+### 5. Set/Map vs array em buscas
+
+- Confirmado uso de `Map`/`Set` nos pontos de busca por id introduzidos nesta spec:
+  `buildPricedOrderItems` (`new Map` por `product.id`), `GetConversationCheckoutContext.use-case.ts`
+  (`new Map` por `product.id`), `toContextEntries` (`new Set` para `knownKeys`). Nenhuma busca
+  por id em array (`.find`) dentro de laço nos arquivos alterados.
+
+### Correções aplicadas nesta task
+
+- `apps/api-quickcart/src/modules/conversation/shared/ConversationContext.types.ts` — comentário
+  do topo corrigido: dizia que a Fase 4 "não tem tabelas `carts`/`cart_items`" (desatualizado
+  desde a T3.2, que confirmou que as tabelas existem e que `cartDraft` é só o rascunho antes da
+  revisão).
+- `apps/frontend-web/src/modules/conversations/shared/conversationContext.ts` — `toContextEntries`
+  mostrava linhas sempre vazias para `deliveryType`/`address`/`paymentMethod`: o motor grava
+  essas escolhas com prefixo `checkout*` (`checkoutDeliveryType` etc.), então as chaves sem
+  prefixo nunca são preenchidas. Removidas do mapa de rótulos fixos (`CONTEXT_LABELS`); o bloco
+  "Pedido em andamento" (T3.2) já mostra o mesmo dado com o prefixo correto. Teste novo em
+  `conversationContext.test.ts` confirma que as três chaves não aparecem mais na saída.
+- `init-claude.md` (raiz) — nova seção "Roteiro de atendimento" com os estados novos
+  (`AWAITING_CASH_CHANGE`, `AWAITING_CASH_CHANGE_AMOUNT`), colunas novas
+  (`cash_change_for_in_cents`, `delivery_fee_in_cents`), a env `DELIVERY_FEE_CENTS` e a regra de
+  taxa fora do total fiscal, as rotas novas, e `requiresCardMachine`/`amountDueInCents` como
+  fontes únicas.
+
+### Suíte
+
+- `docker start quickcart-test-postgres quickcart-test-redis` — de pé.
+- `bun run typecheck` limpo em `api-quickcart`, `worker-quickcart` e `frontend-web`.
+- `bun run test`: api-quickcart **412 passando, 0 falhas**; worker-quickcart **19 passando,
+  0 falhas**; frontend-web **18 passando, 0 falhas** (17 da baseline + 1 teste novo do item
+  corrigido no `toContextEntries`).
+
+## Achados para o usuário (fora do escopo)
+
+- `NominatimGeocodingProvider.ts:107` loga o CEP em claro (evento `geocode_failed`, campo
+  `cep: digitsOnly`) — código anterior a esta branch, não tocado por nenhuma task da spec.
+- `CreateWebOrder.use-case.ts` enfileira a emissão do recibo/nota na criação do pedido: se um
+  item ficar em falta ou for substituído depois, a nota já emitida fica com o total antigo.
+- `@adatechnology/meta-whatsapp-module`: `release` (via `setMode`) não limpa `humanRequestedAt`
+  — a conversa já atendida e devolvida ao bot continua aparecendo para sempre na fila
+  "aguardando atendimento" da inbox, porque o filtro `waitingHuman` do pacote olha só o
+  timestamp, não `mode` (já anotado na T3.1; consolidado aqui).
+- Autorização das rotas da inbox (e da rota nova `checkout-context`) é só por papel
+  (`ADMIN_AND_ATTENDANT`), não por conversa atribuída — mesma limitação já registrada na T3.2.
+- Taxa de entrega > 0 exige resposta do contador sobre como documentar no fiscal antes de ligar
+  em produção — a NFC-e registra só os itens (`modFrete = 9`), nunca a taxa.
+- Não existe tela de motorista separada; quem entrega vê o selo "Levar maquininha" e o troco
+  pelas mesmas telas do painel (`OrderDetailView`/`OrdersTableView`), sob controle de papel.
+- A lista do painel (`OrdersTableView`) ordena pelo total dos itens (`totalInCents`), mas exibe
+  o valor cobrado (`amountDueInCents`) — decisão aceita na T2.1: com taxa fixa por pedido, a
+  ordem só diverge entre entrega e retirada de valores próximos.
