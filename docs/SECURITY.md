@@ -14,12 +14,15 @@ Rota sem sessão: a loja web cota Subtotal, Taxa e Total antes de o cliente loga
 - **Rate limit por IP: 60 requisições por minuto**, janela fixa em Redis
   (`FixedWindowRateLimiter` + `RedisRateLimitStore`, `src/infra/http/rate-limit/`). Excedeu →
   `429 TOO_MANY_REQUESTS` com `Retry-After` (segundos até o fim da janela).
-- **IP do cliente**: último item de `X-Forwarded-For`. O edge do Railway acrescenta o IP de quem
-  o conectou ao final da lista; o que vem antes é enviado pelo cliente e pode ser forjado, então
-  usar o primeiro permitiria escapar do limite trocando o header. Sem o header, cai em
-  `X-Real-IP` e depois numa chave única `unknown`. Se um dia houver mais um proxy na frente
-  (CDN), a regra precisa passar a pular esse salto. Pendente: confirmar o formato do header com
-  uma requisição real em staging (o comportamento do edge foi assumido, não medido).
+- **IP do cliente**: `X-Real-IP`, que o edge do Railway preenche com o endereço remoto de quem
+  conectou (docs.railway.com › Public Networking › Specs & Limits). Sem ele (desenvolvimento local,
+  sem edge), cai no último item de `X-Forwarded-For`, e depois numa chave única `unknown`.
+  - **Medido em staging em 2026-09-22.** A primeira versão usava o último item de
+    `X-Forwarded-For`, assumindo que o edge acrescenta o IP real ao fim da lista. **Não acrescenta:**
+    o valor mandado pelo cliente chega intacto ao fim. 65 requisições, cada uma com um IP forjado
+    diferente no header, passaram todas; sem forjar, a 53ª já levou `429`. Qualquer um contornava o
+    limite trocando um header. Corrigido para `X-Real-IP`.
+  - Se um dia houver outro proxy na frente (CDN), reavaliar: aí `X-Real-IP` passa a ser o IP da CDN.
 - **Fail-open**: se o Redis falhar, a cotação responde normalmente e só registra
   `rate_limit_store_failed` em `warn` (sem IP no log). Decisão: a cotação é caminho de compra;
   derrubá-la por falha de cache pararia a loja, e o risco residual (sem limite enquanto o Redis
