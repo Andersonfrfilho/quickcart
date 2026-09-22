@@ -7,7 +7,10 @@ export type ReceiptParams = {
     readonly quantity: number
     readonly totalInCents: number
   }>
+  /** Só os itens — é o pagamento da NFC-e. */
   readonly totalInCents: number
+  /** Taxa de entrega, fora do total. A NFC-e ignora; o recibo simples mostra. */
+  readonly deliveryFeeInCents: number
   readonly deliveryType: string
   readonly paymentMethod: string
   readonly address: unknown

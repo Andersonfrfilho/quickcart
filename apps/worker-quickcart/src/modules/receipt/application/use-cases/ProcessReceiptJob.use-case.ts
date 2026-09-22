@@ -55,6 +55,7 @@ export class ProcessReceiptJobUseCase {
       customerName: orderData.customerName,
       items: orderData.items,
       totalInCents: orderData.totalInCents,
+      deliveryFeeInCents: orderData.deliveryFeeInCents,
       deliveryType: orderData.deliveryType,
       paymentMethod: orderData.paymentMethod,
       address: orderData.address,

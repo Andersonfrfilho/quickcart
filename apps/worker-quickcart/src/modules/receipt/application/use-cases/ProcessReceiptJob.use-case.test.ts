@@ -21,6 +21,7 @@ const ORDER_DATA: OrderReceiptData = {
   customerEmail: 'cliente@email.com',
   customerName: 'Fulano',
   totalInCents: 5000,
+  deliveryFeeInCents: 0,
   deliveryType: 'delivery',
   address: { street: 'Rua X, 123' },
   paymentMethod: 'pix',

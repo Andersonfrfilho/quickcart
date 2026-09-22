@@ -25,6 +25,8 @@ export const orders = pgTable('orders', {
   channel: varchar('channel', { length: 10 }).notNull(),
   status: varchar('status', { length: 20 }).default('pending_confirmation').notNull(),
   totalInCents: integer('total_in_cents').notNull(),
+  /** Fora do total: a NFC-e ignora; só o recibo simples mostra. A migration é da api (0021). */
+  deliveryFeeInCents: integer('delivery_fee_in_cents').default(0).notNull(),
   deliveryType: varchar('delivery_type', { length: 10 }).notNull(),
   address: jsonb('address'),
   paymentMethod: varchar('payment_method', { length: 20 }).notNull(),
