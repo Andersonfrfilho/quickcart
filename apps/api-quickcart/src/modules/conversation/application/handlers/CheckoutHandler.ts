@@ -29,6 +29,7 @@ import type { WhatsAppSender } from '@/modules/webhook/infra/whatsapp/WhatsAppSe
 import type { ConversationHandlerContext, ConversationHandlerInterface } from '@/modules/conversation/application/handlers/ConversationHandler.interface'
 import type { ConversationContext } from '@/modules/conversation/shared/ConversationContext.types'
 import { sendCartSummary } from '@/modules/conversation/application/handlers/support/CartSummary'
+import { enterConfirming } from '@/modules/conversation/application/handlers/support/enterConfirming'
 import { requiresCardMachine } from '@/modules/order/shared/requiresCardMachine'
 import { DELIVERY_TYPE } from '@/modules/order/shared/Order.constant'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
@@ -38,7 +39,6 @@ import { serializeError } from '@/shared/serializeError'
 import {
   CASH_CHANGE_BUTTONS,
   CONFIRMING_BUTTON_ID,
-  CONFIRMING_BUTTONS,
   REMEMBERED_CHECKOUT_BUTTON_ID,
   DELIVERY_TYPE_BUTTON_ID,
   DELIVERY_TYPE_BUTTONS,
@@ -49,15 +49,12 @@ import {
   RECEIPT_PREFERENCE_BUTTONS,
 } from '@/modules/conversation/shared/Messages.constant'
 import type { AddressLookupProviderInterface } from '@/modules/shared/address/AddressLookupProvider.interface'
-import { formatAddressLine } from '@/modules/shared/address/formatAddressLine'
 import { parseAddressNumberReply } from '@/modules/shared/address/parseAddressNumberReply'
 import { CHANNEL } from '@/modules/shared/shared.constant'
 import { OrderEmptyCartError, OrderInsufficientStockError } from '@/shared/errors/OrderErrors'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const checkoutLog = logger.child('CheckoutHandler')
-
-type InteractiveButtonOption = { readonly id: string; readonly title: string }
 
 export type CheckoutHandlerDependencies = {
   readonly conversationSessionRepository: ConversationSessionRepositoryInterface
@@ -122,20 +119,48 @@ export class CheckoutHandler implements ConversationHandlerInterface {
     const remembered = checkoutContext.rememberedCheckout
 
     /**
-     * "Isso mesmo": aplica em bloco o que o cliente ACABOU de ler e vai direto à confirmação final.
+     * "Isso mesmo": aplica em bloco o que o cliente ACABOU de ler e vai direto à confirmação final —
+     * EXCETO o troco (correção T1.1/T1.2): o troco depende do total DESTA compra, não da anterior,
+     * então dinheiro lembrado ainda precisa perguntar de novo, com tudo o mais já preenchido no
+     * contexto. Cartão na entrega lembrado passa pelo mesmo aviso da maquininha que o caminho longo.
      *
      * Os valores vêm do contexto, não de uma nova leitura do banco: entre a pergunta e a resposta ele
      * viu um resumo, e aplicar algo diferente do que estava na tela trairia a confirmação. Ele ainda
      * passa pela tela de confirmar/cancelar — este atalho corta as perguntas, não a última palavra.
      */
     if (remembered && message.buttonId === REMEMBERED_CHECKOUT_BUTTON_ID.SAME_AS_LAST) {
-      await this.enterConfirming(session, customer.id, {
+      const rememberedContext: ConversationContext = {
         ...withoutRememberedCheckout(checkoutContext),
         checkoutDeliveryType: remembered.deliveryType,
         ...(remembered.address !== undefined ? { checkoutAddress: remembered.address } : {}),
         checkoutPaymentMethod: remembered.paymentMethod,
         checkoutReceiptPreference: remembered.receiptPreference,
         ...(remembered.email ? { checkoutEmail: remembered.email } : {}),
+      }
+
+      if (remembered.paymentMethod === PAYMENT_METHOD_BUTTON_ID.CASH) {
+        await this.dependencies.conversationSessionRepository.updateStateByPhone({
+          customerPhone: session.customerPhone,
+          currentState: CONVERSATION_STATE.AWAITING_CASH_CHANGE,
+          context: rememberedContext,
+        })
+        await this.dependencies.whatsAppSender.sendInteractiveButtons(
+          session.customerPhone,
+          MESSAGES.CHECKOUT_ASK_CASH_CHANGE,
+          CASH_CHANGE_BUTTONS,
+        )
+        return
+      }
+
+      if (requiresCardMachine({ paymentMethod: remembered.paymentMethod, deliveryType: remembered.deliveryType })) {
+        await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_CARD_ON_DELIVERY_MACHINE_NOTICE)
+      }
+
+      await enterConfirming({
+        dependencies: this.dependencies,
+        customerPhone: session.customerPhone,
+        customerId: customer.id,
+        checkoutContext: rememberedContext,
       })
       return
     }
@@ -331,7 +356,7 @@ export class CheckoutHandler implements ConversationHandlerInterface {
     const nextContext: ConversationContext = { ...checkoutContext, checkoutReceiptPreference: message.buttonId }
 
     if (message.buttonId === RECEIPT_PREFERENCE_BUTTON_ID.WHATSAPP) {
-      await this.enterConfirming(session, customer.id, nextContext)
+      await enterConfirming({ dependencies: this.dependencies, customerPhone: session.customerPhone, customerId: customer.id, checkoutContext: nextContext })
       return
     }
 
@@ -358,7 +383,12 @@ export class CheckoutHandler implements ConversationHandlerInterface {
     }
 
     await this.dependencies.customerRepository.updateContactInfo({ customerId: customer.id, email })
-    await this.enterConfirming(session, customer.id, { ...checkoutContext, checkoutEmail: email })
+    await enterConfirming({
+      dependencies: this.dependencies,
+      customerPhone: session.customerPhone,
+      customerId: customer.id,
+      checkoutContext: { ...checkoutContext, checkoutEmail: email },
+    })
   }
 
   private async handleConfirming({ session, customer, message }: ConversationHandlerContext): Promise<void> {
@@ -503,77 +533,6 @@ export class CheckoutHandler implements ConversationHandlerInterface {
       checkoutLog.warn('delivery_estimate_unavailable', { orderId: order.id, error: serializeError(error) })
       return undefined
     }
-  }
-
-  private async enterConfirming(session: ConversationSession, customerId: string, checkoutContext: ConversationContext): Promise<void> {
-    const cart = await this.dependencies.cartRepository.findOpenByCustomer(customerId, CHANNEL.WHATSAPP)
-    if (!cart) {
-      await this.dependencies.conversationSessionRepository.updateStateByPhone({
-        customerPhone: session.customerPhone,
-        currentState: CONVERSATION_STATE.GREETING,
-        context: {},
-      })
-      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.ORDER_CART_EMPTY_ERROR)
-      return
-    }
-
-    const summaryText = await this.buildConfirmingSummary(cart.id, checkoutContext)
-
-    await this.dependencies.conversationSessionRepository.updateStateByPhone({
-      customerPhone: session.customerPhone,
-      currentState: CONVERSATION_STATE.CONFIRMING,
-      context: checkoutContext,
-    })
-    await this.dependencies.whatsAppSender.sendInteractiveButtons(session.customerPhone, summaryText, CONFIRMING_BUTTONS)
-  }
-
-  private async buildConfirmingSummary(cartId: string, checkoutContext: ConversationContext): Promise<string> {
-    const cartItems = await this.dependencies.cartRepository.listItems(cartId)
-    const products = await Promise.all(cartItems.map((item) => this.dependencies.productRepository.findById(item.productId)))
-
-    let totalInCents = 0
-    const lines = cartItems.map((item, index) => {
-      const product = products[index]
-      const lineTotalInCents = Math.round((product?.priceInCents ?? 0) * item.quantity)
-      totalInCents += lineTotalInCents
-      return `• ${item.quantity}x ${product?.name ?? item.productId} — ${formatPriceInCents(lineTotalInCents)}`
-    })
-
-    const deliveryLine = this.describeSelection(DELIVERY_TYPE_BUTTONS, checkoutContext.checkoutDeliveryType)
-    /*
-     * `String(objeto)` virava "[object Object]" desde que o endereço passou a nascer estruturado
-     * (T2.2) — `formatAddressLine` entende os dois formatos, o novo e o texto livre de quem já
-     * estava no meio do checkout antes do deploy.
-     */
-    const formattedAddress = formatAddressLine(checkoutContext.checkoutAddress)
-    const addressLine = formattedAddress ? `📍 ${formattedAddress}` : undefined
-    const cashChangeForInCents = checkoutContext.checkoutCashChangeForInCents
-    const paymentLine =
-      this.describeSelection(PAYMENT_METHOD_BUTTONS, checkoutContext.checkoutPaymentMethod) +
-      (typeof cashChangeForInCents === 'number'
-        ? MESSAGES.CASH_CHANGE_SUMMARY_SUFFIX.replace('{valor}', formatPriceInCents(cashChangeForInCents))
-        : '')
-    const receiptLine = this.describeSelection(RECEIPT_PREFERENCE_BUTTONS, checkoutContext.checkoutReceiptPreference)
-
-    return [
-      MESSAGES.CONFIRMING_SUMMARY_HEADER,
-      ...lines,
-      '',
-      `${MESSAGES.CART_SUMMARY_TOTAL_PREFIX} ${formatPriceInCents(totalInCents)}`,
-      '',
-      deliveryLine,
-      ...(addressLine ? [addressLine] : []),
-      paymentLine,
-      receiptLine,
-      '',
-      MESSAGES.CONFIRMING_ASK,
-    ]
-      .filter((line) => line !== undefined)
-      .join('\n')
-  }
-
-  private describeSelection(buttons: ReadonlyArray<InteractiveButtonOption>, id: string | undefined): string {
-    return buttons.find((button) => button.id === id)?.title ?? ''
   }
 
   private isKnownButtonId(buttonIdMap: Record<string, string>, buttonId: string): boolean {

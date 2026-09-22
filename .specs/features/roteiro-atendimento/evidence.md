@@ -190,3 +190,77 @@ Nenhuma migration nova nesta task (T1.3 não adiciona coluna). `quickcart-test-p
 Nenhum. O escopo foi implementado como descrito: previsão calculada depois de criar o pedido, linha
 ausente sem estimativa/fora do raio/sem `STORE_CEP`, retirada com `STORE_PREPARATION_MINUTES`, e
 falha na estimativa isolada por `try/catch` sem derrubar a confirmação.
+
+## T1.1/T1.2 — correção: checkout lembrado pulava o troco e o aviso da maquininha
+
+### Defeito
+
+Em `CheckoutHandler.handleAwaitingDeliveryType`, o atalho lembrado (`REMEMBERED_CHECKOUT_BUTTON_ID.SAME_AS_LAST`,
+"Isso mesmo") aplicava em bloco entrega, endereço, pagamento, recibo e e-mail do último pedido e ia
+direto para `enterConfirming`. Duas consequências:
+
+1. Pagamento lembrado **dinheiro**: a pergunta do troco (T1.1) era pulada. O pedido nascia sem
+   `checkoutCashChangeForInCents`, e o entregador podia sair sem troco. Reaproveitar o valor do
+   pedido anterior também seria errado — o troco depende do total DESTA compra, não da anterior.
+2. Pagamento lembrado **cartão na entrega + entrega**: o aviso da maquininha (T1.2) também não era
+   enviado — menos grave, mas o entregador podia sair sem saber que precisava levar a máquina.
+
+### Causa
+
+O atalho lembrado tratava as quatro escolhas (entrega, endereço, pagamento, recibo) como um bloco
+atômico que só precisava ser copiado para o contexto e confirmado — sem passar pelas mesmas
+ramificações (`cash` → troco, `card_on_delivery` + `delivery` → aviso) que o caminho longo já tinha
+em `handleAwaitingPayment`.
+
+### Correção
+
+- `CheckoutHandler.handleAwaitingDeliveryType`: o atalho lembrado agora verifica o pagamento
+  lembrado antes de confirmar. Se for `cash`, entra em `AWAITING_CASH_CHANGE` com todo o resto do
+  contexto lembrado já preenchido (entrega, endereço, recibo, e-mail) — a pergunta do troco é
+  refeita, o resto não. Se `requiresCardMachine` (mesma função de sempre, painel e motorista) for
+  verdadeira, envia o aviso da maquininha antes de confirmar. Pix (e qualquer outro meio) confirma
+  direto, como antes.
+- `CashChangeHandler`: ao terminar o fluxo do troco ("Não preciso" ou valor válido), se o contexto
+  já tem `checkoutReceiptPreference` (veio do atalho lembrado), vai direto para a confirmação —
+  não pergunta o recibo de novo. Sem essa memória (fluxo normal com dinheiro), continua perguntando
+  o recibo como sempre.
+- **Extração compartilhada**: `enterConfirming` + `buildConfirmingSummary` (privados no
+  `CheckoutHandler`) viraram uma função só, em
+  `apps/api-quickcart/src/modules/conversation/application/handlers/support/enterConfirming.ts`,
+  usada pelos dois handlers — nenhuma lógica de montagem do resumo foi duplicada. Dependências por
+  portas estreitas (`EnterConfirmingDependencies`), no mesmo estilo que o `CashChangeHandler` já
+  usava; `CashChangeHandlerDependencies` passou a ser esse mesmo tipo.
+- Wiring: nenhuma mudança no `container/index.ts` — `CashChangeHandler` já recebia exatamente as
+  quatro dependências (`conversationSessionRepository`, `whatsAppSender`, `cartRepository`,
+  `productRepository`) que `EnterConfirmingDependencies` exige.
+
+### Arquivos
+
+- `apps/api-quickcart/src/modules/conversation/application/handlers/support/enterConfirming.ts`
+  (novo) — `enterConfirming` + `buildConfirmingSummary` extraídos do `CheckoutHandler`.
+- `apps/api-quickcart/src/modules/conversation/application/handlers/CheckoutHandler.ts` — atalho
+  lembrado corrigido; métodos privados de confirmação removidos, chamando a função compartilhada.
+- `apps/api-quickcart/src/modules/conversation/application/handlers/CashChangeHandler.ts` — decide
+  entre confirmar direto ou perguntar o recibo, conforme `checkoutReceiptPreference` já presente.
+- `apps/api-quickcart/src/modules/conversation/application/handlers/CheckoutHandler.rememberedCheckout.test.ts`
+  (novo) — 4 casos: dinheiro lembrado pergunta troco; cartão+entrega lembrado avisa a maquininha e
+  confirma; cartão+retirada lembrado não avisa; pix lembrado confirma direto.
+- `apps/api-quickcart/src/modules/conversation/application/handlers/CashChangeHandler.test.ts` —
+  2 casos novos: "Não preciso" e valor válido, ambos com `checkoutReceiptPreference` já no
+  contexto, vão direto à confirmação sem perguntar o recibo. Ajuste no fixture de
+  `productRepository.findById` para incluir `name` (exigido por `EnterConfirmingDependencies`).
+
+### Typecheck
+
+`cd apps/api-quickcart && bun run typecheck` → `tsc --noEmit`, sem erros.
+
+### Testes
+
+- Baseline antes desta correção: **327 testes passando, 0 falhas**.
+- Depois da correção: **333 testes passando, 0 falhas** — 6 testes novos (4 no
+  `CheckoutHandler.rememberedCheckout.test.ts`, 2 no `CashChangeHandler.test.ts`).
+
+### Desvios da spec
+
+Nenhum. O fluxo normal (pagamento em dinheiro sem atalho lembrado) continua perguntando o recibo
+depois do troco, exatamente como antes desta correção.

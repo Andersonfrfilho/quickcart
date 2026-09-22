@@ -67,7 +67,7 @@ function buildDependencies() {
     },
     productRepository: {
       async findById() {
-        return { priceInCents: 5000 }
+        return { name: 'Arroz 5kg', priceInCents: 5000 }
       },
     },
   }
@@ -162,5 +162,40 @@ describe('CashChangeHandler', () => {
 
     expect(texts).toEqual([MESSAGES.CHECKOUT_CASH_CHANGE_INVALID])
     expect(stateUpdates).toEqual([])
+  })
+
+  describe('checkout lembrado (correção T1.1/T1.2): recibo já veio no contexto', () => {
+    it('"Não preciso" com recibo já lembrado vai direto à confirmação, sem perguntar recibo', async () => {
+      const { dependencies, stateUpdates, buttonMessages } = buildDependencies()
+      const handler = new CashChangeHandler(dependencies)
+
+      await handler.handle({
+        session: buildSession({ context: { checkoutReceiptPreference: 'whatsapp' } }),
+        customer: buildCustomer(),
+        message: { kind: 'button_reply', from: PHONE, waMessageId: 'wa-1', buttonId: CASH_CHANGE_BUTTON_ID.NOT_NEEDED, buttonTitle: '🙅 Não preciso' },
+      })
+
+      expect(stateUpdates).toEqual([{ currentState: CONVERSATION_STATE.CONFIRMING, context: expect.any(Object) }])
+      expect(buttonMessages).toHaveLength(1)
+      expect(buttonMessages[0]?.body).not.toBe(MESSAGES.CHECKOUT_ASK_RECEIPT_PREFERENCE)
+    })
+
+    it('valor válido com recibo já lembrado vai direto à confirmação, sem perguntar recibo', async () => {
+      const { dependencies, stateUpdates, buttonMessages } = buildDependencies()
+      const handler = new CashChangeHandler(dependencies)
+
+      await handler.handle({
+        session: buildSession({
+          currentState: CONVERSATION_STATE.AWAITING_CASH_CHANGE_AMOUNT,
+          context: { checkoutReceiptPreference: 'whatsapp' },
+        }),
+        customer: buildCustomer(),
+        message: { kind: 'text', from: PHONE, waMessageId: 'wa-2', body: '150' },
+      })
+
+      expect(stateUpdates).toEqual([{ currentState: CONVERSATION_STATE.CONFIRMING, context: expect.any(Object) }])
+      expect(buttonMessages).toHaveLength(1)
+      expect(buttonMessages[0]?.body).not.toBe(MESSAGES.CHECKOUT_ASK_RECEIPT_PREFERENCE)
+    })
   })
 })
