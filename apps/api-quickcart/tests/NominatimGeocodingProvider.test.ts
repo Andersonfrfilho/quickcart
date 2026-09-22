@@ -13,9 +13,10 @@
  * `place_rank` é 21 para todos. O que distingue são as chaves de `address`.
  */
 
-import { afterEach, describe, expect, it } from 'bun:test'
+import { afterEach, describe, expect, it, spyOn } from 'bun:test'
 import { GEOCODE_PRECISION } from '@/modules/shared/address/Address.schema'
 import { NominatimGeocodingProvider } from '@/infra/nominatim/NominatimGeocodingProvider'
+import { Logger } from '@/shared/logger'
 
 const originalFetch = globalThis.fetch
 
@@ -123,5 +124,26 @@ describe('NominatimGeocodingProvider', () => {
     }) as typeof fetch
 
     expect(await new NominatimGeocodingProvider().geocodeByCep('01310-100')).toBeUndefined()
+  })
+})
+
+describe('NominatimGeocodingProvider — log sem CEP em claro (LGPD)', () => {
+  it('geocode_failed registra só o prefixo do CEP, nem na chave nem na mensagem do erro', async () => {
+    globalThis.fetch = (async (url: string) => {
+      throw new TypeError(`fetch failed: ${url}`)
+    }) as unknown as typeof fetch
+    const logSpy = spyOn(Logger.prototype, 'warn').mockImplementation(() => {})
+
+    try {
+      const result = await new NominatimGeocodingProvider().geocodeByCep('14010-000')
+      const logged = JSON.stringify(logSpy.mock.calls)
+
+      expect(result).toBeUndefined()
+      expect(logged).toContain('geocode_failed')
+      expect(logged).toContain('140*****')
+      expect(logged).not.toContain('14010')
+    } finally {
+      logSpy.mockRestore()
+    }
   })
 })

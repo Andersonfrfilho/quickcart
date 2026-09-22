@@ -23,6 +23,7 @@ import type { GeocodingProviderInterface } from '@/modules/shared/address/Geocod
 import type { GeocodePrecision } from '@/modules/shared/address/Address.schema'
 import { logger } from '@/shared/logger'
 import { serializeError } from '@/shared/serializeError'
+import { maskCep } from '@/shared/maskCep'
 
 const useCaseLog = logger.child('ResolveCepCoordinate')
 
@@ -75,7 +76,7 @@ export class ResolveCepCoordinateUseCase {
         provider: geocoded.provider,
       })
     } catch (error: unknown) {
-      useCaseLog.warn('coordinate_not_cached', { cep, error: serializeError(error) })
+      useCaseLog.warn('coordinate_not_cached', { cep: maskCep(cep), error: serializeError(error) })
     }
 
     return {

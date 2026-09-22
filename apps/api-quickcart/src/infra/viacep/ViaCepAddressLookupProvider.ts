@@ -19,6 +19,7 @@ import type {
 } from '@/modules/shared/address/AddressLookupProvider.interface'
 import { logger } from '@/shared/logger'
 import { serializeError } from '@/shared/serializeError'
+import { maskCep } from '@/shared/maskCep'
 
 const viaCepLog = logger.child('ViaCepAddressLookupProvider')
 
@@ -50,7 +51,7 @@ export class ViaCepAddressLookupProvider implements AddressLookupProviderInterfa
         state: data.uf ?? '',
       }
     } catch (error: unknown) {
-      viaCepLog.warn('cep_lookup_failed', { cep: digitsOnly, error: serializeError(error) })
+      viaCepLog.warn('cep_lookup_failed', { cep: maskCep(digitsOnly), error: serializeError(error) })
       return undefined
     }
   }
