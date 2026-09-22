@@ -62,3 +62,51 @@
 ### Desvios da spec
 
 Nenhum. O escopo da T1.1 foi implementado como descrito em `tasks.md`; a validação de "total a pagar" usa apenas o total dos itens, como a própria task instrui ("Até a T2.1 existir, `amountDue` = total dos itens").
+
+## T1.2 — Maquininha
+
+### Arquivos alterados/criados
+
+**Função pura**
+- `apps/api-quickcart/src/modules/order/shared/requiresCardMachine.ts` (novo) — única função que decide `payment_method === card_on_delivery && delivery_type === delivery`, usando as constantes `PAYMENT_METHOD`/`DELIVERY_TYPE` de `Order.constant.ts` (nunca string literal).
+- `apps/api-quickcart/src/modules/order/shared/requiresCardMachine.test.ts` (novo) — entrega+cartão = true; retirada+cartão = false; entrega+pix = false; entrega+dinheiro = false.
+
+**Bot**
+- `apps/api-quickcart/src/modules/conversation/shared/Messages.constant.ts` — nova constante `CHECKOUT_CARD_ON_DELIVERY_MACHINE_NOTICE` com o texto da spec §3.2.
+- `apps/api-quickcart/src/modules/conversation/application/handlers/CheckoutHandler.ts` — `handleAwaitingPayment` envia a mensagem quando `buttonId === PAYMENT_METHOD_BUTTON_ID.CARD_ON_DELIVERY` **e** `checkoutContext.checkoutDeliveryType === DELIVERY_TYPE_BUTTON_ID.DELIVERY`, antes de seguir para `AWAITING_RECEIPT_PREFERENCE`. Não usa `requiresCardMachine` aqui porque o pedido ainda não existe nesse ponto do fluxo (é criado só em `confirmOrder`); a checagem equivalente é feita direto pelos dois valores já no contexto do checkout — `checkoutDeliveryType` é sempre setado antes de `AWAITING_PAYMENT` (`handleAwaitingDeliveryType`), então nunca chega indefinido aqui.
+- `apps/api-quickcart/src/modules/conversation/application/handlers/CheckoutHandler.test.ts` (novo) — cobre os três casos: entrega+cartão (mensagem enviada), retirada+cartão (mensagem NÃO enviada), entrega+pix (mensagem NÃO enviada).
+
+**Painel (backend — DTO)**
+- `apps/api-quickcart/src/modules/order/infra/http/Order.controller.ts` — `withAllowedTransitions` (o único ponto de serialização de pedido para fora da api: lista, detalhe e todas as respostas de mutação) passa a exigir `paymentMethod` no tipo genérico e acrescenta `requiresCardMachine` ao DTO, calculado por `requiresCardMachine(order)`. Cobre automaticamente `handleListAdmin`, `handleGetAdminDetail`, `handleSetItemUnavailable`, `handleSetItemPicked`, `handleNotifyUnavailableItems` e `handleUpdateStatus` — nenhum lugar recalcula.
+- `apps/api-quickcart/src/modules/order/infra/http/Order.controller.test.ts` (novo, e `withAllowedTransitions` passou a `export`) — confirma `requiresCardMachine` no DTO nos dois casos (entrega e retirada).
+
+**Painel (frontend)**
+- `apps/frontend-web/src/shared/api/api.types.ts` — `requiresCardMachine: boolean` em `Order` (herdado por `OrderDetail`).
+- `apps/frontend-web/src/modules/admin/components/OrderDetailView.tsx` — selo "🧾 Levar maquininha" (`Badge variant="outline"`) no card de Pagamento, só quando `order.requiresCardMachine`.
+- `apps/frontend-web/src/modules/admin/components/OrdersTableView.tsx` — mesmo selo, compacto ("🧾 Maquininha"), na coluna de tipo de entrega da lista.
+- `apps/frontend-web/src/modules/preview/pages/OrderDetailPreview.page.tsx` e `OrdersPreview.page.tsx` — fixtures (pagamento Pix) ganham `requiresCardMachine: false` para satisfazer o tipo.
+
+### Motorista
+
+Não existe tela dedicada ao papel `motorista` no frontend — busquei por `driver`/`motorista` em `apps/frontend-web/src` e só encontrei o papel em `roles.constant.ts` (rótulo "Motorista" para exibição de equipe). Quem separa, entrega e administra usa as MESMAS telas (`OrderDetailView`, `OrdersTableView`) sob controle de permissão de rota/API — não há componente próprio de motorista para duplicar o selo. Como o selo foi colocado nesses componentes compartilhados, o motorista já o vê quando acessa o pedido pela mesma tela. Registrado aqui em vez de criar uma tela nova, como a task instrui.
+
+### Decisões
+
+- `requiresCardMachine` fica em `modules/order/shared/` (não em `handlers/support/`) porque é regra de domínio do pedido, reutilizada por api (DTO) e potencialmente pelo worker — mesma família de `Order.constant.ts`.
+- O bot NÃO reusa `requiresCardMachine(order)` diretamente em `handleAwaitingPayment`: não há `order` ainda (é criado em `confirmOrder`, depois da preferência de recibo e do e-mail). A msg é disparada comparando os dois valores já escolhidos no checkout (`checkoutDeliveryType` e o botão de pagamento recém-clicado), que são os MESMOS dois campos que a função pura usa — não há duplicação de regra, só duplicação da comparação com valores ainda não persistidos.
+- Retirada com cartão na entrega não recebe nenhuma mensagem sobre maquininha (nem texto alternativo): a spec diz que "não faz sentido" e não pede um texto substituto, e criar um inventaria uma regra de produto não pedida.
+- `withAllowedTransitions` virou o ponto único de exposição de `requiresCardMachine` porque já era o ponto único de serialização de pedido pro DTO admin — reaproveitar evita um segundo lugar que poderia divergir.
+
+### Typecheck
+
+- `cd apps/api-quickcart && bun run typecheck` → `tsc --noEmit`, sem erros.
+- `cd apps/frontend-web && bun run typecheck` → `tsc --noEmit && tsc --noEmit -p tsconfig.test.json`, sem erros.
+
+### Testes
+
+- Baseline antes da T1.2: **313 testes passando, 0 falhas** (api-quickcart), **12 passando, 0 falhas** (frontend-web).
+- Depois da T1.2: **322 testes passando, 0 falhas** (api-quickcart) — 9 testes novos (4 do `requiresCardMachine`, 3 do `CheckoutHandler`, 2 do `withAllowedTransitions`). **12 passando, 0 falhas** (frontend-web) — sem testes novos, só tipos e selo visual.
+
+### Desvios da spec
+
+Nenhum desvio de comportamento. Um ajuste de escopo registrado: como não existe tela de motorista separada, o "mesmo selo" da task foi satisfeito pelos componentes compartilhados (`OrderDetailView`/`OrdersTableView`), e não por uma tela nova — a task pede explicitamente para não inventar uma quando não existir.

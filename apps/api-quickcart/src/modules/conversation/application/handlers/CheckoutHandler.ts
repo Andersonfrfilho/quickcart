@@ -289,6 +289,15 @@ export class CheckoutHandler implements ConversationHandlerInterface {
       return
     }
 
+    /*
+     * A maquininha só existe na entrega: quem retira na loja paga no caixa, sem entregador
+     * (spec §3.2). `requiresCardMachine` é quem decide isso no painel e no motorista; aqui, antes
+     * de o pedido existir, a checagem é direta pelo tipo de entrega já escolhido no checkout.
+     */
+    if (message.buttonId === PAYMENT_METHOD_BUTTON_ID.CARD_ON_DELIVERY && checkoutContext.checkoutDeliveryType === DELIVERY_TYPE_BUTTON_ID.DELIVERY) {
+      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_CARD_ON_DELIVERY_MACHINE_NOTICE)
+    }
+
     await this.dependencies.conversationSessionRepository.updateStateByPhone({
       customerPhone: session.customerPhone,
       currentState: CONVERSATION_STATE.AWAITING_RECEIPT_PREFERENCE,

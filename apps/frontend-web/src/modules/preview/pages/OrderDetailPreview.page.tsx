@@ -177,6 +177,8 @@ const PREVIEW_ORDER: OrderDetail = {
   totalInCents: PREVIEW_ITEMS.reduce((total, item) => total + item.totalInCents, 0),
   items: PREVIEW_ITEMS,
   allowedNextStatuses: [],
+  // Preview base paga no Pix — nunca precisa de maquininha.
+  requiresCardMachine: false,
   // A esteira só mostra ocorrência com `status = delivery_failed`, e o preview base está separando.
   deliveryFailureReason: null,
   // Pedido em separação: a sacola ainda não saiu, então não há viagem nenhuma a mostrar.

@@ -159,6 +159,8 @@ function buildPreviewOrders(now: number): Order[] {
     createdAt: new Date(now - sample.minutesAgo * MINUTE).toISOString(),
     totalInCents: sample.totalInCents,
     allowedNextStatuses: sample.allowedNextStatuses,
+    // Fixture paga sempre no Pix — nunca precisa de maquininha.
+    requiresCardMachine: false,
     deliveryFailureReason: (sample.deliveryFailureReason ?? null) as Order['deliveryFailureReason'],
   }))
 }

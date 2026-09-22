@@ -309,6 +309,14 @@ export const MESSAGES = {
   CHECKOUT_ASK_ADDRESS_FALLBACK: 'Não achei esse CEP 🤔 Pode me mandar o endereço completo de entrega?',
   CHECKOUT_ASK_ADDRESS_NUMBER: 'Qual o número? (e o complemento, se tiver — ex: "412, apto 71")',
   CHECKOUT_ASK_PAYMENT: 'Como você vai pagar?',
+  /**
+   * Enviada ao escolher "Cartão na entrega", antes de seguir o fluxo normal (roteiro §11, spec §3.2).
+   *
+   * Só faz sentido na entrega: quem retira na loja paga no caixa, sem entregador nem maquininha —
+   * por isso `handleAwaitingPayment` só manda esta linha quando `checkoutDeliveryType === delivery`.
+   */
+  CHECKOUT_CARD_ON_DELIVERY_MACHINE_NOTICE:
+    'Certo! O pagamento é feito na entrega, no crédito ou débito — nosso entregador leva a maquininha.',
   /** Só perguntado quando o pagamento escolhido é em dinheiro (roteiro §9). */
   CHECKOUT_ASK_CASH_CHANGE: 'Precisa de troco?',
   CHECKOUT_ASK_CASH_CHANGE_AMOUNT:

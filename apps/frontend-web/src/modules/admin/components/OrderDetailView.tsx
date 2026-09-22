@@ -477,6 +477,12 @@ export function OrderDetailView({
           {order.cashChangeForInCents !== null && (
             <p className="mt-0.5 text-sm">Troco para {formatMoney(order.cashChangeForInCents)}</p>
           )}
+          {/* Vem pronto do backend (`requiresCardMachine`) — nunca na retirada (roteiro §11, spec §3.2). */}
+          {order.requiresCardMachine && (
+            <Badge className="mt-1.5" variant="outline">
+              🧾 Levar maquininha
+            </Badge>
+          )}
           <p className="mt-0.5 text-xs text-muted-foreground">
             {/* Valor fora da lista vira travessão: "Recibo: none" na tela é código vazando para o
                 lojista, e ele não tem como saber que 'none' significa "não escolheu". */}

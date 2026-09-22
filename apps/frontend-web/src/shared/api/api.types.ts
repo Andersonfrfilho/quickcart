@@ -154,6 +154,13 @@ export type Order = {
   /** Só preenchido com `status = delivery_failed`. É ele que decide se a tela oferece outra tentativa. */
   readonly deliveryFailureReason: DeliveryFailureReason | null
   /**
+   * Se o entregador precisa levar a maquininha (roteiro §11, spec §3.2).
+   *
+   * Calculado pelo BACKEND (`requiresCardMachine`), nunca aqui: `payment_method = card_on_delivery`
+   * na retirada não conta — a tela só lê o booleano e desenha o selo "Levar maquininha".
+   */
+  readonly requiresCardMachine: boolean
+  /**
    * Próximos passos válidos, decididos pelo SERVIDOR.
    *
    * A tela desenhava botões a partir de um mapa próprio, que era a segunda cópia da esteira — e a rota
