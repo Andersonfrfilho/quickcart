@@ -23,14 +23,9 @@ import { GEOCODE_PRECISION } from '@/modules/shared/address/Address.schema'
 import { logger } from '@/shared/logger'
 import { serializeError } from '@/shared/serializeError'
 import { maskCep } from '@/shared/maskCep'
+import { BRASIL_API_CEP_URL, BRASIL_API_PROVIDER_NAME, BRASIL_API_REQUEST_TIMEOUT_MS } from '@/infra/brasilapi/brasilApi.constant'
 
 const brasilApiLog = logger.child('BrasilApiGeocodingProvider')
-
-const PROVIDER_NAME = 'brasilapi'
-const BRASIL_API_CEP_URL = 'https://brasilapi.com.br/api/cep/v2'
-
-/** Uma resposta lenta não pode segurar a cotação do cliente nem a fila de quem vem atrás. */
-export const BRASIL_API_REQUEST_TIMEOUT_MS = 3000
 
 const NOT_FOUND: GeocodeOutcome = { kind: GEOCODE_OUTCOME_KIND.NOT_FOUND }
 const TRANSIENT_ERROR: GeocodeOutcome = { kind: GEOCODE_OUTCOME_KIND.TRANSIENT_ERROR }
@@ -74,7 +69,7 @@ export class BrasilApiGeocodingProvider implements GeocodingProviderInterface {
       return {
         kind: GEOCODE_OUTCOME_KIND.FOUND,
         /** Centroide da cidade, não do logradouro: CITY é a precisão que não mente sobre o dado. */
-        coordinate: { latitude, longitude, precision: GEOCODE_PRECISION.CITY, provider: PROVIDER_NAME },
+        coordinate: { latitude, longitude, precision: GEOCODE_PRECISION.CITY, provider: BRASIL_API_PROVIDER_NAME },
       }
     } catch (error: unknown) {
       brasilApiLog.warn('geocode_failed', { cep: maskCep(digitsOnly), error: serializeError(error) })

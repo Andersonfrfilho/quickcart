@@ -31,7 +31,9 @@ import { UpdateProductUseCase } from '@/modules/catalog/application/use-cases/Up
 import { CategoryController } from '@/modules/catalog/infra/http/Category.controller'
 import { ProductController } from '@/modules/catalog/infra/http/Product.controller'
 import { RedisProvider } from '@/infra/redis/RedisProvider'
+import { BrasilApiAddressLookupProvider } from '@/infra/brasilapi/BrasilApiAddressLookupProvider'
 import { BrasilApiGeocodingProvider } from '@/infra/brasilapi/BrasilApiGeocodingProvider'
+import { ChainedAddressLookupProvider } from '@/infra/geocoding/ChainedAddressLookupProvider'
 import { ChainedGeocodingProvider } from '@/infra/geocoding/ChainedGeocodingProvider'
 import { NominatimGeocodingProvider } from '@/infra/nominatim/NominatimGeocodingProvider'
 import type { AddressLookupProviderInterface } from '@/modules/shared/address/AddressLookupProvider.interface'
@@ -401,8 +403,15 @@ type WebhookRepositories = {
 
 function buildWebhookRepositories(): WebhookRepositories {
   const cacheProvider = new RedisProvider()
-  // CEP → rua/bairro/cidade/UF, para o checkout do WhatsApp não pedir o endereço inteiro por texto livre.
-  const addressLookupProvider = new ViaCepAddressLookupProvider()
+  /*
+   * CEP → rua/bairro/cidade/UF, para o checkout do WhatsApp não pedir o endereço inteiro por texto
+   * livre. BrasilAPI primeiro — o Railway não alcança o ViaCEP em staging ("Unable to connect") —,
+   * ViaCEP como fallback para quando a rede permitir.
+   */
+  const addressLookupProvider = new ChainedAddressLookupProvider([
+    new BrasilApiAddressLookupProvider(),
+    new ViaCepAddressLookupProvider(),
+  ])
   const customerRepository = new DrizzleCustomerRepository()
   const conversationSessionRepository = new DrizzleConversationSessionRepository()
   const messageRepository = new DrizzleMessageRepository()
