@@ -23,6 +23,7 @@ import { logger } from '@/shared/logger'
 import { LOG_EVENTS } from '@/shared/constants/log-events.constant'
 import { serializeError } from '@/shared/serializeError'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
+import { parseOrderDecisionReply } from '@/modules/conversation/shared/orderDecisionReply'
 import type { CacheProvider } from '@/shared/providers/CacheProvider.interface'
 import type { ConversationEngine } from '@/modules/conversation/application/ConversationEngine'
 import type { FlowDriver } from '@/modules/conversation/application/FlowDriver'
@@ -239,12 +240,27 @@ export function createQuickCartWhatsAppModule(params: CreateQuickCartWhatsAppMod
            */
           let messageForEngine = parsed
 
-          if (driver && session.flowKey !== null) {
+          /**
+           * A resposta sobre item em falta não passa pelo grafo, em nenhum estado (ADR 0003).
+           *
+           * A oferta de troca pode ficar horas sem resposta, e nesse meio-tempo a sessão expira para
+           * `greeting`. Com o grafo tendo a primeira palavra, o toque em "🔄 Trocar" virava resposta ao
+           * nó de saudação: o cliente aceitava a troca e recebia "Oi de novo!" — e o item não entrava
+           * na sacola. Quem sabe ler esse id é o `GlobalHandler`, na engine.
+           */
+          const isOrderDecisionReply = parseOrderDecisionReply(parsed) !== undefined
+
+          if (driver && !isOrderDecisionReply && session.flowKey !== null) {
             const result = await driver.handleInbound({ session, message: parsed })
             if (result.handled) return
             if (result.replayMessage) messageForEngine = result.replayMessage
           }
-          if (driver && messageForEngine === parsed && session.currentState === CONVERSATION_STATE.GREETING) {
+          if (
+            driver &&
+            !isOrderDecisionReply &&
+            messageForEngine === parsed &&
+            session.currentState === CONVERSATION_STATE.GREETING
+          ) {
             const result = await driver.handleInbound({ session, message: parsed })
             if (result.handled) return
             if (result.replayMessage) messageForEngine = result.replayMessage

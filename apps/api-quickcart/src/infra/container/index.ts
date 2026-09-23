@@ -143,6 +143,7 @@ import { ORDER_DECISION_REMINDER_JOB } from '@/infra/queue/queues.constant'
 import { RemindCustomerDecisionUseCase } from '@/modules/order/application/use-cases/RemindCustomerDecision.use-case'
 import { ResolveCustomerDecisionUseCase } from '@/modules/order/application/use-cases/ResolveCustomerDecision.use-case'
 import type { AskCustomerDecision } from '@/modules/order/shared/customerDecisionMessage'
+import type { AskCustomerChoice } from '@/modules/order/shared/itemSubstitutionMessage'
 
 type HealthModule = {
   readonly controller: HealthController
@@ -329,10 +330,23 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
   const askCustomerDecision: AskCustomerDecision = ({ whatsappNumber, body, buttons }) =>
     dependencies.whatsAppSender.sendInteractiveButtons(whatsappNumber, body, buttons)
 
+  const askCustomerChoice: AskCustomerChoice = ({ whatsappNumber, body, listButtonText, sectionTitle, rows }) =>
+    dependencies.whatsAppSender.sendInteractiveList(whatsappNumber, body, listButtonText, [
+      {
+        title: sectionTitle,
+        rows: rows.map((row) => ({
+          id: row.id,
+          title: row.title,
+          ...(row.description ? { description: row.description } : {}),
+        })),
+      },
+    ])
+
   const askUnavailableItemsUseCase = new AskUnavailableItemsUseCase({
     orderRepository,
     productRepository: dependencies.productRepository,
     askCustomer: askCustomerDecision,
+    askCustomerChoice,
   })
 
   const notifyUnavailableItemsUseCase = new NotifyUnavailableItemsUseCase({

@@ -37,9 +37,23 @@ dois dá para responder sem produção.
    de hoje, sem substituto.
 2. **Só pergunta com candidato aprovado.** Sem candidato, o item vai direto para a pergunta atual.
 3. **O candidato sai de `searchByTerm`, restringido**: mesma `category_id`, `id` diferente do que
-   faltou, **mesmo `unit` e mesmo `unit_size`**, e um único candidato — o de maior score.
-4. **Três botões:** `🔄 Trocar` / `➡️ Sem ele` / `❌ Cancelar`. O nome do substituto vai no corpo
-   da mensagem, com preço e a diferença explícita quando houver.
+   faltou, **mesmo `unit` e mesmo `unit_size`**, até `MAX_SUBSTITUTE_CANDIDATES` (4), por score.
+4. **Um parecido vira botões, vários viram lista.** Com um só: `🔄 Trocar` / `➡️ Sem ele` /
+   `❌ Cancelar`. Com dois ou mais: mensagem de lista com um parecido por linha, mais `➡️ Sem ele`
+   e `❌ Cancelar` — três botões não cabem quatro marcas. Os parecidos aparecem no corpo com preço
+   e diferença, e os ids das linhas são os mesmos dos botões, lidos pelo mesmo parser.
+
+8. **A resposta sobre item em falta não passa pelo grafo de fluxo**, em nenhum estado: o webhook
+   reconhece o id e entrega direto à engine, onde o `GlobalHandler` a atende.
+
+   *Revisado em 23/09/2026*: a versão original oferecia um único parecido, o de maior score. Quem
+   pediu açúcar refinado e recebeu só a marca mais parecida desistia da troca em vez de aceitar
+   outra marca que a loja tinha na prateleira.
+
+   *Revisado em 23/09/2026 (item 8)*: a oferta pode ficar horas sem resposta, e nesse meio-tempo a
+   sessão expira para `greeting`. Como o grafo tem a primeira palavra, o toque em "🔄 Trocar" virava
+   resposta ao nó de saudação — o cliente aceitava a troca e recebia "Oi de novo!", sem o item entrar
+   na sacola.
 5. **Aceitar cria linha nova em `order_items`**, com `substitutes_order_item_id` apontando para a
    linha que faltou. A linha original permanece marcada como indisponível.
 6. **O aceite baixa o estoque do substituto pelo mesmo `UPDATE` condicional, em transação com a

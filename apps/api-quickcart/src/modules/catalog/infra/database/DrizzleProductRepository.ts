@@ -17,7 +17,7 @@ import type {
   ListProductsRepositoryResult,
   ProductRepositoryInterface,
   ProductSearchResult,
-  SubstituteCandidateParams,
+  SubstituteCandidatesParams,
   UpdateProductRecordParams,
 } from '@/modules/catalog/domain/ProductRepository.interface'
 
@@ -168,7 +168,7 @@ export class DrizzleProductRepository implements ProductRepositoryInterface {
    * Um candidato, o de maior nota. Escolher entre três marcas é trabalho que a loja estaria empurrando
    * para quem só queria comprar leite (ADR 0003).
    */
-  async findSubstituteCandidate(params: SubstituteCandidateParams): Promise<ProductSearchResult | undefined> {
+  async findSubstituteCandidates(params: SubstituteCandidatesParams): Promise<ProductSearchResult[]> {
     const result = await db.execute<SearchRow>(sql`
       SELECT candidate.id, candidate.name, candidate.brand, candidate.unit_size, candidate.price_in_cents,
              GREATEST(
@@ -187,20 +187,17 @@ export class DrizzleProductRepository implements ProductRepositoryInterface {
         AND candidate.is_available = true
         AND candidate.stock_quantity >= ${params.requiredQuantity}
       ORDER BY score DESC
-      LIMIT 1
+      LIMIT ${params.limit}
     `)
 
-    const row = result.rows[0]
-    if (!row) return undefined
-
-    return {
+    return result.rows.map((row) => ({
       id: row.id,
       name: row.name,
       brand: row.brand,
       unitSize: row.unit_size,
       priceInCents: row.price_in_cents,
       score: Number(row.score),
-    }
+    }))
   }
 
   async listDistinctBrands(): Promise<string[]> {

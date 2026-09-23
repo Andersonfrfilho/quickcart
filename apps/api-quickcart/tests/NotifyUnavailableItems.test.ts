@@ -108,8 +108,9 @@ function buildUseCase(params: {
   /* Sem parecido no catálogo, a pergunta que sai é a do pedido inteiro — que é o que estes testes cobrem. */
   const askUnavailableItemsUseCase = new AskUnavailableItemsUseCase({
     orderRepository,
-    productRepository: { findSubstituteCandidate: async () => undefined } as unknown as ProductRepositoryInterface,
+    productRepository: { findSubstituteCandidates: async () => [] } as unknown as ProductRepositoryInterface,
     askCustomer,
+    askCustomerChoice: async () => undefined,
   })
 
   const useCase = new NotifyUnavailableItemsUseCase({

@@ -71,10 +71,12 @@ export type ProductSearchResult = {
  * `unit` e `unitSize` iguais fazem parte da busca, não do resultado: leite 1L por leite 2L não é
  * substituição, é outra compra — e o `similarity()` não sabe disso, porque os nomes são quase idênticos.
  */
-export type SubstituteCandidateParams = {
+export type SubstituteCandidatesParams = {
   readonly productId: string
   /** Quanto precisa estar em estoque AGORA. Oferecer o que não dá para separar é perder o turno à toa. */
   readonly requiredQuantity: number
+  /** Teto de parecidos a devolver, já ordenados por semelhança. */
+  readonly limit: number
 }
 
 export interface ProductRepositoryInterface {
@@ -87,8 +89,8 @@ export interface ProductRepositoryInterface {
   adjustStock(id: string, delta: number): Promise<Product | undefined>
   list(params: ListProductsRepositoryParams): Promise<ListProductsRepositoryResult>
   searchByTerm(term: string, limit: number): Promise<ProductSearchResult[]>
-  /** `undefined` = não há parecido, e isso é resposta legítima: sem candidato não se pergunta nada. */
-  findSubstituteCandidate(params: SubstituteCandidateParams): Promise<ProductSearchResult | undefined>
+  /** Lista vazia = não há parecido, e isso é resposta legítima: sem candidato não se pergunta nada. */
+  findSubstituteCandidates(params: SubstituteCandidatesParams): Promise<ProductSearchResult[]>
   /** Marcas do catálogo disponível, sem repetição. Usado para reconhecer "arroz, broto legal" como um item só. */
   listDistinctBrands(): Promise<string[]>
 }

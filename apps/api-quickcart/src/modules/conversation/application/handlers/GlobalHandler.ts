@@ -36,9 +36,9 @@ import { isHumanHandoffRequest } from '@/modules/conversation/shared/isHumanHand
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import type { ConversationContext } from '@/modules/conversation/shared/ConversationContext.types'
 import { MENU_BUTTON_ID, MESSAGES } from '@/modules/conversation/shared/Messages.constant'
+import { parseOrderDecisionReply } from '@/modules/conversation/shared/orderDecisionReply'
 import {
   ORDER_DECISION,
-  parseOrderDecisionButtonId,
   type OrderDecision,
 } from '@/modules/conversation/shared/orderDecisionButton'
 import type { ResolveCustomerDecisionUseCase } from '@/modules/order/application/use-cases/ResolveCustomerDecision.use-case'
@@ -130,7 +130,7 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
      * a pessoa monta outro carrinho, navega no catálogo ou some. Prender a sessão em "aguardando decisão"
      * bloquearia todo o resto do produto por um pedido; o id dentro do botão resolve sem prender nada.
      */
-    const decision = message.kind === 'button_reply' ? parseOrderDecisionButtonId(message.buttonId) : undefined
+    const decision = parseOrderDecisionReply(message)
     if (decision) {
       /*
        * A resposta sobre UM item não passa pelo `ResolveCustomerDecision`: aquele resolve o pedido inteiro,

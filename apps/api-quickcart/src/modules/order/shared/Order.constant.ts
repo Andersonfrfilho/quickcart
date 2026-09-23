@@ -167,6 +167,14 @@ export const ORDER_IDEMPOTENCY_POLL_TIMEOUT_MS = 5000
  */
 export const MAX_SUBSTITUTION_QUESTIONS = 3
 
+/**
+ * Quantos parecidos entram na oferta de troca de um item.
+ *
+ * Quatro porque a lista ainda precisa caber "sem ele" e "cancelar" sem virar rolagem, e porque a quinta
+ * marca de açúcar não muda a decisão de quem só quer o açúcar de volta na sacola.
+ */
+export const MAX_SUBSTITUTE_CANDIDATES = 4
+
 export const LIST_DEFAULT_PAGE = 1
 export const LIST_DEFAULT_PER_PAGE = 20
 export const LIST_MAX_PER_PAGE = 100

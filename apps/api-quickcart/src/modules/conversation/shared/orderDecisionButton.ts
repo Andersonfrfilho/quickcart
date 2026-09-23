@@ -100,6 +100,41 @@ export function buildItemSubstitutionButtons(params: {
 }
 
 /**
+ * Uma linha da lista de parecidos. `description` é o preço, que não cabe no título de 24 caracteres.
+ */
+export type OrderDecisionRow = {
+  readonly id: string
+  readonly title: string
+  readonly description?: string
+}
+
+/**
+ * As linhas da lista quando há mais de um parecido (ADR 0003).
+ *
+ * Lista e não botões: o WhatsApp aceita três botões, e três já se esgotam em "trocar", "sem ele" e
+ * "cancelar" — sem sobrar nenhum para o segundo parecido. A lista comporta os parecidos e as duas
+ * saídas, e os ids são os mesmos dos botões, então `parseOrderDecisionButtonId` lê os dois caminhos.
+ */
+export function buildItemSubstitutionRows(params: {
+  readonly orderId: string
+  readonly orderItemId: string
+  readonly substitutes: readonly { readonly productId: string; readonly title: string; readonly description: string }[]
+}): readonly OrderDecisionRow[] {
+  return [
+    ...params.substitutes.map((substitute) => ({
+      id: `${ORDER_DECISION_BUTTON_PREFIX.SUBSTITUTE}${params.orderId}:${params.orderItemId}:${substitute.productId}`,
+      title: substitute.title,
+      description: substitute.description,
+    })),
+    {
+      id: `${ORDER_DECISION_BUTTON_PREFIX.SKIP_ITEM}${params.orderId}:${params.orderItemId}`,
+      title: DECISION_BUTTON_TITLE.SKIP_ITEM,
+    },
+    { id: `${ORDER_DECISION_BUTTON_PREFIX.CANCEL}${params.orderId}`, title: DECISION_BUTTON_TITLE.CANCEL },
+  ]
+}
+
+/**
  * O que voltou do toque. União, e não um tipo com campos opcionais: a troca SEM o item ou sem o produto
  * não existe, e campo opcional obrigaria cada leitor a checar de novo o que o parse já sabe.
  */

@@ -20,13 +20,18 @@
 import type { ProductRepositoryInterface } from '@/modules/catalog/domain/ProductRepository.interface'
 import type { OrderDetail, OrderItemRecord, OrderRepositoryInterface } from '@/modules/order/domain/OrderRepository.interface'
 import { buildCustomerDecisionMessage, type AskCustomerDecision } from '@/modules/order/shared/customerDecisionMessage'
-import { buildItemSubstitutionMessage } from '@/modules/order/shared/itemSubstitutionMessage'
-import { MAX_SUBSTITUTION_QUESTIONS } from '@/modules/order/shared/Order.constant'
+import {
+  buildItemSubstitutionMessage,
+  type AskCustomerChoice,
+} from '@/modules/order/shared/itemSubstitutionMessage'
+import { MAX_SUBSTITUTE_CANDIDATES, MAX_SUBSTITUTION_QUESTIONS } from '@/modules/order/shared/Order.constant'
 
 type AskUnavailableItemsDependencies = {
   readonly orderRepository: OrderRepositoryInterface
   readonly productRepository: ProductRepositoryInterface
   readonly askCustomer: AskCustomerDecision
+  /** O canal de lista, usado quando há mais de um parecido para o mesmo item. */
+  readonly askCustomerChoice: AskCustomerChoice
 }
 
 /** O que foi perguntado. Quem chama usa para saber se ainda há resposta a esperar. */
@@ -80,18 +85,30 @@ export class AskUnavailableItemsUseCase {
     readonly pending: readonly OrderItemRecord[]
   }): Promise<boolean> {
     for (const item of params.pending) {
-      const candidate = await this.dependencies.productRepository.findSubstituteCandidate({
+      const candidates = await this.dependencies.productRepository.findSubstituteCandidates({
         productId: item.productId,
         requiredQuantity: item.quantity,
+        limit: MAX_SUBSTITUTE_CANDIDATES,
       })
-      if (!candidate) continue
 
-      const message = buildItemSubstitutionMessage({ detail: params.detail, item, candidate })
-      await this.dependencies.askCustomer({
-        whatsappNumber: params.detail.order.customerPhone,
-        body: message.body,
-        buttons: message.buttons,
-      })
+      const message = buildItemSubstitutionMessage({ detail: params.detail, item, candidates })
+      if (!message) continue
+
+      if (message.kind === 'list') {
+        await this.dependencies.askCustomerChoice({
+          whatsappNumber: params.detail.order.customerPhone,
+          body: message.body,
+          listButtonText: message.listButtonText,
+          sectionTitle: message.sectionTitle,
+          rows: message.rows,
+        })
+      } else {
+        await this.dependencies.askCustomer({
+          whatsappNumber: params.detail.order.customerPhone,
+          body: message.body,
+          buttons: message.buttons,
+        })
+      }
       await this.dependencies.orderRepository.markItemUnavailableNotified({
         orderId: params.detail.order.id,
         itemId: item.id,

@@ -26,6 +26,11 @@ export const MENU_BUTTON_ID = {
   TALK_TO_AGENT: 'talk_to_agent',
 } as const
 
+export const CART_RESUME_BUTTON_ID = {
+  CONTINUE: 'cart_resume_continue',
+  START_OVER: 'cart_resume_start_over',
+} as const
+
 export const CART_REVIEW_BUTTON_ID = {
   CHECKOUT: 'checkout',
   ADD_MORE: 'add_more',
@@ -348,6 +353,20 @@ export const MESSAGES = {
    */
   ORDER_ITEM_SUBSTITUTE_OFFER:
     '😕 Faltou *{item}* no pedido *{codigo}*.\n\nTenho *{substituto}* por *{preco}*{diferenca}.\n\nQuer trocar?',
+  /**
+   * A mesma oferta quando há mais de um parecido no estoque (ADR 0003).
+   *
+   * Os parecidos vão no CORPO, e não só nas linhas da lista: quem lê no preview da notificação precisa
+   * ver o que está sendo oferecido e por quanto antes de abrir a lista para escolher.
+   */
+  ORDER_ITEM_SUBSTITUTE_OFFER_MULTI:
+    '😕 Faltou *{item}* no pedido *{codigo}*.\n\nTenho estes parecidos:\n\n{opcoes}\n\nQual você quer?',
+  /** Uma linha por parecido no corpo da oferta múltipla. */
+  ORDER_ITEM_SUBSTITUTE_OPTION_LINE: '{posicao}. *{substituto}* — *{preco}*{diferenca}',
+  /** Título do botão que abre a lista de parecidos. Teto de 20 caracteres da Meta. */
+  ORDER_ITEM_SUBSTITUTE_LIST_BUTTON: 'Ver parecidos',
+  /** Título da seção da lista de parecidos. Teto de 24 caracteres. */
+  ORDER_ITEM_SUBSTITUTE_LIST_SECTION: 'Parecidos',
   /** Entra no lugar de `{diferenca}` quando os preços diferem. Vazio quando são iguais — nada a avisar. */
   ORDER_ITEM_SUBSTITUTE_PRICE_DIFFERENCE: ' ({sinal}{valor} no total)',
   ORDER_ITEM_SUBSTITUTED_ACK: '🔄 Trocado! *{substituto}* entra no lugar. O total do *{codigo}* fica *{total}*.',
@@ -367,6 +386,16 @@ export const MESSAGES = {
   LIST_INTENT_DETECTED: '📝 Entendi que é uma lista! Já vou montar seu carrinho…',
   GOODBYE: '👋 Tudo bem, cancelei o que estávamos fazendo. Quando quiser começar de novo é só chamar!',
   SESSION_EXPIRED_PREFIX: '⏰ Faz um tempo que não conversamos, então recomecei sua sessão.\n\n',
+  /**
+   * `{codigo}` e `{itens}` preenchidos pelo CartResumeHandler.
+   *
+   * O número de itens vem antes da pergunta de propósito: quem voltou depois de horas não lembra o
+   * que tinha na lista, e "continuar" sem saber o tamanho do que se está continuando é um chute.
+   */
+  CART_RESUME_ASK:
+    '⏰ Faz um tempo que não conversamos.\n\nVocê tinha uma compra começada (*{codigo}*) com {itens}. Quer continuar de onde parou ou começar do zero?',
+  CART_RESUME_CONTINUED: '👍 Beleza, continuando a compra *{codigo}*.',
+  CART_RESUME_STARTED_OVER: '🧹 Pronto, comecei uma compra nova: *{codigo}*. A lista anterior foi descartada.',
   FALLBACK_STATE_NOT_READY: 'Ainda estou aprendendo essa parte 🙏 Envie "menu" para recomeçar.',
   CART_EMPTY: '🛒 Seu carrinho está vazio. Envie sua lista de compras ou toque em "Ver produtos" pra começar.',
   CART_REVIEW_UNMATCHED_PREFIX: '⚠️ Não encontrei esses itens:',
@@ -456,6 +485,9 @@ export const MESSAGES = {
   CHECKOUT_ASK_CASH_CHANGE: 'Precisa de troco?',
   CHECKOUT_ASK_CASH_CHANGE_AMOUNT:
     'Troco para quanto? Ex.: se a compra deu R$ 132,50 e você vai pagar com R$ 150,00, responda 150.',
+  /** Mesma pergunta com o total à vista, para o cliente não ter de rolar a conversa. `{total}` é o total a pagar. */
+  CHECKOUT_ASK_CASH_CHANGE_AMOUNT_WITH_TOTAL:
+    'Sua compra deu {total} (itens + entrega).\nTroco para quanto? Ex.: se você vai pagar com R$ 250,00, responda 250.',
   CHECKOUT_CASH_CHANGE_INVALID: 'Não entendi esse valor 🤔 Pode me mandar só o número? Ex.: 150.',
   /** `{total}` é o total a pagar — a mensagem some se o troco pedido não cobrir a compra. */
   CHECKOUT_CASH_CHANGE_TOO_LOW: 'Esse valor não cobre a compra de {total}. Troco para quanto?',
@@ -480,6 +512,8 @@ export const MESSAGES = {
   /** `{valor}` = itens + taxa (`amountDueInCents`) — o que será cobrado, nunca só o total dos itens. */
   CONFIRMING_SUMMARY_TOTAL_PREFIX: 'Total:',
   CONFIRMING_SUMMARY_DELIVERY_PREFIX: 'Entrega:',
+  /** Confere o ponto antes de confirmar: se o mapa cair no lugar errado, o botão de alterar ainda está ali. `{url}` é o link do mapa. */
+  CONFIRMING_SUMMARY_MAP_LINE: '📍 Confira no mapa: {url}',
   CONFIRMING_SUMMARY_PICKUP_LABEL: 'Retirada na loja',
   CONFIRMING_SUMMARY_PAYMENT_PREFIX: 'Pagamento:',
   CONFIRMING_SUMMARY_RECEIPT_PREFIX: 'Recibo:',
@@ -507,6 +541,11 @@ export const MENU_BUTTONS = [
   { id: MENU_BUTTON_ID.SEND_LIST, title: '📝 Enviar lista' },
   { id: MENU_BUTTON_ID.BROWSE, title: '🛒 Ver produtos' },
   { id: MENU_BUTTON_ID.REPEAT_ORDER, title: '🔁 Repetir pedido' },
+] as const
+
+export const CART_RESUME_BUTTONS = [
+  { id: CART_RESUME_BUTTON_ID.CONTINUE, title: '▶️ Continuar' },
+  { id: CART_RESUME_BUTTON_ID.START_OVER, title: '🆕 Começar do zero' },
 ] as const
 
 export const CART_REVIEW_BUTTONS = [
