@@ -28,6 +28,7 @@ export function registerOrderRoutes(params: RegisterOrderRoutesParams): void {
 
   // Antes de `/:id` não é estética: o roteador casa na ordem, e `stream-ticket` cairia como id de pedido.
   router.post('/v1/admin/orders/stream-ticket', orderStreamController.handleIssueTicket)
+  router.get('/v1/admin/orders/stream', orderStreamController.handleOrdersStream)
   router.get('/v1/admin/orders/:id/stream', orderStreamController.handleOrderStream)
 
   router.get('/v1/admin/orders', orderController.handleListAdmin)

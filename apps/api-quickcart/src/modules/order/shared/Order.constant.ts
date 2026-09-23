@@ -221,3 +221,12 @@ export const ORDER_CHANGED_EVENT = 'order.changed'
 export function orderChannel(orderId: string): string {
   return `${ORDER_CHANNEL_PREFIX}${orderId}`
 }
+
+/**
+ * Canal da LISTA: qualquer pedido que mude, e pedido novo que chegue.
+ *
+ * A lista mostra dezenas de pedidos ao mesmo tempo, então assinar um canal por pedido daria dezenas de
+ * conexões para uma tela só. Um canal com o id no payload resolve: quem escuta recarrega a página de
+ * lista que está vendo, sem saber nada sobre quais pedidos cabem no filtro dela.
+ */
+export const ORDERS_CHANNEL = 'orders'

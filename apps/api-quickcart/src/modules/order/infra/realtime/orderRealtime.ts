@@ -19,7 +19,7 @@ import type {
   NotifyOrderChangedParams,
   OrderRealtimeNotifierInterface,
 } from '@/modules/order/domain/OrderRealtimeNotifier.interface'
-import { ORDER_CHANGED_EVENT, orderChannel } from '@/modules/order/shared/Order.constant'
+import { ORDER_CHANGED_EVENT, ORDERS_CHANNEL, orderChannel } from '@/modules/order/shared/Order.constant'
 import { logger } from '@/shared/logger'
 
 const orderRealtimeLog = logger.child('OrderRealtime')
@@ -28,7 +28,13 @@ export function createOrderRealtimeNotifier(hub: SseHub): OrderRealtimeNotifierI
   return {
     notifyOrderChanged({ orderId, reason }: NotifyOrderChangedParams): void {
       try {
+        /*
+         * Dois canais, um evento: quem está no detalhe assina o do pedido, quem está na lista assina o
+         * global. Emitir só no do pedido deixaria a lista do balcão parada; só no global obrigaria a tela
+         * de detalhe a receber o movimento de todos os outros pedidos da loja para descartar quase tudo.
+         */
         hub.emit(orderChannel(orderId), ORDER_CHANGED_EVENT, { orderId, reason })
+        hub.emit(ORDERS_CHANNEL, ORDER_CHANGED_EVENT, { orderId, reason })
       } catch (error) {
         orderRealtimeLog.warn('order_changed_emit_failed', { orderId, reason, error: String(error) })
       }

@@ -24,11 +24,12 @@ export type OrderChangedEvent = {
   readonly reason: string
 }
 
-async function issueOrderTicket(orderId: string): Promise<string> {
-  const response = await fetch(
-    `${API_BASE_URL}${ADMIN_BASE_PATH}/orders/stream-ticket?order=${encodeURIComponent(orderId)}`,
-    { method: 'POST', headers: { Authorization: `Bearer ${getAccessToken() ?? ''}` } },
-  )
+async function issueOrderTicket(orderId?: string): Promise<string> {
+  const scope = orderId ? `?order=${encodeURIComponent(orderId)}` : ''
+  const response = await fetch(`${API_BASE_URL}${ADMIN_BASE_PATH}/orders/stream-ticket${scope}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${getAccessToken() ?? ''}` },
+  })
 
   if (!response.ok) throw new Error(`Não foi possível abrir o stream do pedido (${response.status}).`)
 
@@ -44,6 +45,23 @@ export function connectOrderStream(params: {
     issueTicket: () => issueOrderTicket(params.orderId),
     streamUrl: (ticket) =>
       `${API_BASE_URL}${ADMIN_BASE_PATH}/orders/${encodeURIComponent(params.orderId)}/stream?ticket=${ticket}`,
+    ...(params.onConnectionChange ? { onConnectionChange: params.onConnectionChange } : {}),
+  })
+}
+
+/**
+ * Stream da LISTA: qualquer pedido que mude, e pedido novo que entre.
+ *
+ * Uma conexão só para a tela inteira. Assinar o canal de cada pedido visível daria trinta conexões numa
+ * página de trinta linhas, e nenhuma delas saberia avisar sobre o pedido que ainda não está na lista —
+ * que é justamente o que quem olha o balcão está esperando.
+ */
+export function connectOrdersStream(params: {
+  readonly onConnectionChange?: (isConnected: boolean) => void
+}): TicketedEventSource {
+  return createDeferredEventSource({
+    issueTicket: () => issueOrderTicket(),
+    streamUrl: (ticket) => `${API_BASE_URL}${ADMIN_BASE_PATH}/orders/stream?ticket=${ticket}`,
     ...(params.onConnectionChange ? { onConnectionChange: params.onConnectionChange } : {}),
   })
 }

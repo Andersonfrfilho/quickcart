@@ -592,6 +592,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
   const checkoutHandler = new CheckoutHandler({
     conversationSessionRepository,
     whatsAppSender,
+    orderRealtimeNotifier: dependencies.orderRealtimeNotifier,
     cartRepository,
     productRepository,
     customerRepository,

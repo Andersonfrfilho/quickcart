@@ -51,6 +51,7 @@ function buildDependencies() {
   const stateUpdates: { currentState: string; context: Record<string, unknown> }[] = []
 
   const dependencies = {
+    orderRealtimeNotifier: { notifyOrderChanged: () => undefined },
     conversationSessionRepository: {
       async updateStateByPhone(params: { currentState: string; context: Record<string, unknown> }) {
         stateUpdates.push({ currentState: params.currentState, context: params.context })

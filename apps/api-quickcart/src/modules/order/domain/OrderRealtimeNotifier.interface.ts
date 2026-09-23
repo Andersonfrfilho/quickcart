@@ -15,6 +15,8 @@
  */
 
 export const ORDER_CHANGE_REASON = {
+  /** Pedido novo. Só interessa à lista — não existe tela de detalhe aberta num pedido que acabou de nascer. */
+  CREATED: 'created',
   STATUS: 'status',
   ITEM_PICKED: 'item_picked',
   ITEM_UNAVAILABLE: 'item_unavailable',

@@ -21,6 +21,10 @@ import type { ConversationSession } from '@/modules/webhook/domain/Conversation.
 import type { CartRepositoryInterface } from '@/modules/cart/domain/CartRepository.interface'
 import type { ProductRepositoryInterface } from '@/modules/catalog/domain/ProductRepository.interface'
 import type { OrderRecord } from '@/modules/order/domain/OrderRepository.interface'
+import {
+  ORDER_CHANGE_REASON,
+  type OrderRealtimeNotifierInterface,
+} from '@/modules/order/domain/OrderRealtimeNotifier.interface'
 import type { CreateOrderFromCartUseCase } from '@/modules/order/application/use-cases/CreateOrderFromCart.use-case'
 import type { ResolveOrderDeliveryEstimateUseCase } from '@/modules/order/application/use-cases/ResolveOrderDeliveryEstimate.use-case'
 import type { ConversationSessionRepositoryInterface } from '@/modules/webhook/domain/ConversationSessionRepository.interface'
@@ -117,6 +121,8 @@ export type CheckoutHandlerDependencies = {
   readonly productRepository: ProductRepositoryInterface
   readonly customerRepository: CustomerRepositoryInterface
   readonly createOrderFromCartUseCase: CreateOrderFromCartUseCase
+  /** Pedido que nasce no WhatsApp também é pedido novo na lista do balcão. */
+  readonly orderRealtimeNotifier: OrderRealtimeNotifierInterface
   readonly resolveOrderDeliveryEstimateUseCase: ResolveOrderDeliveryEstimateUseCase
   readonly addressLookupProvider: AddressLookupProviderInterface
   readonly storePreparationMinutes: number
@@ -1281,6 +1287,11 @@ export class CheckoutHandler implements ConversationHandlerInterface {
         quotedDeliveryTierMaxKm: checkoutContext.checkoutDeliveryTierMaxKm ?? null,
         quotedDeliveryTierFeeInCents: checkoutContext.checkoutDeliveryTierFeeInCents ?? null,
         quotedDeliveryLocationSource: checkoutContext.checkoutDeliveryLocationSource ?? null,
+      })
+
+      this.dependencies.orderRealtimeNotifier.notifyOrderChanged({
+        orderId: order.id,
+        reason: ORDER_CHANGE_REASON.CREATED,
       })
 
       await this.dependencies.conversationSessionRepository.updateStateByPhone({
