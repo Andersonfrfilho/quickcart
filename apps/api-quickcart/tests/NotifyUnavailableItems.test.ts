@@ -14,7 +14,10 @@
 
 import { describe, expect, it } from 'bun:test'
 import { AskUnavailableItemsUseCase } from '@/modules/order/application/use-cases/AskUnavailableItems.use-case'
-import { NotifyUnavailableItemsUseCase } from '@/modules/order/application/use-cases/NotifyUnavailableItems.use-case'
+import {
+  NOTIFY_UNAVAILABLE_OUTCOME,
+  NotifyUnavailableItemsUseCase,
+} from '@/modules/order/application/use-cases/NotifyUnavailableItems.use-case'
 import type { ProductRepositoryInterface } from '@/modules/catalog/domain/ProductRepository.interface'
 import type {
   OrderDetail,
@@ -183,6 +186,37 @@ describe('NotifyUnavailableItemsUseCase', () => {
     expect(result.notifiedCount).toBe(0)
     expect(calls.asked).toHaveLength(0)
     expect(calls.notified).toHaveLength(0)
+  })
+
+  it('com pergunta em aberto: a segunda falta entra na fila em vez de virar segunda pergunta', async () => {
+    const { useCase, calls } = buildUseCase({
+      items: [buildItem(), buildItem({ id: 'item-2', productName: 'Feijão', unavailableAt: new Date() })],
+      status: ORDER_STATUS.AWAITING_CUSTOMER_DECISION,
+    })
+
+    const result = await useCase.execute({ orderId: ORDER_ID, requiresCustomerApproval: true })
+
+    expect(result.outcome).toBe(NOTIFY_UNAVAILABLE_OUTCOME.QUEUED)
+    expect(result.notifiedCount).toBe(0)
+    // O ponto: duas perguntas em aberto viram uma resposta, e os botões do pedido inteiro não dizem qual.
+    expect(calls.asked).toHaveLength(0)
+    // Sem carimbo, a falta continua pendente — é assim que ela sai quando a resposta da primeira chegar.
+    expect(calls.decisionStarted).toEqual([])
+    expect(calls.reminded).toEqual([])
+  })
+
+  it('com pergunta em aberto: informar e seguir continua liberado, porque recado não compete com pergunta', async () => {
+    const { useCase, calls } = buildUseCase({
+      items: [buildItem(), buildItem({ id: 'item-2', productName: 'Feijão', unavailableAt: new Date() })],
+      status: ORDER_STATUS.AWAITING_CUSTOMER_DECISION,
+    })
+
+    const result = await useCase.execute({ orderId: ORDER_ID, requiresCustomerApproval: false })
+
+    expect(result.outcome).toBe(NOTIFY_UNAVAILABLE_OUTCOME.INFORMED)
+    expect(calls.notified).toHaveLength(1)
+    expect(calls.notified[0]?.body).toContain('Feijão')
+    expect(calls.asked).toHaveLength(0)
   })
 
   it('não agenda cobrança quando o pedido saiu do estado esperado entre a leitura e a escrita', async () => {

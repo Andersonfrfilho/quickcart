@@ -35,6 +35,18 @@ dois dá para responder sem produção.
 1. **Pergunta por item, uma de cada vez, com teto.** Até 3 faltas, uma pergunta por item, na
    ordem da lista, a seguinte só depois da resposta anterior. Acima disso, cai na pergunta única
    de hoje, sem substituto.
+
+   *Revisado em 23/09/2026*: "uma de cada vez" valia para as faltas de um mesmo recado, mas não para
+   a loja. `AWAITING_CUSTOMER_DECISION` estava entre os estados de onde se podia entrar no desvio, e
+   com ele um segundo clique em "Avisar e aguardar aprovação" mandava uma segunda pergunta com a
+   primeira ainda sem resposta. Na oferta de troca o id ainda diria de qual item se trata; na
+   pergunta do pedido inteiro ele carrega só o `orderId`, e aí as duas respostas são a mesma string.
+   O estado saiu da lista: com pergunta em aberto, a falta nova fica sem carimbo e vira a próxima
+   pergunta quando a resposta chegar — que é o mesmo caminho da falta seguinte de um recado só.
+   `NotifyUnavailableItems` devolve `outcome: 'queued'`, e a tela troca o botão pela frase.
+
+   Informar e seguir (sem aprovação) continua liberado no desvio: é recado sem botão, não há resposta
+   que possa se confundir com outra, e é a saída de quem precisa avisar antes de a resposta chegar.
 2. **Só pergunta com candidato aprovado.** Sem candidato, o item vai direto para a pergunta atual.
 3. **O candidato sai de `searchByTerm`, restringido**: mesma `category_id`, `id` diferente do que
    faltou, **mesmo `unit` e mesmo `unit_size`**, até `MAX_SUBSTITUTE_CANDIDATES` (4), por score.

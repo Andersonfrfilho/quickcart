@@ -42,15 +42,32 @@ const useCaseLog = logger.child('NotifyUnavailableItems')
 /**
  * De onde se pode entrar no desvio: a falta só aparece com alguém de fato mexendo na sacola.
  *
- * O próprio desvio está na lista porque a segunda falta acontece — quem já perguntou uma vez encontra outro
- * item vazio na prateleira e avisa de novo. Sem ele, a pergunta sairia e o relógio da cobrança continuaria
- * marcando a partir da primeira, que é uma pergunta que o cliente nem viu por último.
+ * `AWAITING_CUSTOMER_DECISION` esteve nesta lista e saiu. Estava aqui pela segunda falta — quem já perguntou
+ * uma vez encontra outro item vazio na prateleira —, mas o efeito era duas perguntas em aberto no mesmo
+ * número. Nos botões do pedido inteiro o id carrega só o `orderId` (`buildOrderDecisionButtons`): com duas
+ * dessas em aberto, "✅ Seguir assim" responde as duas e ninguém sabe qual o cliente leu.
+ *
+ * A segunda falta continua atendida, e por um caminho que já existia: ela fica em fila pelo carimbo
+ * `unavailable_notified_at` e sai sozinha quando a resposta da primeira chegar, porque a resposta reentra
+ * em `AskUnavailableItems` (ADR 0003). A cobrança da primeira segue armada e cobre a espera inteira — é
+ * uma só por desvio, e `RemindCustomerDecision` reenvia a pergunta com TODAS as faltas do pedido.
  */
-const ASKABLE_FROM_STATUSES = [
-  ORDER_STATUS.PREPARING,
-  ORDER_STATUS.SEPARATED,
-  ORDER_STATUS.AWAITING_CUSTOMER_DECISION,
-] as const
+const ASKABLE_FROM_STATUSES = [ORDER_STATUS.PREPARING, ORDER_STATUS.SEPARATED] as const
+
+/** O que este use case fez, para a tela não ter que adivinhar pelo `notifiedCount`. */
+export const NOTIFY_UNAVAILABLE_OUTCOME = {
+  /** A pergunta saiu e o pedido entrou no desvio. */
+  ASKED: 'asked',
+  /** O recado saiu sem botão e a separação seguiu. */
+  INFORMED: 'informed',
+  /** Já havia pergunta sem resposta: a falta entra na fila e sai quando o cliente responder. */
+  QUEUED: 'queued',
+  /** Nada de novo a avisar. */
+  NOTHING: 'nothing',
+} as const
+
+export type NotifyUnavailableOutcome =
+  (typeof NOTIFY_UNAVAILABLE_OUTCOME)[keyof typeof NOTIFY_UNAVAILABLE_OUTCOME]
 
 type NotifyUnavailableItemsDependencies = {
   readonly orderRepository: OrderRepositoryInterface
@@ -81,8 +98,9 @@ type NotifyUnavailableItemsDependencies = {
 
 export type NotifyUnavailableItemsResult = {
   readonly detail: OrderDetail
-  /** Quantos itens entraram no recado. Zero significa que não havia nada novo a avisar. */
+  /** Quantos itens entraram no recado. Zero significa que nada saiu — veja `outcome` para saber por quê. */
   readonly notifiedCount: number
+  readonly outcome: NotifyUnavailableOutcome
 }
 
 export class NotifyUnavailableItemsUseCase {
@@ -105,7 +123,22 @@ export class NotifyUnavailableItemsUseCase {
     const pending = detail.items.filter(
       (item) => item.unavailableAt !== null && item.unavailableNotifiedAt === null,
     )
-    if (pending.length === 0) return { detail, notifiedCount: 0 }
+    if (pending.length === 0) return { detail, notifiedCount: 0, outcome: NOTIFY_UNAVAILABLE_OUTCOME.NOTHING }
+
+    /**
+     * Uma pergunta em aberto por vez, e esta é a trava — não a tela.
+     *
+     * A tela esconde o botão enquanto o cliente deve resposta, mas quem chega pela rota direto não vê tela
+     * nenhuma, e a regra vale igual. A falta recém-marcada não se perde: fica sem carimbo, que é o mesmo
+     * lugar de onde a próxima pergunta sempre saiu.
+     *
+     * Só o caminho da pergunta. Informar e seguir continua liberado: é recado sem botão, não compete com
+     * pergunta nenhuma, e é a saída de quem precisa avisar de uma segunda falta antes da resposta chegar.
+     */
+    if (params.requiresCustomerApproval && detail.order.status === ORDER_STATUS.AWAITING_CUSTOMER_DECISION) {
+      useCaseLog.info('unavailable_notice_queued', { orderId: params.orderId, pendingCount: pending.length })
+      return { detail, notifiedCount: 0, outcome: NOTIFY_UNAVAILABLE_OUTCOME.QUEUED }
+    }
 
     if (!params.requiresCustomerApproval && !hasAnythingLeftToDeliver(detail)) {
       throw new OrderCustomerApprovalRequiredError(params.orderId)
@@ -145,7 +178,11 @@ export class NotifyUnavailableItemsUseCase {
      */
     if (!params.requiresCustomerApproval) {
       const informed = await this.dependencies.orderRepository.findDetailById(params.orderId)
-      return { detail: informed ?? detail, notifiedCount: pending.length }
+      return {
+        detail: informed ?? detail,
+        notifiedCount: pending.length,
+        outcome: NOTIFY_UNAVAILABLE_OUTCOME.INFORMED,
+      }
     }
 
     /**
@@ -167,6 +204,6 @@ export class NotifyUnavailableItemsUseCase {
     }
 
     const updated = await this.dependencies.orderRepository.findDetailById(params.orderId)
-    return { detail: updated ?? detail, notifiedCount: pending.length }
+    return { detail: updated ?? detail, notifiedCount: pending.length, outcome: NOTIFY_UNAVAILABLE_OUTCOME.ASKED }
   }
 }
