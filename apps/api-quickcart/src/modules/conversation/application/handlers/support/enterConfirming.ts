@@ -21,6 +21,7 @@ import {
   RECEIPT_PREFERENCE_BUTTONS,
 } from '@/modules/conversation/shared/Messages.constant'
 import { formatAddressLine } from '@/modules/shared/address/formatAddressLine'
+import { buildAddressMapUrl } from '@/modules/shared/address/buildAddressMapUrl'
 import { formatDistanceKm } from '@/shared/formatDistanceKm'
 import { DELIVERY_LOCATION_SOURCE } from '@/modules/order/shared/DeliveryFeeQuote.constant'
 import { CHANNEL } from '@/modules/shared/shared.constant'
@@ -116,6 +117,9 @@ async function buildConfirmingSummary(params: BuildConfirmingSummaryParams): Pro
   const deliveryLine = isPickup
     ? `${MESSAGES.CONFIRMING_SUMMARY_DELIVERY_PREFIX} ${MESSAGES.CONFIRMING_SUMMARY_PICKUP_LABEL}`
     : `${MESSAGES.CONFIRMING_SUMMARY_DELIVERY_PREFIX} ${formattedAddress ?? ''}`.trim()
+  // Retirada não tem ponto para conferir: quem vai à loja já sabe onde ela fica.
+  const mapUrl = isPickup ? undefined : buildAddressMapUrl(checkoutContext.checkoutAddress)
+  const mapLine = mapUrl ? MESSAGES.CONFIRMING_SUMMARY_MAP_LINE.replace('{url}', mapUrl) : undefined
   const cashChangeForInCents = checkoutContext.checkoutCashChangeForInCents
   const paymentLine =
     `${MESSAGES.CONFIRMING_SUMMARY_PAYMENT_PREFIX} ` +
@@ -140,6 +144,7 @@ async function buildConfirmingSummary(params: BuildConfirmingSummaryParams): Pro
         ]),
     `${MESSAGES.CONFIRMING_SUMMARY_TOTAL_PREFIX} ${formatPriceInCents(amountDue)}`,
     deliveryLine,
+    mapLine,
     paymentLine,
     receiptLine,
     '',
