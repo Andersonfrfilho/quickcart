@@ -64,7 +64,7 @@ export function createDeferredEventSource(params: CreateDeferredEventSourceParam
     .catch(() => {
       // Sem ticket não há stream. Silenciar é deliberado: a tela continua correta pelo refetch, e
       // derrubá-la por falha de realtime seria pior que ficar sem tempo real.
-      params.onConnectionChange?.(false)
+      if (!closed) params.onConnectionChange?.(false)
     })
 
   return {
@@ -85,11 +85,18 @@ export function createDeferredEventSource(params: CreateDeferredEventSourceParam
       if (index >= 0) pending.splice(index, 1)
     },
 
+    /*
+     * Fechar NÃO avisa desconectado.
+     *
+     * Em StrictMode o efeito monta duas vezes: o primeiro source é fechado depois de o segundo já ter
+     * aberto, e o `false` do fechamento chegava por último — a tela ficava com um stream vivo e o
+     * estado dizendo que não havia nenhum, religando o polling de segurança sem necessidade. Quem
+     * fecha está desmontando; não há mais ninguém para informar.
+     */
     close() {
       closed = true
       connected?.close()
       pending.length = 0
-      params.onConnectionChange?.(false)
     },
   }
 }
