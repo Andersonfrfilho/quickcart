@@ -31,6 +31,8 @@ import { UpdateProductUseCase } from '@/modules/catalog/application/use-cases/Up
 import { CategoryController } from '@/modules/catalog/infra/http/Category.controller'
 import { ProductController } from '@/modules/catalog/infra/http/Product.controller'
 import { RedisProvider } from '@/infra/redis/RedisProvider'
+import { BrasilApiGeocodingProvider } from '@/infra/brasilapi/BrasilApiGeocodingProvider'
+import { ChainedGeocodingProvider } from '@/infra/geocoding/ChainedGeocodingProvider'
 import { NominatimGeocodingProvider } from '@/infra/nominatim/NominatimGeocodingProvider'
 import type { AddressLookupProviderInterface } from '@/modules/shared/address/AddressLookupProvider.interface'
 import { ViaCepAddressLookupProvider } from '@/infra/viacep/ViaCepAddressLookupProvider'
@@ -247,12 +249,14 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     productRepository: dependencies.productRepository,
   })
   /*
-   * Coordenada por CEP, cacheada em Postgres. Uma instância só do provider por processo, porque é ela
-   * que guarda o instante da última chamada para respeitar o 1 req/s do Nominatim.
+   * Coordenada por CEP, cacheada em Postgres. BrasilAPI primeiro — cobre CEP que o Nominatim não
+   * indexa (ex: Franca-SP) — e o Nominatim como fallback para quando ele chega a rua/bairro.
+   * Uma instância só do NominatimGeocodingProvider por processo, porque é ela que guarda o
+   * instante da última chamada para respeitar o 1 req/s do Nominatim.
    */
   const resolveCepCoordinateUseCase = new ResolveCepCoordinateUseCase({
     geocodedAddressRepository: new DrizzleGeocodedAddressRepository(),
-    geocodingProvider: new NominatimGeocodingProvider(),
+    geocodingProvider: new ChainedGeocodingProvider([new BrasilApiGeocodingProvider(), new NominatimGeocodingProvider()]),
     geocodeFailureRepository: new DrizzleGeocodeFailureRepository(),
     storeCep: environment.STORE_CEP,
   })
