@@ -481,9 +481,16 @@ export class DrizzleOrderRepository implements OrderRepositoryInterface {
         .update(orderItems)
         .set({
           unavailableAt: params.unavailable ? new Date() : null,
-          // Desmarcar limpa o aviso junto: item que voltou a existir não tem falta a ter sido avisada, e
-          // manter o registro faria a tela dizer "cliente avisado" sobre algo que não aconteceu mais.
-          ...(params.unavailable ? {} : { unavailableNotifiedAt: null }),
+          /*
+           * Marcar falta LIMPA a separação do item: em falta e separado se excluem.
+           *
+           * Um item pego às 14h e descoberto em falta às 14h05 ficava com as duas marcas, e o progresso
+           * passava do total — "5/4 separados · 125%", porque o numerador conta todos os itens marcados e
+           * o denominador só os que existem. A regra vivia no frontend, que disparava um segundo pedido
+           * para limpar; um pedido que pode falhar, e que não acontece quando a falta vem de outro
+           * caminho. O estado é do pedido, então a garantia é da transação que o grava.
+           */
+          ...(params.unavailable ? { pickedAt: null } : { unavailableNotifiedAt: null }),
           updatedAt: new Date(),
         })
         .where(and(eq(orderItems.id, params.itemId), eq(orderItems.orderId, params.orderId)))

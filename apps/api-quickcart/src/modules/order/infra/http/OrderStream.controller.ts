@@ -19,7 +19,7 @@ import { issueSseTicket, redeemSseTicket, type SseHub, type TicketStoreInterface
 import type { RouteHandler } from '@/infra/http/router'
 import { requireSession } from '@/infra/http/middlewares/requireSession'
 import { ORDER_READERS } from '@/modules/user/shared/User.constant'
-import { orderChannel } from '@/modules/order/shared/Order.constant'
+import { ORDERS_CHANNEL, orderChannel } from '@/modules/order/shared/Order.constant'
 import { UnauthorizedError } from '@/shared/errors/AppError.error'
 import { UNAUTHORIZED } from '@/shared/errors/codes'
 import { environment } from '@/infra/config/environment'
@@ -45,18 +45,34 @@ export class OrderStreamController {
   handleIssueTicket: RouteHandler = async (request, response) => {
     await requireSession({ request, roles: ORDER_READERS })
 
+    /*
+     * Sem `order` na query, o ticket é o da lista. Um ticket só serve a um canal: quem pediu para a lista
+     * não abre o stream de um pedido, e vice-versa — é o mesmo escopo gravado que o resgate confere.
+     */
     const orderId = request.query.get('order')
-    if (!orderId) throw new UnauthorizedError('Pedido não informado', UNAUTHORIZED)
+    const channel = orderId ? orderChannel(orderId) : ORDERS_CHANNEL
 
-    const ticket = await issueSseTicket(this.dependencies.ticketStore, COMPANY_ID, orderChannel(orderId))
+    const ticket = await issueSseTicket(this.dependencies.ticketStore, COMPANY_ID, channel)
     response.json(201, { data: { ticket } })
+  }
+
+  /** Stream da lista: tudo que muda em qualquer pedido, mais os que acabam de entrar. */
+  handleOrdersStream: RouteHandler = async (request, response) => {
+    await this.openStream(request, response, ORDERS_CHANNEL)
   }
 
   handleOrderStream: RouteHandler = async (request, response) => {
     const orderId = request.params[0]
     if (!orderId) throw new UnauthorizedError('Pedido não informado', UNAUTHORIZED)
 
-    const channel = orderChannel(orderId)
+    await this.openStream(request, response, orderChannel(orderId))
+  }
+
+  private async openStream(
+    request: { readonly query: URLSearchParams },
+    response: { stream: (params: { contentType: string; onOpen: (writer: { write(chunk: string): void; close(): void }) => void; onClose: () => void }) => void },
+    channel: string,
+  ): Promise<void> {
     const ticket = request.query.get('ticket')
     const redeemed = ticket ? await redeemSseTicket(this.dependencies.ticketStore, ticket) : null
     if (!redeemed) throw new UnauthorizedError('Ticket de stream inválido ou já usado', UNAUTHORIZED)

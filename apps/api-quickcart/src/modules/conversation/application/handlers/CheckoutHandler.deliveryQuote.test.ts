@@ -97,6 +97,7 @@ function buildHarness(quoteResult: QuoteDeliveryFeeResult = QUOTED) {
   const createOrderCalls: Record<string, unknown>[] = []
 
   const dependencies = {
+    orderRealtimeNotifier: { notifyOrderChanged: () => undefined },
     conversationSessionRepository: {
       async updateStateByPhone(params: StateUpdate) {
         stateUpdates.push({ currentState: params.currentState, context: params.context })

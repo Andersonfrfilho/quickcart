@@ -13,6 +13,7 @@
  */
 
 import { describe, expect, it } from 'bun:test'
+import { ORDER_CHANGE_REASON } from '@/modules/order/domain/OrderRealtimeNotifier.interface'
 
 import type { ConversationSession } from '@/modules/webhook/domain/Conversation.types'
 import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInCents'
@@ -43,8 +44,14 @@ function buildDependencies() {
   const texts: string[] = []
   const stateUpdates: { currentState: string; context: Record<string, unknown> }[] = []
   const createOrderCalls: Record<string, unknown>[] = []
+  const realtimeNotifications: { orderId: string; reason: string }[] = []
 
   const dependencies = {
+    orderRealtimeNotifier: {
+      notifyOrderChanged: (params: { orderId: string; reason: string }) => {
+        realtimeNotifications.push(params)
+      },
+    },
     conversationSessionRepository: {
       async updateStateByPhone(params: { currentState: string; context: Record<string, unknown> }) {
         stateUpdates.push({ currentState: params.currentState, context: params.context })
@@ -90,7 +97,7 @@ function buildDependencies() {
     },
   } as unknown as CheckoutHandlerDependencies
 
-  return { dependencies, texts, stateUpdates, createOrderCalls, getQuoteCalls: () => quoteCalls }
+  return { dependencies, texts, stateUpdates, createOrderCalls, realtimeNotifications, getQuoteCalls: () => quoteCalls }
 }
 
 function pressButton(buttonId: string) {
@@ -128,7 +135,7 @@ describe('CheckoutHandler — taxa de entrega cotada no contexto', () => {
   })
 
   it('confirmar passa a cotação do contexto ao pedido, sem recotar, e mostra itens + taxa como total', async () => {
-    const { dependencies, texts, createOrderCalls, getQuoteCalls } = buildDependencies()
+    const { dependencies, texts, createOrderCalls, getQuoteCalls, realtimeNotifications } = buildDependencies()
 
     await new CheckoutHandler(dependencies).handle({
       session: buildSession({
@@ -157,5 +164,13 @@ describe('CheckoutHandler — taxa de entrega cotada no contexto', () => {
     })
     expect(getQuoteCalls()).toBe(0)
     expect(texts[0]).toContain(MESSAGES.ORDER_CONFIRMED_TOTAL_LINE.replace('{total}', formatPriceInCents(14050)))
+
+    /*
+     * Pedido que nasce no WhatsApp avisa a lista do balcão.
+     *
+     * Sem este aviso, quem olha o painel só descobre a venda no próximo refetch — e o cliente já mandou
+     * a segunda mensagem perguntando se chegou.
+     */
+    expect(realtimeNotifications).toEqual([{ orderId: 'order-1', reason: ORDER_CHANGE_REASON.CREATED }])
   })
 })

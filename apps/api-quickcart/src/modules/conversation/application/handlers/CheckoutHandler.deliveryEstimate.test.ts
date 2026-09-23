@@ -62,6 +62,7 @@ function buildDependencies(params: {
   const texts: string[] = []
 
   const dependencies = {
+    orderRealtimeNotifier: { notifyOrderChanged: () => undefined },
     conversationSessionRepository: {
       async updateStateByPhone() {
         return undefined

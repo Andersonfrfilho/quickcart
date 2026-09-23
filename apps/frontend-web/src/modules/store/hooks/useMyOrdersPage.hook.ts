@@ -15,6 +15,7 @@ import React from 'react'
 import { useRouter } from '@/app/router'
 import { apiClient } from '@/shared/api/client'
 import type { ApiListResponse, Order } from '@/shared/api/api.types'
+import { resolveMyOrdersRefetchInterval } from '@/modules/store/shared/myOrdersRefetchPolicy'
 
 const SIGN_IN_PATH = '/entrar'
 const PER_PAGE = 20
@@ -35,6 +36,12 @@ export function useMyOrdersPage() {
     queryFn: () =>
       apiClient.get('/v1/store/orders', { params: { page, perPage: PER_PAGE } }) as Promise<ApiListResponse<Order>>,
     enabled: isAuthenticated,
+    /*
+     * Sem stream nesta tela (ver `myOrdersRefetchPolicy`): o cliente acompanha a entrega perguntando.
+     * O intervalo sai do estado dos pedidos da página, então histórico entregue não pergunta nada.
+     */
+    refetchInterval: (query) =>
+      resolveMyOrdersRefetchInterval({ statuses: query.state.data?.data.map((order) => order.status) }),
   })
 
   return {

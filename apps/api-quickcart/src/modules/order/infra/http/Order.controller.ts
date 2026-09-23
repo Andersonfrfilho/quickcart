@@ -132,6 +132,11 @@ export class OrderController {
       ...input,
       customer: { ...input.customer, phone: customer.phone },
     })
+    // Pedido novo tem de aparecer na lista do balcão sem F5 — é o caso em que esperar 20s é esperar demais.
+    this.dependencies.orderRealtimeNotifier.notifyOrderChanged({
+      orderId: result.order.id,
+      reason: ORDER_CHANGE_REASON.CREATED,
+    })
     response.json(201, { data: { ...withoutAddressCoordinates(result.order), items: result.items } })
   }
 
