@@ -133,6 +133,28 @@ export function OrderStatusSteps({
   // Marca de parado além da cor: quem não distingue matiz precisa ver que a esteira travou.
   const currentStepMarker = isAwaitingCustomer ? '⏸' : isDeliveryFailed ? '⚠' : '●'
 
+  /**
+   * O passo atual conta como percorrido só quando termina: em "Separando", a esteira andou dois degraus
+   * de cinco. Contar o degrau em curso como pronto mostraria o pedido adiante de onde ele está.
+   */
+  const completedSteps = currentIndex > 0 ? currentIndex : 0
+  const reachedSteps = currentIndex >= 0 ? currentIndex + 1 : 1
+  const progressPercent = Math.round((completedSteps / (steps.length - 1)) * 100)
+
+  const isMoving = !isAwaitingCustomer && !isDeliveryFailed && status !== ORDER_STATUS.COMPLETED
+  const progressStateClass = isAwaitingCustomer
+    ? 'order-macro-progress--stalled'
+    : isDeliveryFailed
+      ? 'order-macro-progress--failed'
+      : isMoving
+        ? 'order-macro-progress--active'
+        : ''
+  const progressPercentClass = isAwaitingCustomer
+    ? 'text-amber-700 dark:text-amber-300'
+    : isDeliveryFailed
+      ? 'text-red-700 dark:text-red-300'
+      : 'text-emerald-700 dark:text-emerald-400'
+
   return (
     <div className="space-y-2">
       {isAwaitingCustomer && (
@@ -154,12 +176,20 @@ export function OrderStatusSteps({
         esteira, e uma barra já iniciada num pedido que ninguém confirmou sugeriria trabalho feito.
       */}
       {withProgressBar && (
-        <progress
-          aria-hidden="true"
-          className="order-macro-progress"
-          value={currentIndex > 0 ? currentIndex : 0}
-          max={steps.length - 1}
-        />
+        <div className="space-y-1">
+          <div className="flex items-baseline justify-between text-xs">
+            <span className="font-medium text-muted-foreground">
+              Etapa {reachedSteps} de {steps.length}
+            </span>
+            <span className={`font-semibold tabular-nums ${progressPercentClass}`}>{progressPercent}%</span>
+          </div>
+          <progress
+            aria-hidden="true"
+            className={`order-macro-progress ${progressStateClass}`}
+            value={completedSteps}
+            max={steps.length - 1}
+          />
+        </div>
       )}
 
       <ol className="flex flex-wrap items-center gap-x-1 gap-y-2" aria-label="Progresso do pedido">

@@ -216,11 +216,59 @@
 
 .order-macro-progress::-webkit-progress-value {
   background-color: hsl(142 71% 45%);
-  transition: inline-size 200ms ease;
+  transition: inline-size 450ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .order-macro-progress::-moz-progress-bar {
   background-color: hsl(142 71% 45%);
+  transition: inline-size 450ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Brilho que atravessa a barra: diz que a esteira está andando agora, e não apenas onde ela parou. */
+.order-macro-progress--active::-webkit-progress-value {
+  background-image: linear-gradient(90deg, transparent 0%, hsl(0 0% 100% / 0.5) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: order-macro-progress-sheen 1.8s linear infinite;
+}
+
+.order-macro-progress--active::-moz-progress-bar {
+  background-image: linear-gradient(90deg, transparent 0%, hsl(0 0% 100% / 0.5) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: order-macro-progress-sheen 1.8s linear infinite;
+}
+
+/* Esteira parada por decisão pendente ou entrega falha: a cor troca e o brilho some — parado tem de parecer parado. */
+.order-macro-progress--stalled::-webkit-progress-value {
+  background-color: hsl(38 92% 50%);
+}
+
+.order-macro-progress--stalled::-moz-progress-bar {
+  background-color: hsl(38 92% 50%);
+}
+
+.order-macro-progress--failed::-webkit-progress-value {
+  background-color: hsl(0 72% 51%);
+}
+
+.order-macro-progress--failed::-moz-progress-bar {
+  background-color: hsl(0 72% 51%);
+}
+
+@keyframes order-macro-progress-sheen {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .order-macro-progress::-webkit-progress-value,
+  .order-macro-progress::-moz-progress-bar {
+    transition: none;
+    animation: none;
+  }
 }
 
 .picking-progress {
