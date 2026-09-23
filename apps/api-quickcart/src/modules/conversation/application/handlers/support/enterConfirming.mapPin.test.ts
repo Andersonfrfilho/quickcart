@@ -7,10 +7,11 @@
  *
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  *
- * O mapa no resumo só vai quando o próprio cliente mandou a localização.
+ * Qual pino o resumo manda, e com que rótulo.
  *
- * Coordenada de CEP é de rua, não de casa: um pino preciso ali PARECE endereço conferido, e conferir
- * é a única função desta tela. O teste do caso que NÃO manda vale tanto quanto o do que manda.
+ * Coordenada de CEP é de rua, não de casa: ela só pode virar pino dizendo isso no rótulo, porque um
+ * pino mudo ali PARECE endereço conferido — e conferir é a única função desta tela. O teste do caso
+ * que NÃO manda vale tanto quanto o do que manda.
  */
 
 import { describe, expect, it } from 'bun:test'
@@ -125,11 +126,50 @@ describe('enterConfirming — pino do mapa', () => {
     expect(harness.buttonMessages).toHaveLength(1)
   })
 
-  it('não manda o mapa quando o endereço veio de CEP — a coordenada é de rua, não da casa', async () => {
+  it('sem resolvedor de coordenada, endereço de CEP segue só com o link', async () => {
     const harness = buildHarness()
 
     await enterConfirming({
       dependencies: harness.dependencies,
+      customerPhone: PHONE,
+      customerId: CUSTOMER_ID,
+      checkoutContext: buildContext({ checkoutAddress: CEP_ADDRESS }),
+    })
+
+    expect(harness.locations).toEqual([])
+    expect(harness.buttonMessages).toHaveLength(1)
+  })
+
+  it('endereço de CEP vira pino aproximado, e o rótulo diz que é a rua', async () => {
+    const harness = buildHarness()
+    const dependencies = {
+      ...harness.dependencies,
+      resolveAddressCoordinates: async () => ({ latitude: -20.5386, longitude: -47.4008 }),
+    } as unknown as EnterConfirmingDependencies
+
+    await enterConfirming({
+      dependencies,
+      customerPhone: PHONE,
+      customerId: CUSTOMER_ID,
+      checkoutContext: buildContext({ checkoutAddress: CEP_ADDRESS }),
+    })
+
+    expect(harness.locations).toHaveLength(1)
+    expect(harness.locations[0]?.name).toBe(MESSAGES.CONFIRMING_SUMMARY_MAP_PIN_NAME_APPROXIMATE)
+  })
+
+  /** Geocodificador fora do ar não pode impedir o cliente de fechar a compra. */
+  it('resolvedor que falha não derruba a confirmação', async () => {
+    const harness = buildHarness()
+    const dependencies = {
+      ...harness.dependencies,
+      resolveAddressCoordinates: async () => {
+        throw new Error('nominatim fora do ar')
+      },
+    } as unknown as EnterConfirmingDependencies
+
+    await enterConfirming({
+      dependencies,
       customerPhone: PHONE,
       customerId: CUSTOMER_ID,
       checkoutContext: buildContext({ checkoutAddress: CEP_ADDRESS }),

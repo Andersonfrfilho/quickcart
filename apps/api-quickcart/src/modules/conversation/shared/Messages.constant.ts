@@ -418,6 +418,13 @@ export const MESSAGES = {
   CART_RESUME_STARTED_OVER: '🧹 Pronto, comecei uma compra nova: *{codigo}*. A lista anterior foi descartada.',
   /** Rótulo do pino no mapa. Curto porque o WhatsApp o mostra sob o quadradinho, junto do endereço. */
   CONFIRMING_SUMMARY_MAP_PIN_NAME: 'Entrega do seu pedido',
+  /**
+   * O mesmo pino para endereço que veio de CEP, dizendo no rótulo que é aproximado.
+   *
+   * A coordenada do CEP é da rua, não da casa: um pino mudo ali PARECE endereço conferido, e conferir
+   * é a função desta tela. O rótulo é o que separa "este é o seu ponto" de "esta é a sua rua".
+   */
+  CONFIRMING_SUMMARY_MAP_PIN_NAME_APPROXIMATE: 'Sua rua (ponto aproximado)',
   CHECKOUT_CHANGE_ASK: 'O que você quer mudar?',
   CHECKOUT_CHANGE_LIST_BUTTON: 'Escolher',
   CHECKOUT_CHANGE_SECTION_TITLE: 'Fechamento',

@@ -33,7 +33,7 @@ import type { WhatsAppSender } from '@/modules/webhook/infra/whatsapp/WhatsAppSe
 import type { ConversationHandlerContext, ConversationHandlerInterface } from '@/modules/conversation/application/handlers/ConversationHandler.interface'
 import type { ConversationContext } from '@/modules/conversation/shared/ConversationContext.types'
 import { sendCartSummary } from '@/modules/conversation/application/handlers/support/CartSummary'
-import { enterConfirming } from '@/modules/conversation/application/handlers/support/enterConfirming'
+import { enterConfirming, type EnterConfirmingDependencies } from '@/modules/conversation/application/handlers/support/enterConfirming'
 import { calculateCartTotalInCents } from '@/modules/conversation/application/handlers/support/cartTotal'
 import { resolveCheckoutDeliveryFeeInCents } from '@/modules/conversation/shared/resolveCheckoutDeliveryFeeInCents'
 import type {
@@ -128,6 +128,8 @@ export type CheckoutHandlerDependencies = {
   readonly storePreparationMinutes: number
   /** Chamada quando o endereço fica pronto (CEP, localização ou endereço lembrado); nunca no clique em "Entrega". */
   readonly quoteDeliveryFeeUseCase: Pick<QuoteDeliveryFeeUseCase, 'execute'>
+  /** Repassada ao resumo da confirmação, que a usa para o pino aproximado do endereço digitado. */
+  readonly resolveAddressCoordinates?: EnterConfirmingDependencies['resolveAddressCoordinates'] | undefined
 }
 
 
