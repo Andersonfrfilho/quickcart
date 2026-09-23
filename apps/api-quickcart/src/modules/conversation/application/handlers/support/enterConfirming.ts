@@ -62,6 +62,14 @@ export type EnterConfirmingDependencies = {
       address?: string | undefined
     }): Promise<unknown>
   }
+  /**
+   * A coordenada do endereço digitado, para o pino aproximado. Opcional pela mesma razão do
+   * `sendLocation`: ausente, a confirmação continua saindo com o link e sem mapa, que é o
+   * comportamento de antes.
+   */
+  readonly resolveAddressCoordinates?:
+    | ((address: unknown) => Promise<{ readonly latitude: number; readonly longitude: number } | undefined>)
+    | undefined
 }
 
 export type EnterConfirmingParams = {
@@ -166,6 +174,48 @@ async function buildConfirmingSummary(params: BuildConfirmingSummaryParams): Pro
     .join('\n')
 }
 
+type SendDeliveryMapPinParams = {
+  readonly dependencies: EnterConfirmingDependencies
+  readonly customerPhone: string
+  readonly locationAddress: unknown
+}
+
+/**
+ * Falha aqui não derruba a confirmação: o resumo já traz o link do mapa, e um geocodificador fora do
+ * ar não pode impedir o cliente de fechar a compra.
+ */
+async function sendDeliveryMapPin(params: SendDeliveryMapPinParams): Promise<void> {
+  const { dependencies, customerPhone, locationAddress } = params
+  const sendLocation = dependencies.whatsAppSender.sendLocation
+  if (!sendLocation) return
+
+  const pinAddress = formatAddressLine(locationAddress)
+
+  if (isWhatsAppLocationAddress(locationAddress)) {
+    await sendLocation({
+      to: customerPhone,
+      latitude: locationAddress.latitude,
+      longitude: locationAddress.longitude,
+      name: MESSAGES.CONFIRMING_SUMMARY_MAP_PIN_NAME,
+      ...(pinAddress ? { address: pinAddress } : {}),
+    })
+    return
+  }
+
+  if (!locationAddress || !dependencies.resolveAddressCoordinates) return
+
+  const coordinates = await dependencies.resolveAddressCoordinates(locationAddress).catch(() => undefined)
+  if (!coordinates) return
+
+  await sendLocation({
+    to: customerPhone,
+    latitude: coordinates.latitude,
+    longitude: coordinates.longitude,
+    name: MESSAGES.CONFIRMING_SUMMARY_MAP_PIN_NAME_APPROXIMATE,
+    ...(pinAddress ? { address: pinAddress } : {}),
+  })
+}
+
 export async function enterConfirming(params: EnterConfirmingParams): Promise<void> {
   const { dependencies, customerPhone, customerId, checkoutContext } = params
 
@@ -198,25 +248,16 @@ export async function enterConfirming(params: EnterConfirmingParams): Promise<vo
     context: checkoutContext,
   })
   /*
-   * O mapa antes do resumo, e só quando o próprio cliente mandou a localização.
+   * O mapa antes do resumo, porque o texto termina em "Posso confirmar?" — o mapa depois dele
+   * empurraria a pergunta para fora da tela.
    *
-   * Endereço vindo de CEP tem coordenada de rua, não de casa: um pino preciso ali PARECE endereço
-   * conferido, e conferir é justamente a função desta tela. Nesse caso fica só o link, que não promete
-   * uma precisão que não temos. Antes do resumo porque o texto termina em "Posso confirmar?" — o mapa
-   * depois dele empurraria a pergunta para fora da tela.
+   * Dois pinos diferentes, e a diferença está no rótulo. A localização que o próprio cliente mandou
+   * é o ponto exato. O endereço vindo de CEP tem coordenada de RUA, e o pino ali só pode existir
+   * dizendo isso: mudo, ele pareceria endereço conferido, e conferir é a função desta tela.
    */
   const isPickup = checkoutContext.checkoutDeliveryType === DELIVERY_TYPE.PICKUP
   const locationAddress = isPickup ? undefined : checkoutContext.checkoutAddress
-  if (isWhatsAppLocationAddress(locationAddress) && dependencies.whatsAppSender.sendLocation) {
-    const pinAddress = formatAddressLine(locationAddress)
-    await dependencies.whatsAppSender.sendLocation({
-      to: customerPhone,
-      latitude: locationAddress.latitude,
-      longitude: locationAddress.longitude,
-      name: MESSAGES.CONFIRMING_SUMMARY_MAP_PIN_NAME,
-      ...(pinAddress ? { address: pinAddress } : {}),
-    })
-  }
+  await sendDeliveryMapPin({ dependencies, customerPhone, locationAddress })
 
   await dependencies.whatsAppSender.sendInteractiveButtons(customerPhone, summaryText, CONFIRMING_BUTTONS)
 }
