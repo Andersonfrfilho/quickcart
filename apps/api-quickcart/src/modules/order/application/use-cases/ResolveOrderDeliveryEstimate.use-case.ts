@@ -18,6 +18,7 @@
 import { DELIVERY_TYPE } from '@/modules/order/shared/Order.constant'
 import { estimateDelivery, worstPrecision } from '@/modules/shared/address/deliveryEstimate'
 import type { ResolveCepCoordinateUseCase } from '@/modules/shared/address/ResolveCepCoordinate.use-case'
+import type { ResolveRoadRouteUseCase } from '@/modules/shared/address/ResolveRoadRoute.use-case'
 import type { DeliveryFeeTierRepositoryInterface } from '@/modules/order/domain/DeliveryFeeTierRepository.interface'
 import type { OrderRecord } from '@/modules/order/domain/OrderRepository.interface'
 
@@ -40,6 +41,8 @@ type ResolveOrderDeliveryEstimateDependencies = {
   readonly detourFactor: number
   readonly averageSpeedKmh: number
   readonly preparationMinutes: number
+  /** Ausente só em teste: sem ela, a estimativa volta a linha reta × fator e velocidade média. */
+  readonly resolveRoadRouteUseCase?: Pick<ResolveRoadRouteUseCase, 'execute'>
 }
 
 /** O CEP do endereço do pedido, se o endereço for estruturado. Texto legado não tem CEP confiável. */
@@ -70,6 +73,10 @@ export class ResolveOrderDeliveryEstimateUseCase {
 
     if (!storeCoordinate || !customerCoordinate) return undefined
 
+    const route = this.dependencies.resolveRoadRouteUseCase
+      ? await this.dependencies.resolveRoadRouteUseCase.execute({ from: storeCoordinate, to: customerCoordinate })
+      : undefined
+
     const estimate = estimateDelivery({
       storeCoordinate,
       customerCoordinate,
@@ -78,6 +85,14 @@ export class ResolveOrderDeliveryEstimateUseCase {
       detourFactor: this.dependencies.detourFactor,
       averageSpeedKmh: this.dependencies.averageSpeedKmh,
       preparationMinutes: this.dependencies.preparationMinutes,
+      ...(route
+        ? {
+            route: {
+              distanceKm: route.distanceKm,
+              ...(route.durationMinutes !== undefined ? { durationMinutes: route.durationMinutes } : {}),
+            },
+          }
+        : {}),
     })
 
     // Raio máximo é o fim da última faixa; lista vazia = raio zero (não entrega).

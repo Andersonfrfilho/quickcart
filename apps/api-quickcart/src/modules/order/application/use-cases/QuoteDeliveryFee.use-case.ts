@@ -32,6 +32,7 @@ import { calculateRoadDistanceKm } from '@/modules/shared/address/deliveryEstima
 import type { Coordinate } from '@/modules/shared/address/haversine'
 import { roundDistanceKm } from '@/shared/formatDistanceKm'
 import type { ResolveCepCoordinateUseCase } from '@/modules/shared/address/ResolveCepCoordinate.use-case'
+import type { ResolveRoadRouteUseCase } from '@/modules/shared/address/ResolveRoadRoute.use-case'
 
 /** Centroide do município (ou nada): a distância seria da cidade, não da casa — cobra a maior faixa (D3). */
 const APPROXIMATE_PRECISIONS: ReadonlySet<string> = new Set([GEOCODE_PRECISION.CITY, GEOCODE_PRECISION.NONE])
@@ -41,6 +42,8 @@ type QuoteDeliveryFeeDependencies = {
   readonly resolveCepCoordinateUseCase: Pick<ResolveCepCoordinateUseCase, 'execute'>
   readonly storeCep: string | undefined
   readonly detourFactor: number
+  /** Ausente só em teste: sem ela, a distância volta a ser linha reta × fator — o comportamento de sempre. */
+  readonly resolveRoadRouteUseCase?: Pick<ResolveRoadRouteUseCase, 'execute'>
 }
 
 type CustomerPoint = {
@@ -84,14 +87,20 @@ export class QuoteDeliveryFeeUseCase {
       }
     }
 
+    const route = this.dependencies.resolveRoadRouteUseCase
+      ? await this.dependencies.resolveRoadRouteUseCase.execute({
+          from: storeCoordinate,
+          to: customerPoint.coordinate,
+        })
+      : {
+          distanceKm: calculateRoadDistanceKm({
+            from: storeCoordinate,
+            to: customerPoint.coordinate,
+            detourFactor: this.dependencies.detourFactor,
+          }),
+        }
     // Arredonda UMA vez, antes da faixa: 3,04 km é "3 km" na mensagem, então tem de cair na faixa "até 3 km".
-    const distanceKm = roundDistanceKm(
-      calculateRoadDistanceKm({
-        from: storeCoordinate,
-        to: customerPoint.coordinate,
-        detourFactor: this.dependencies.detourFactor,
-      }),
-    )
+    const distanceKm = roundDistanceKm(route.distanceKm)
     return this.quoteByDistance({ tiers, largestTier, distanceKm, source: customerPoint.source })
   }
 
