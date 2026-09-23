@@ -15,6 +15,14 @@
 
 export const CONVERSATION_STATE = {
   GREETING: 'greeting',
+  /**
+   * A sessão expirou e o carrinho anterior ainda tem itens: o cliente decide continuar ou recomeçar.
+   *
+   * Existe porque o carrinho é por cliente, não por conversa: sem esta pergunta, a lista de ontem
+   * (ou a da conversa de teste) aparecia somada à de hoje no balcão, sem ninguém ter pedido isso.
+   * Continuar preserva o código da compra; começar do zero abandona aquele carrinho e abre outro.
+   */
+  AWAITING_CART_RESUME_DECISION: 'awaiting_cart_resume_decision',
   MAIN_MENU: 'main_menu',
   AWAITING_LIST: 'awaiting_list',
   BROWSING_CATEGORIES: 'browsing_categories',

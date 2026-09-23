@@ -13,6 +13,8 @@
 
 export type CartRecord = {
   readonly id: string
+  /** Código da compra (`LC-1042`), visível para o cliente e para o balcão antes de existir pedido. */
+  readonly shortCode: string
   readonly customerId: string
   readonly channel: string
   readonly status: string

@@ -183,6 +183,13 @@
       "when": 1790089631319,
       "tag": "0025_delivery_fee_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790089631320,
+      "tag": "0026_cart_short_code",
+      "breakpoints": true
     }
   ]
 }

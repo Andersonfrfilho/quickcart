@@ -96,6 +96,7 @@ import { ConversationCheckoutContextController } from '@/modules/conversation/in
 import { GetConversationCheckoutContextUseCase } from '@/modules/conversation/application/use-cases/GetConversationCheckoutContext.use-case'
 import { UnmatchedDemandController } from '@/modules/conversation/infra/http/UnmatchedDemand.controller'
 import { ProcessParsedListItems } from '@/modules/conversation/application/handlers/support/ProcessParsedListItems'
+import { CartResumeHandler } from '@/modules/conversation/application/handlers/CartResumeHandler'
 import { GreetingHandler } from '@/modules/conversation/application/handlers/GreetingHandler'
 import { MenuHandler } from '@/modules/conversation/application/handlers/MenuHandler'
 import { ListHandler } from '@/modules/conversation/application/handlers/ListHandler'
@@ -112,6 +113,7 @@ import { AddCartItemUseCase } from '@/modules/cart/application/use-cases/AddCart
 import { RemoveCartItemUseCase } from '@/modules/cart/application/use-cases/RemoveCartItem.use-case'
 import { UpdateCartItemQuantityUseCase } from '@/modules/cart/application/use-cases/UpdateCartItemQuantity.use-case'
 import { GetOpenCartUseCase } from '@/modules/cart/application/use-cases/GetOpenCart.use-case'
+import { StartNewCartUseCase } from '@/modules/cart/application/use-cases/StartNewCart.use-case'
 import type { OrderRepositoryInterface } from '@/modules/order/domain/OrderRepository.interface'
 import { DrizzleOrderRepository } from '@/modules/order/infra/database/DrizzleOrderRepository'
 import { CreateOrderFromCartUseCase } from '@/modules/order/application/use-cases/CreateOrderFromCart.use-case'
@@ -199,6 +201,7 @@ type CartModule = {
   readonly removeCartItemUseCase: RemoveCartItemUseCase
   readonly updateCartItemQuantityUseCase: UpdateCartItemQuantityUseCase
   readonly getOpenCartUseCase: GetOpenCartUseCase
+  readonly startNewCartUseCase: StartNewCartUseCase
 }
 
 function buildCartModule(dependencies: CartModuleDependencies): CartModule {
@@ -208,8 +211,16 @@ function buildCartModule(dependencies: CartModuleDependencies): CartModule {
   const removeCartItemUseCase = new RemoveCartItemUseCase({ cartRepository })
   const updateCartItemQuantityUseCase = new UpdateCartItemQuantityUseCase({ cartRepository })
   const getOpenCartUseCase = new GetOpenCartUseCase({ cartRepository })
+  const startNewCartUseCase = new StartNewCartUseCase({ cartRepository })
 
-  return { cartRepository, addCartItemUseCase, removeCartItemUseCase, updateCartItemQuantityUseCase, getOpenCartUseCase }
+  return {
+    cartRepository,
+    addCartItemUseCase,
+    removeCartItemUseCase,
+    updateCartItemQuantityUseCase,
+    getOpenCartUseCase,
+    startNewCartUseCase,
+  }
 }
 
 type OrderModuleDependencies = {
@@ -332,14 +343,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
 
   const askCustomerChoice: AskCustomerChoice = ({ whatsappNumber, body, listButtonText, sectionTitle, rows }) =>
     dependencies.whatsAppSender.sendInteractiveList(whatsappNumber, body, listButtonText, [
-      {
-        title: sectionTitle,
-        rows: rows.map((row) => ({
-          id: row.id,
-          title: row.title,
-          ...(row.description ? { description: row.description } : {}),
-        })),
-      },
+      { title: sectionTitle, rows: rows.map((row) => ({ id: row.id, title: row.title, ...(row.description ? { description: row.description } : {}) })) },
     ])
 
   const askUnavailableItemsUseCase = new AskUnavailableItemsUseCase({
@@ -473,6 +477,7 @@ type ConversationModuleDependencies = {
   readonly addCartItemUseCase: AddCartItemUseCase
   readonly removeCartItemUseCase: RemoveCartItemUseCase
   readonly updateCartItemQuantityUseCase: UpdateCartItemQuantityUseCase
+  readonly startNewCartUseCase: StartNewCartUseCase
   readonly createOrderFromCartUseCase: CreateOrderFromCartUseCase
   readonly resolveOrderDeliveryEstimateUseCase: ResolveOrderDeliveryEstimateUseCase
   readonly quoteDeliveryFeeUseCase: QuoteDeliveryFeeUseCase
@@ -499,6 +504,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     addCartItemUseCase,
     removeCartItemUseCase,
     updateCartItemQuantityUseCase,
+    startNewCartUseCase,
     createOrderFromCartUseCase,
     resolveOrderDeliveryEstimateUseCase,
     quoteDeliveryFeeUseCase,
@@ -528,7 +534,14 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     addCartItemUseCase,
   })
 
-  const greetingHandler = new GreetingHandler({ conversationSessionRepository, whatsAppSender })
+  const greetingHandler = new GreetingHandler({ conversationSessionRepository, whatsAppSender, cartRepository })
+  const cartResumeHandler = new CartResumeHandler({
+    conversationSessionRepository,
+    whatsAppSender,
+    cartRepository,
+    productRepository,
+    startNewCartUseCase,
+  })
   const menuHandler = new MenuHandler({
     conversationSessionRepository,
     whatsAppSender,
@@ -602,6 +615,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     globalHandler,
     handlers: {
       [CONVERSATION_STATE.GREETING]: greetingHandler,
+      [CONVERSATION_STATE.AWAITING_CART_RESUME_DECISION]: cartResumeHandler,
       [CONVERSATION_STATE.MAIN_MENU]: menuHandler,
       [CONVERSATION_STATE.AWAITING_LIST]: listHandler,
       [CONVERSATION_STATE.RESOLVING_ITEMS]: resolveHandler,
@@ -882,6 +896,7 @@ const conversationModule = buildConversationModule({
   addCartItemUseCase: cartModule.addCartItemUseCase,
   removeCartItemUseCase: cartModule.removeCartItemUseCase,
   updateCartItemQuantityUseCase: cartModule.updateCartItemQuantityUseCase,
+  startNewCartUseCase: cartModule.startNewCartUseCase,
   createOrderFromCartUseCase: orderModule.createOrderFromCartUseCase,
   resolveOrderDeliveryEstimateUseCase: orderModule.resolveOrderDeliveryEstimateUseCase,
   quoteDeliveryFeeUseCase: orderModule.quoteDeliveryFeeUseCase,

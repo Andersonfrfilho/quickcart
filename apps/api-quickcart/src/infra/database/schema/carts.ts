@@ -8,11 +8,24 @@
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  */
 
-import { pgTable, uuid, varchar, timestamp } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
+import { pgTable, pgSequence, uuid, varchar, timestamp } from 'drizzle-orm/pg-core'
 import { customers } from './customers'
+
+export const cartShortCodeSeq = pgSequence('cart_short_code_seq', { startWith: 1000, increment: 1 })
 
 export const carts = pgTable('carts', {
   id: uuid('id').primaryKey(),
+  /**
+   * O código da compra, do jeito que o cliente e o balcão falam dela antes de existir pedido.
+   *
+   * Continuar a lista mantém o código; começar do zero abre outro carrinho, com código novo — é essa
+   * troca que distingue duas compras do mesmo cliente no mesmo dia.
+   */
+  shortCode: varchar('short_code', { length: 12 })
+    .notNull()
+    .unique()
+    .default(sql`('LC-' || nextval('cart_short_code_seq')::text)`),
   customerId: uuid('customer_id')
     .notNull()
     .references(() => customers.id, { onDelete: 'restrict' }),

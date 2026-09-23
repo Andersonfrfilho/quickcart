@@ -40,7 +40,7 @@ function buildUseCase(scenario: Scenario): GetConversationCheckoutContextUseCase
     updatedAt: NOW,
   }
   const customer = { id: CUSTOMER_ID, phone: PHONE } as Customer
-  const cart: CartRecord = { id: CART_ID, customerId: CUSTOMER_ID, channel: 'whatsapp', status: 'open', createdAt: NOW, updatedAt: NOW }
+  const cart: CartRecord = { id: CART_ID, shortCode: 'LC-1000', customerId: CUSTOMER_ID, channel: 'whatsapp', status: 'open', createdAt: NOW, updatedAt: NOW }
   const cartItem = (productId: string, quantity: number): CartItemRecord => ({
     id: `item-${productId}`,
     cartId: CART_ID,

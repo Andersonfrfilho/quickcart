@@ -105,6 +105,7 @@ class FakeCartRepository implements CartRepositoryInterface {
 
   async create(params: CreateCartRecordParams): Promise<CartRecord> {
     const cart: CartRecord = {
+      shortCode: 'LC-1000',
       id: params.id,
       customerId: params.customerId,
       channel: params.channel,
