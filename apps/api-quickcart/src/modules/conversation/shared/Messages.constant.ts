@@ -416,6 +416,8 @@ export const MESSAGES = {
     '⏰ Faz um tempo que não conversamos.\n\nVocê tinha uma compra começada (*{codigo}*) com {itens}. Quer continuar de onde parou ou começar do zero?',
   CART_RESUME_CONTINUED: '👍 Beleza, continuando a compra *{codigo}*.',
   CART_RESUME_STARTED_OVER: '🧹 Pronto, comecei uma compra nova: *{codigo}*. A lista anterior foi descartada.',
+  /** Rótulo do pino no mapa. Curto porque o WhatsApp o mostra sob o quadradinho, junto do endereço. */
+  CONFIRMING_SUMMARY_MAP_PIN_NAME: 'Entrega do seu pedido',
   CHECKOUT_CHANGE_ASK: 'O que você quer mudar?',
   CHECKOUT_CHANGE_LIST_BUTTON: 'Escolher',
   CHECKOUT_CHANGE_SECTION_TITLE: 'Fechamento',

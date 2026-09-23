@@ -22,6 +22,7 @@ import {
 } from '@/modules/conversation/shared/Messages.constant'
 import { formatAddressLine } from '@/modules/shared/address/formatAddressLine'
 import { buildAddressMapUrl } from '@/modules/shared/address/buildAddressMapUrl'
+import { isWhatsAppLocationAddress } from '@/modules/shared/address/WhatsAppLocationAddress'
 import { formatDistanceKm } from '@/shared/formatDistanceKm'
 import { DELIVERY_LOCATION_SOURCE } from '@/modules/order/shared/DeliveryFeeQuote.constant'
 import { CHANNEL } from '@/modules/shared/shared.constant'
@@ -49,6 +50,17 @@ export type EnterConfirmingDependencies = {
   readonly whatsAppSender: {
     sendText(phone: string, text: string): Promise<unknown>
     sendInteractiveButtons(phone: string, bodyText: string, buttons: ReadonlyArray<InteractiveButtonOption>): Promise<unknown>
+    /**
+     * Opcional de propósito: quem monta um dublê de sender em teste não precisa aprender a mandar
+     * mapa para exercitar a confirmação, que é o assunto deste módulo.
+     */
+    sendLocation?(params: {
+      to: string
+      latitude: number
+      longitude: number
+      name?: string | undefined
+      address?: string | undefined
+    }): Promise<unknown>
   }
 }
 
@@ -185,5 +197,26 @@ export async function enterConfirming(params: EnterConfirmingParams): Promise<vo
     currentState: CONVERSATION_STATE.CONFIRMING,
     context: checkoutContext,
   })
+  /*
+   * O mapa antes do resumo, e só quando o próprio cliente mandou a localização.
+   *
+   * Endereço vindo de CEP tem coordenada de rua, não de casa: um pino preciso ali PARECE endereço
+   * conferido, e conferir é justamente a função desta tela. Nesse caso fica só o link, que não promete
+   * uma precisão que não temos. Antes do resumo porque o texto termina em "Posso confirmar?" — o mapa
+   * depois dele empurraria a pergunta para fora da tela.
+   */
+  const isPickup = checkoutContext.checkoutDeliveryType === DELIVERY_TYPE.PICKUP
+  const locationAddress = isPickup ? undefined : checkoutContext.checkoutAddress
+  if (isWhatsAppLocationAddress(locationAddress) && dependencies.whatsAppSender.sendLocation) {
+    const pinAddress = formatAddressLine(locationAddress)
+    await dependencies.whatsAppSender.sendLocation({
+      to: customerPhone,
+      latitude: locationAddress.latitude,
+      longitude: locationAddress.longitude,
+      name: MESSAGES.CONFIRMING_SUMMARY_MAP_PIN_NAME,
+      ...(pinAddress ? { address: pinAddress } : {}),
+    })
+  }
+
   await dependencies.whatsAppSender.sendInteractiveButtons(customerPhone, summaryText, CONFIRMING_BUTTONS)
 }
