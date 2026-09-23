@@ -43,6 +43,10 @@ import {
 } from '@/modules/conversation/shared/orderDecisionButton'
 import type { ResolveCustomerDecisionUseCase } from '@/modules/order/application/use-cases/ResolveCustomerDecision.use-case'
 import type { ResolveItemSubstitutionUseCase } from '@/modules/order/application/use-cases/ResolveItemSubstitution.use-case'
+import {
+  ORDER_CHANGE_REASON,
+  type OrderRealtimeNotifierInterface,
+} from '@/modules/order/domain/OrderRealtimeNotifier.interface'
 import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInCents'
 import { amountDueInCents } from '@/modules/order/shared/amountDue'
 import { CHANNEL } from '@/modules/shared/shared.constant'
@@ -79,6 +83,13 @@ export type GlobalHandlerDependencies = {
   readonly resolveCustomerDecisionUseCase: ResolveCustomerDecisionUseCase
   /** Quem aplica o toque nos botões da oferta de troca — trocar ou seguir sem aquele item (ADR 0003). */
   readonly resolveItemSubstitutionUseCase: ResolveItemSubstitutionUseCase
+  /**
+   * A resposta do cliente é a única mudança de pedido que não nasce de um toque na tela da loja.
+   *
+   * Sem este aviso, quem está com a sacola na mão continuaria vendo "acabou · cliente avisado" e o
+   * total antigo até trocar de aba — e fecharia a separação sem o substituto que o cliente escolheu.
+   */
+  readonly orderRealtimeNotifier: OrderRealtimeNotifierInterface
   /**
    * Quem monta carrinho a partir de texto. É o MESMO handler do estado `awaiting_list`.
    *
@@ -207,6 +218,13 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
       decision: params.decision,
     })
 
+    if (result.applied) {
+      this.dependencies.orderRealtimeNotifier.notifyOrderChanged({
+        orderId: params.orderId,
+        reason: ORDER_CHANGE_REASON.CUSTOMER_DECISION,
+      })
+    }
+
     if (!result.applied) {
       await this.dependencies.whatsAppSender.sendText(
         params.customerPhone,
@@ -270,6 +288,13 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
       orderItemId: params.orderItemId,
       ...(params.substituteProductId ? { substituteProductId: params.substituteProductId } : {}),
     })
+
+    if (result.applied) {
+      this.dependencies.orderRealtimeNotifier.notifyOrderChanged({
+        orderId: params.orderId,
+        reason: ORDER_CHANGE_REASON.CUSTOMER_DECISION,
+      })
+    }
 
     if (!result.applied) {
       await this.dependencies.whatsAppSender.sendText(

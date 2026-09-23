@@ -38,6 +38,10 @@ import type { CustomerRepositoryInterface } from '@/modules/webhook/domain/Custo
 import { requiresCardMachine } from '@/modules/order/shared/requiresCardMachine'
 import { amountDueInCents } from '@/modules/order/shared/amountDue'
 import { withoutAddressCoordinates } from '@/modules/order/shared/withoutAddressCoordinates'
+import {
+  ORDER_CHANGE_REASON,
+  type OrderRealtimeNotifierInterface,
+} from '@/modules/order/domain/OrderRealtimeNotifier.interface'
 
 type OrderControllerDependencies = {
   readonly createWebOrderUseCase: CreateWebOrderUseCase
@@ -50,6 +54,13 @@ type OrderControllerDependencies = {
   readonly notifyUnavailableItemsUseCase: NotifyUnavailableItemsUseCase
   /** Para amarrar o pedido a QUEM está logado, e não a quem o corpo disser que é. */
   readonly customerRepository: CustomerRepositoryInterface
+  /**
+   * Avisa as OUTRAS telas abertas no mesmo pedido.
+   *
+   * Quem fez o PATCH já recebeu o pedido novo na resposta; o tablet do balcão e o celular de quem
+   * separa é que ficariam com a tela de dois minutos atrás.
+   */
+  readonly orderRealtimeNotifier: OrderRealtimeNotifierInterface
 }
 
 /**
@@ -165,6 +176,10 @@ export class OrderController {
     const { unavailable } = validateBody(setOrderItemUnavailableBodySchema, request.body)
 
     const detail = await this.dependencies.setOrderItemUnavailableUseCase.execute({ orderId, itemId, unavailable })
+    this.dependencies.orderRealtimeNotifier.notifyOrderChanged({
+      orderId,
+      reason: ORDER_CHANGE_REASON.ITEM_UNAVAILABLE,
+    })
     response.json(200, { data: { ...withAllowedTransitions(detail.order), items: detail.items } })
   }
 
@@ -185,6 +200,10 @@ export class OrderController {
       ...(itemId ? { itemId } : {}),
       picked,
     })
+    this.dependencies.orderRealtimeNotifier.notifyOrderChanged({
+      orderId,
+      reason: ORDER_CHANGE_REASON.ITEM_PICKED,
+    })
     response.json(200, { data: { ...withAllowedTransitions(detail.order), items: detail.items } })
   }
 
@@ -195,6 +214,10 @@ export class OrderController {
     const result = await this.dependencies.notifyUnavailableItemsUseCase.execute({
       orderId,
       requiresCustomerApproval,
+    })
+    this.dependencies.orderRealtimeNotifier.notifyOrderChanged({
+      orderId,
+      reason: ORDER_CHANGE_REASON.UNAVAILABLE_NOTIFIED,
     })
 
     // `notifiedCount` no corpo para a tela dizer o que aconteceu: zero significa que não havia nada novo,
@@ -214,6 +237,7 @@ export class OrderController {
       status,
       deliveryFailureReason,
     })
+    this.dependencies.orderRealtimeNotifier.notifyOrderChanged({ orderId: id, reason: ORDER_CHANGE_REASON.STATUS })
     response.json(200, { data: withAllowedTransitions(result.order) })
   }
 }

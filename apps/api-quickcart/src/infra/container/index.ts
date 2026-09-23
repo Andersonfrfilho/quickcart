@@ -52,6 +52,7 @@ import { createQuickCartWhatsAppModule } from '@/modules/webhook/infra/whatsapp/
 import { createQuickCartNotificationModule } from '@/modules/notification/infra/notificationModule'
 import { createSdkOrderStatusNotifier } from '@/modules/notification/infra/SdkOrderStatusNotifier'
 import { buildOrderStatusTemplates } from '@/modules/notification/shared/orderStatusTemplates.constant'
+import type { OrderRealtimeNotifierInterface } from '@/modules/order/domain/OrderRealtimeNotifier.interface'
 import type { OrderStatusNotifier } from '@/modules/notification/domain/OrderStatusNotifier.interface'
 import type { NotificationModule } from '@adatechnology/notification-module'
 import { createWhatsAppDriverFromChannel } from '@adatechnology/notification-contracts'
@@ -65,6 +66,9 @@ import { createPreviewMediaController } from '@/modules/conversation/infra/http/
 import { createPreviewInboundController } from '@/modules/conversation/infra/http/PreviewInbound.controller'
 import { ConversationStreamController } from '@/modules/conversation/infra/http/ConversationStream.controller'
 import { conversationSseHub, conversationTicketStore } from '@/modules/conversation/infra/realtime/conversationRealtime'
+import { sseHub, sseTicketStore } from '@/infra/realtime/sseHub'
+import { createOrderRealtimeNotifier } from '@/modules/order/infra/realtime/orderRealtime'
+import { OrderStreamController } from '@/modules/order/infra/http/OrderStream.controller'
 import { FlowDriver } from '@/modules/conversation/application/FlowDriver'
 import { registerQuickCartFlowActions } from '@/modules/conversation/application/registerQuickCartFlowActions'
 import {
@@ -255,6 +259,8 @@ type OrderModule = {
   readonly resolveOrderDeliveryEstimateUseCase: ResolveOrderDeliveryEstimateUseCase
   readonly quoteDeliveryFeeUseCase: QuoteDeliveryFeeUseCase
   readonly deliveryFeeTiersController: DeliveryFeeTiersController
+  readonly orderStreamController: OrderStreamController
+  readonly orderRealtimeNotifier: OrderRealtimeNotifierInterface
 }
 
 function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
@@ -394,6 +400,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
   })
   const listOrdersUseCase = new ListOrdersUseCase({ orderRepository })
 
+  const orderRealtimeNotifier = createOrderRealtimeNotifier(sseHub)
   const orderController = new OrderController({
     createWebOrderUseCase,
     getOrderByShortCodeUseCase,
@@ -404,6 +411,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     setOrderItemPickedUseCase,
     notifyUnavailableItemsUseCase,
     customerRepository: dependencies.customerRepository,
+    orderRealtimeNotifier,
   })
 
   const replaceDeliveryFeeTiersUseCase = new ReplaceDeliveryFeeTiersUseCase({ deliveryFeeTierRepository })
@@ -427,6 +435,8 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     resolveOrderDeliveryEstimateUseCase,
     quoteDeliveryFeeUseCase,
     deliveryFeeTiersController,
+    orderStreamController: new OrderStreamController({ sseHub, ticketStore: sseTicketStore }),
+    orderRealtimeNotifier,
   }
 }
 
@@ -484,6 +494,7 @@ type ConversationModuleDependencies = {
   readonly repeatLastOrderUseCase: RepeatLastOrderUseCase
   readonly resolveCustomerDecisionUseCase: ResolveCustomerDecisionUseCase
   readonly resolveItemSubstitutionUseCase: ResolveItemSubstitutionUseCase
+  readonly orderRealtimeNotifier: OrderRealtimeNotifierInterface
   readonly orderRepository: OrderRepositoryInterface
 }
 
@@ -511,6 +522,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     repeatLastOrderUseCase,
     resolveCustomerDecisionUseCase,
     resolveItemSubstitutionUseCase,
+    orderRealtimeNotifier,
     orderRepository,
   } = dependencies
 
@@ -604,6 +616,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     repeatLastOrderUseCase,
     resolveCustomerDecisionUseCase,
     resolveItemSubstitutionUseCase,
+    orderRealtimeNotifier,
     // O mesmo handler do estado `awaiting_list`: lista ditada fora de hora precisa dar no mesmo lugar.
     listHandler,
   })
@@ -908,6 +921,7 @@ const conversationModule = buildConversationModule({
   repeatLastOrderUseCase: orderModule.repeatLastOrderUseCase,
   resolveCustomerDecisionUseCase: orderModule.resolveCustomerDecisionUseCase,
   resolveItemSubstitutionUseCase: orderModule.resolveItemSubstitutionUseCase,
+  orderRealtimeNotifier: orderModule.orderRealtimeNotifier,
   orderRepository: orderModule.orderRepository,
 })
 
@@ -995,6 +1009,7 @@ export const container = {
     repeatLastOrderUseCase: orderModule.repeatLastOrderUseCase,
     listOrdersUseCase: orderModule.listOrdersUseCase,
     orderController: orderModule.orderController,
+    orderStreamController: orderModule.orderStreamController,
     /** Único cálculo de taxa (spec §3.3) — a cotação pública do `StoreController` recota por aqui. */
     quoteDeliveryFeeUseCase: orderModule.quoteDeliveryFeeUseCase,
     deliveryFeeTiersController: orderModule.deliveryFeeTiersController,

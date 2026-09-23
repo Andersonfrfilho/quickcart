@@ -9,16 +9,30 @@ import { useSetOrderItemUnavailableMutation } from '@/modules/admin/shared/mutat
 import { useNotifyUnavailableItemsMutation } from '@/modules/admin/shared/mutations/useNotifyUnavailableItems.mutation'
 import { useSetOrderItemPickedMutation } from '@/modules/admin/shared/mutations/useSetOrderItemPicked.mutation'
 import { adminGetOrderDetail } from '@/shared/api/client'
+import { useOrderRealtime } from '@/modules/admin/hooks/useOrderRealtime.hook'
+import { resolveOrderRefetchInterval } from '@/modules/admin/shared/orderRefetchPolicy'
 
 export function useAdminOrderDetailPage() {
   const { isReady } = useRequireStaff(STAFF_ROLES)
   const { params, navigate } = useRouter()
   const orderId = params.id ?? ''
 
+  /*
+   * O pedido muda por fora desta tela, e a resposta do cliente sobre item em falta é o caso que dói:
+   * quem está com a sacola continuaria vendo "acabou · cliente avisado" e o total antigo, e fecharia a
+   * separação sem o substituto que o cliente escolheu.
+   *
+   * O stream é o caminho normal; o `refetchInterval` abaixo só existe para a janela em que ele não está
+   * de pé, e se desliga sozinho quando está (ver `orderRefetchPolicy`).
+   */
+  const { isRealtimeConnected } = useOrderRealtime(orderId)
+
   const { data, isLoading, isError } = useQuery({
     queryKey: ['admin-order-detail', orderId],
     queryFn: () => adminGetOrderDetail(orderId),
     enabled: orderId.length > 0,
+    refetchInterval: (query) =>
+      resolveOrderRefetchInterval({ status: query.state.data?.data.status, isRealtimeConnected }),
   })
 
   const updateStatusMutation = useUpdateOrderStatusMutation()
@@ -108,6 +122,7 @@ export function useAdminOrderDetailPage() {
     visibleItems,
     isLoading,
     isError,
+    isRealtimeConnected,
     pickedItemIds,
     pickedCount,
     togglePicked,

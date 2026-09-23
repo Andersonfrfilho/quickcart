@@ -208,3 +208,16 @@ export const RECEIPT_ISSUING_STATUSES: ReadonlySet<string> = new Set([
 export function buildReceiptJobId(orderId: string): string {
   return `${RECEIPT_JOB_NAME}-${orderId}`
 }
+
+/**
+ * Canal e evento do realtime do pedido.
+ *
+ * O escopo do ticket leva o mesmo prefixo do canal para não colidir com o da inbox: lá o escopo é um
+ * número de WhatsApp, e um id de pedido cru poderia, em tese, ser gasto no stream errado.
+ */
+export const ORDER_CHANNEL_PREFIX = 'order:'
+export const ORDER_CHANGED_EVENT = 'order.changed'
+
+export function orderChannel(orderId: string): string {
+  return `${ORDER_CHANNEL_PREFIX}${orderId}`
+}
