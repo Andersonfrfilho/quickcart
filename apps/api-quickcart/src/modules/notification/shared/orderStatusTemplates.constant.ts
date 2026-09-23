@@ -157,3 +157,25 @@ export function buildOrderNotificationVariables(): Record<string, readonly Templ
     Object.keys(ORDER_STATUS_BODY).map((status) => [orderStatusTemplateKey(status), variables]),
   )
 }
+
+export type RenderOrderStatusBodyParams = {
+  readonly status: string
+  readonly shortCode: string
+}
+
+/**
+ * O mesmo texto do template, pronto para sair como mensagem livre dentro da janela de 24h.
+ *
+ * Deriva do `ORDER_STATUS_BODY` em vez de repetir as frases: o caminho livre e o caminho do template
+ * precisam dizer a MESMA coisa, senão o cliente lê um texto quando a janela está aberta e outro
+ * quando não está — e ninguém descobre isso a não ser comparando duas conversas.
+ *
+ * Status sem texto devolve `undefined`, e quem chama decide: aqui isso significa cair no envio por
+ * template, que falha visível, em vez de inventar "seu pedido teve uma atualização".
+ */
+export function renderOrderStatusBody(params: RenderOrderStatusBodyParams): string | undefined {
+  const body = ORDER_STATUS_BODY[params.status]
+  if (!body) return undefined
+
+  return body.replaceAll('{{shortCode}}', params.shortCode)
+}
