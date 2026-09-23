@@ -88,7 +88,13 @@ export class CashChangeHandler implements ConversationHandlerInterface {
         currentState: CONVERSATION_STATE.AWAITING_CASH_CHANGE_AMOUNT,
         context: checkoutContext,
       })
-      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_ASK_CASH_CHANGE_AMOUNT)
+      const amountDueInCents = await this.resolveAmountDueInCents(checkoutContext, customer.id)
+      await this.dependencies.whatsAppSender.sendText(
+        session.customerPhone,
+        amountDueInCents === undefined
+          ? MESSAGES.CHECKOUT_ASK_CASH_CHANGE_AMOUNT
+          : MESSAGES.CHECKOUT_ASK_CASH_CHANGE_AMOUNT_WITH_TOTAL.replace('{total}', formatPriceInCents(amountDueInCents)),
+      )
       return
     }
 
@@ -119,24 +125,11 @@ export class CashChangeHandler implements ConversationHandlerInterface {
   private async acceptCashChangeAmount(params: AcceptCashChangeAmountParams): Promise<void> {
     const { session, customer, checkoutContext, cashChangeForInCents } = params
     // Troco validado sem taxa conhecida seria validado contra o valor errado: sem cotação, volta ao endereço.
-    const deliveryFeeInCents = resolveCheckoutDeliveryFeeInCents(checkoutContext)
-    if (deliveryFeeInCents === undefined) {
+    const amountDueInCents = await this.resolveAmountDueInCents(checkoutContext, customer.id)
+    if (amountDueInCents === undefined) {
       await returnToAddressForMissingQuote({ dependencies: this.dependencies, customerPhone: session.customerPhone, checkoutContext })
       return
     }
-
-    const cart = await this.dependencies.cartRepository.findOpenByCustomer(customer.id, CHANNEL.WHATSAPP)
-    const cartTotalInCents = cart
-      ? await calculateCartTotalInCents({
-          cartId: cart.id,
-          cartRepository: this.dependencies.cartRepository,
-          productRepository: this.dependencies.productRepository,
-        })
-      : 0
-    const amountDueInCents = calculateAmountDueInCents({
-      totalInCents: cartTotalInCents,
-      deliveryFeeInCents,
-    })
 
     // Valor exato: vai pagar sem troco. Grava null, como o botão "Não preciso".
     if (cashChangeForInCents === amountDueInCents) {
@@ -153,6 +146,23 @@ export class CashChangeHandler implements ConversationHandlerInterface {
     }
 
     await this.finishCashChange(session.customerPhone, customer.id, { ...checkoutContext, checkoutCashChangeForInCents: cashChangeForInCents })
+  }
+
+  /** Total a pagar (itens + entrega). `undefined` quando ainda não há cotação de entrega. */
+  private async resolveAmountDueInCents(checkoutContext: ConversationContext, customerId: string): Promise<number | undefined> {
+    const deliveryFeeInCents = resolveCheckoutDeliveryFeeInCents(checkoutContext)
+    if (deliveryFeeInCents === undefined) return undefined
+
+    const cart = await this.dependencies.cartRepository.findOpenByCustomer(customerId, CHANNEL.WHATSAPP)
+    const cartTotalInCents = cart
+      ? await calculateCartTotalInCents({
+          cartId: cart.id,
+          cartRepository: this.dependencies.cartRepository,
+          productRepository: this.dependencies.productRepository,
+        })
+      : 0
+
+    return calculateAmountDueInCents({ totalInCents: cartTotalInCents, deliveryFeeInCents })
   }
 
   /**

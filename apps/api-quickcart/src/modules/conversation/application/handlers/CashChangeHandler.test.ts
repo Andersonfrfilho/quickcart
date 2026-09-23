@@ -100,7 +100,7 @@ describe('CashChangeHandler', () => {
     expect(buttonMessages[0]?.body).toBe(MESSAGES.CHECKOUT_ASK_RECEIPT_PREFERENCE)
   })
 
-  it('"Preciso de troco" pede o valor', async () => {
+  it('"Preciso de troco" pede o valor com o total à vista', async () => {
     const { dependencies, stateUpdates, texts } = buildDependencies()
     const handler = new CashChangeHandler(dependencies)
 
@@ -111,7 +111,20 @@ describe('CashChangeHandler', () => {
     })
 
     expect(stateUpdates).toEqual([{ currentState: CONVERSATION_STATE.AWAITING_CASH_CHANGE_AMOUNT, context: {} }])
-    expect(texts).toEqual([MESSAGES.CHECKOUT_ASK_CASH_CHANGE_AMOUNT])
+    expect(texts).toEqual([MESSAGES.CHECKOUT_ASK_CASH_CHANGE_AMOUNT_WITH_TOTAL.replace('{total}', formatPriceInCents(10000))])
+  })
+
+  it('"Preciso de troco" com taxa cotada soma a entrega no total mostrado', async () => {
+    const { dependencies, texts } = buildDependencies()
+    const handler = new CashChangeHandler(dependencies)
+
+    await handler.handle({
+      session: buildSession({ context: QUOTED_DELIVERY_CONTEXT }),
+      customer: buildCustomer(),
+      message: { kind: 'button_reply', from: PHONE, waMessageId: 'wa-1', buttonId: CASH_CHANGE_BUTTON_ID.NEEDED, buttonTitle: '💵 Preciso de troco' },
+    })
+
+    expect(texts).toEqual([MESSAGES.CHECKOUT_ASK_CASH_CHANGE_AMOUNT_WITH_TOTAL.replace('{total}', formatPriceInCents(10800))])
   })
 
   it('recusa valor que não cobre a compra (total do carrinho é R$ 100,00) e repete a pergunta', async () => {
