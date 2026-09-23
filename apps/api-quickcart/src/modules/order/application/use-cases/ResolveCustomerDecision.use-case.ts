@@ -16,6 +16,7 @@
 
 import { OrderInvalidStatusTransitionError } from '@/shared/errors/OrderErrors'
 import type { OrderRepositoryInterface, OrderRecord } from '@/modules/order/domain/OrderRepository.interface'
+import { ORDER_ACTOR } from '@/modules/order/domain/orderStatusFlow'
 import { ORDER_DECISION, type OrderDecision } from '@/modules/conversation/shared/orderDecisionButton'
 import { ORDER_STATUS } from '@/modules/order/shared/Order.constant'
 import type { UpdateOrderStatusUseCase } from './UpdateOrderStatus.use-case'
@@ -92,6 +93,8 @@ export class ResolveCustomerDecisionUseCase {
       const { order: updated } = await this.dependencies.updateOrderStatusUseCase.execute({
         orderId: params.orderId,
         status: nextStatus,
+        // Quem toca o botão é o cliente, e a esteira precisa saber disso para recusar o que só a loja pode.
+        actor: ORDER_ACTOR.CUSTOMER,
       })
       return { applied: true, order: updated, decision: params.decision }
     } catch (error: unknown) {

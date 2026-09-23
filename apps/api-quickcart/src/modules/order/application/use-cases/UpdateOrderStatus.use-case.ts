@@ -84,6 +84,7 @@ export class UpdateOrderStatusUseCase {
       status: current.status,
       deliveryType: current.deliveryType,
       deliveryFailureReason: current.deliveryFailureReason,
+      ...(params.actor ? { actor: params.actor } : {}),
     }
     if (!canTransitionTo({ ...flow, nextStatus: params.status })) {
       throw new OrderInvalidStatusTransitionError({
