@@ -67,7 +67,15 @@ export function useAdminOrderDetailPage() {
    * qual das duas era verdade.
    */
   const pickedItemIds = items.filter((item) => item.pickedAt !== null).map((item) => item.id)
-  const pickedCount = pickedItemIds.length
+  /*
+   * Conta só o que ainda está na conta.
+   *
+   * O denominador da barra são os itens que existem (`availableItems`), então contar aqui os que faltaram
+   * comparava dois conjuntos diferentes: um item em falta com marcação antiga fazia a tela anunciar
+   * "5/4 separados · 125%". O servidor passou a limpar a marcação ao registrar a falta, e esta linha é a
+   * segunda tranca — nenhum dado torto deveria virar uma porcentagem que não existe.
+   */
+  const pickedCount = items.filter((item) => item.pickedAt !== null && item.unavailableAt === null).length
   const visibleItems = hidePickedItems ? items.filter((item) => item.pickedAt === null) : items
 
   function togglePicked(itemId: string) {
@@ -94,14 +102,13 @@ export function useAdminOrderDetailPage() {
   }
 
   function setUnavailable({ itemId, unavailable }: { itemId: string; unavailable: boolean }) {
-    setUnavailableMutation.mutate({ orderId, itemId, unavailable })
-
     /*
-     * Item que acabou não fica marcado como separado: são estados que se excluem, e deixar as duas
-     * marcas juntas faria o progresso contar como pronto algo que não vai na sacola. Vai ao servidor
-     * também, senão a contradição só desapareceria neste aparelho.
+     * Um pedido só: registrar a falta já limpa a separação do item no servidor, na mesma transação.
+     *
+     * Eram dois, e o segundo podia falhar sozinho — deixando o item em falta e marcado como separado,
+     * que é a contradição que a barra traduzia em 125%.
      */
-    if (unavailable) setPickedMutation.mutate({ orderId, itemId, picked: false })
+    setUnavailableMutation.mutate({ orderId, itemId, unavailable })
   }
 
   return {
