@@ -23,6 +23,7 @@ import type { ConversationHandlerContext, ConversationHandlerInterface } from '@
 import type { CartDraftItem, ConversationContext, PendingResolution } from '@/modules/conversation/shared/ConversationContext.types'
 import { advanceResolutionQueue } from '@/modules/conversation/application/handlers/support/advanceResolutionQueue'
 import { buildResolveSection, cheapestCandidate } from '@/modules/conversation/application/handlers/support/InteractiveListBuilders'
+import { resolvePackQuantity } from '@/modules/conversation/application/resolvePackQuantity'
 import {
   UNMATCHED_DEMAND_SOURCE,
   type UnmatchedDemandRepositoryInterface,
@@ -119,11 +120,16 @@ export class ResolveHandler implements ConversationHandlerInterface {
         return
       }
 
+      const cheapestPackQuantity = resolvePackQuantity({
+        requestedQuantity: current.quantity,
+        requestedUnit: current.unit,
+        unitSize: cheapest.unitSize,
+      })
       cartDraft.push({
         productId: cheapest.productId,
         name: cheapest.name,
         priceInCents: cheapest.priceInCents,
-        quantity: current.quantity,
+        quantity: cheapestPackQuantity?.quantity ?? current.quantity,
         matchType: 'selected',
         originalTerm: current.originalTerm,
       })
@@ -144,11 +150,16 @@ export class ResolveHandler implements ConversationHandlerInterface {
         return
       }
 
+      const chosenPackQuantity = resolvePackQuantity({
+        requestedQuantity: current.quantity,
+        requestedUnit: current.unit,
+        unitSize: chosen.unitSize,
+      })
       cartDraft.push({
         productId: chosen.productId,
         name: chosen.name,
         priceInCents: chosen.priceInCents,
-        quantity: current.quantity,
+        quantity: chosenPackQuantity?.quantity ?? current.quantity,
         matchType: 'selected',
         originalTerm: current.originalTerm,
       })
