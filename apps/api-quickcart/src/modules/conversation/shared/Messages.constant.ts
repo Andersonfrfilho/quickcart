@@ -26,6 +26,26 @@ export const MENU_BUTTON_ID = {
   TALK_TO_AGENT: 'talk_to_agent',
 } as const
 
+/**
+ * Linhas de "o que você quer mudar?".
+ *
+ * Lista, e não botões: o WhatsApp permite três botões, e os itens do fechamento são quatro mais a
+ * saída. Cortar um item para caber nos botões faria justamente o item cortado voltar a exigir o
+ * caminho longo inteiro.
+ */
+export const CHECKOUT_CHANGE_ROW_ID = {
+  DELIVERY_TYPE: 'checkout_change_delivery_type',
+  ADDRESS: 'checkout_change_address',
+  PAYMENT: 'checkout_change_payment',
+  RECEIPT: 'checkout_change_receipt',
+  NONE: 'checkout_change_none',
+} as const
+
+export const EMAIL_CONFIRMATION_BUTTON_ID = {
+  USE_SAVED: 'email_use_saved',
+  USE_ANOTHER: 'email_use_another',
+} as const
+
 export const CART_RESUME_BUTTON_ID = {
   CONTINUE: 'cart_resume_continue',
   START_OVER: 'cart_resume_start_over',
@@ -396,6 +416,14 @@ export const MESSAGES = {
     '⏰ Faz um tempo que não conversamos.\n\nVocê tinha uma compra começada (*{codigo}*) com {itens}. Quer continuar de onde parou ou começar do zero?',
   CART_RESUME_CONTINUED: '👍 Beleza, continuando a compra *{codigo}*.',
   CART_RESUME_STARTED_OVER: '🧹 Pronto, comecei uma compra nova: *{codigo}*. A lista anterior foi descartada.',
+  /** Rótulo do pino no mapa. Curto porque o WhatsApp o mostra sob o quadradinho, junto do endereço. */
+  CONFIRMING_SUMMARY_MAP_PIN_NAME: 'Entrega do seu pedido',
+  CHECKOUT_CHANGE_ASK: 'O que você quer mudar?',
+  CHECKOUT_CHANGE_LIST_BUTTON: 'Escolher',
+  CHECKOUT_CHANGE_SECTION_TITLE: 'Fechamento',
+  CHECKOUT_CHANGE_UNEXPECTED_INPUT: 'Escolha um item da lista acima ☝️',
+  /** `{email}` preenchido pelo CheckoutHandler — o cliente lê o endereço inteiro antes de aceitar. */
+  CHECKOUT_CONFIRM_SAVED_EMAIL: '📧 Mando a nota para *{email}*?',
   FALLBACK_STATE_NOT_READY: 'Ainda estou aprendendo essa parte 🙏 Envie "menu" para recomeçar.',
   CART_EMPTY: '🛒 Seu carrinho está vazio. Envie sua lista de compras ou toque em "Ver produtos" pra começar.',
   CART_REVIEW_UNMATCHED_PREFIX: '⚠️ Não encontrei esses itens:',
@@ -541,6 +569,11 @@ export const MENU_BUTTONS = [
   { id: MENU_BUTTON_ID.SEND_LIST, title: '📝 Enviar lista' },
   { id: MENU_BUTTON_ID.BROWSE, title: '🛒 Ver produtos' },
   { id: MENU_BUTTON_ID.REPEAT_ORDER, title: '🔁 Repetir pedido' },
+] as const
+
+export const EMAIL_CONFIRMATION_BUTTONS = [
+  { id: EMAIL_CONFIRMATION_BUTTON_ID.USE_SAVED, title: '✅ Pode mandar' },
+  { id: EMAIL_CONFIRMATION_BUTTON_ID.USE_ANOTHER, title: '✏️ Outro e-mail' },
 ] as const
 
 export const CART_RESUME_BUTTONS = [

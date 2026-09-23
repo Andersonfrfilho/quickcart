@@ -118,6 +118,7 @@ function buildController(): OrderController {
   const orderResult = { order: ORDER_WITH_LOCATION, items: [] }
   return new OrderController({
     createWebOrderUseCase: {} as never,
+    orderRealtimeNotifier: { notifyOrderChanged: () => undefined },
     getOrderByShortCodeUseCase: { execute: async () => orderResult } as never,
     listOrdersUseCase: {
       execute: async () => ({ items: [ORDER_WITH_LOCATION], total: 1, page: 1, perPage: 20 }),

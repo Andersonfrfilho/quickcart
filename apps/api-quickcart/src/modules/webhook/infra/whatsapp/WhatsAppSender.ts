@@ -63,6 +63,15 @@ function mapProviderError(error: unknown): WhatsAppError {
   return new WhatsAppSendError('Erro desconhecido ao enviar mensagem via WhatsApp.')
 }
 
+export type SendLocationMessageParams = {
+  readonly to: string
+  readonly latitude: number
+  readonly longitude: number
+  /** Rótulo do pino, não endereço validado — é o que o cliente lê sob o mapa. */
+  readonly name?: string | undefined
+  readonly address?: string | undefined
+}
+
 type WhatsAppSenderDependencies = {
   readonly messageRepository: MessageRepositoryInterface
   readonly conversationSessionRepository: ConversationSessionRepositoryInterface
@@ -131,6 +140,30 @@ export class WhatsAppSender {
       payload: { buttonText, sections },
       waMessageId,
     })
+  }
+
+  /**
+   * O ponto no mapa — a única mensagem que o WhatsApp desenha como mapa na conversa.
+   *
+   * Link de Google Maps não vira mapa: o preview do app lê as tags Open Graph do destino e monta, na
+   * melhor hipótese, um card com o logo do Google. Por isso o resumo do pedido manda as duas coisas
+   * quando tem coordenada — o quadradinho para conferir, e o link para quem quiser abrir a rota.
+   *
+   * Latitude e longitude NÃO entram no log: são dado pessoal do cliente tanto quanto o endereço.
+   */
+  async sendLocation(params: SendLocationMessageParams): Promise<void> {
+    const { to, latitude, longitude, name, address } = params
+    const { waMessageId, mocked } = await this.sendViaProvider('location', to, (provider) =>
+      provider.messages.sendLocation({
+        to,
+        latitude,
+        longitude,
+        ...(name ? { name } : {}),
+        ...(address ? { address } : {}),
+      }),
+    )
+    if (mocked) senderLog.info(LOG_EVENTS.WHATSAPP_SEND_MOCK, { to: maskPhone(to), type: 'location' })
+    await this.persistOutbound({ to, type: 'location', body: name ?? address, waMessageId })
   }
 
   private async sendViaProvider(

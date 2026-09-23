@@ -62,6 +62,8 @@ import {
   withoutDeliveryQuote,
 } from '@/modules/conversation/shared/deliveryQuoteContext'
 import { extractRememberedLocation } from '@/modules/conversation/shared/extractRememberedLocation'
+import { buildCheckoutChangeRows } from '@/modules/conversation/application/handlers/support/checkoutChangeMenu'
+import { describeRememberedCheckout, type RememberedCheckout } from '@/modules/conversation/application/rememberedCheckout'
 import {
   buildDeliveryDeclinedMessage,
   buildDeliveryFeeQuotedMessage,
@@ -79,7 +81,11 @@ import {
   APPROXIMATE_ADDRESS_DECISION_BUTTONS,
   APPROXIMATE_ESTIMATE_BUTTONS,
   CASH_CHANGE_BUTTONS,
+  CHECKOUT_CHANGE_ROW_ID,
   CONFIRMING_BUTTON_ID,
+  EMAIL_CONFIRMATION_BUTTON_ID,
+  EMAIL_CONFIRMATION_BUTTONS,
+  REMEMBERED_CHECKOUT_BUTTONS,
   REMEMBERED_CHECKOUT_BUTTON_ID,
   DELIVERY_TYPE_BUTTON_ID,
   DELIVERY_TYPE_BUTTONS,
@@ -160,6 +166,21 @@ export class CheckoutHandler implements ConversationHandlerInterface {
       case CONVERSATION_STATE.AWAITING_EMAIL:
         await this.handleAwaitingEmail(context)
         return
+      case CONVERSATION_STATE.AWAITING_EMAIL_CONFIRMATION:
+        await this.handleAwaitingEmailConfirmation(context)
+        return
+      case CONVERSATION_STATE.AWAITING_CHECKOUT_CHANGE_CHOICE:
+        await this.handleAwaitingCheckoutChangeChoice(context)
+        return
+      case CONVERSATION_STATE.AWAITING_CHECKOUT_CHANGE_PAYMENT:
+        await this.handleAwaitingCheckoutChangePayment(context)
+        return
+      case CONVERSATION_STATE.AWAITING_CHECKOUT_CHANGE_RECEIPT:
+        await this.handleAwaitingCheckoutChangeReceipt(context)
+        return
+      case CONVERSATION_STATE.AWAITING_CHECKOUT_CHANGE_EMAIL:
+        await this.handleAwaitingCheckoutChangeEmail(context)
+        return
       default:
         await this.handleConfirming(context)
     }
@@ -198,18 +219,15 @@ export class CheckoutHandler implements ConversationHandlerInterface {
       return
     }
 
-    // "Quero mudar": volta ao caminho longo, e esquece a memória para não reoferecer no meio dele.
+    /*
+     * "Quero mudar": pergunta O QUE mudar, em vez de recomeçar o fechamento.
+     *
+     * Antes este botão apagava a memória e voltava à primeira pergunta do caminho longo: quem só
+     * queria trocar a forma de pagamento respondia entrega, endereço, pagamento e recibo outra vez —
+     * e as três respostas repetidas eram idênticas às que ele acabara de ler na tela.
+     */
     if (remembered && message.buttonId === REMEMBERED_CHECKOUT_BUTTON_ID.CHANGE_PREFERENCES) {
-      await this.dependencies.conversationSessionRepository.updateStateByPhone({
-        customerPhone: session.customerPhone,
-        currentState: CONVERSATION_STATE.AWAITING_DELIVERY_TYPE,
-        context: withoutDeliveryQuote(withoutRememberedCheckout(checkoutContext)),
-      })
-      await this.dependencies.whatsAppSender.sendInteractiveButtons(
-        session.customerPhone,
-        MESSAGES.CHECKOUT_ASK_DELIVERY_TYPE,
-        DELIVERY_TYPE_BUTTONS,
-      )
+      await this.askWhatToChange({ session, checkoutContext, remembered })
       return
     }
 
@@ -290,6 +308,280 @@ export class CheckoutHandler implements ConversationHandlerInterface {
     })
   }
 
+  /** A lista do que dá para mudar, com o valor atual de cada item na descrição. */
+  private async askWhatToChange(params: {
+    readonly session: ConversationSession
+    readonly checkoutContext: ConversationContext
+    readonly remembered: RememberedCheckout
+  }): Promise<void> {
+    const { session, checkoutContext, remembered } = params
+
+    await this.dependencies.conversationSessionRepository.updateStateByPhone({
+      customerPhone: session.customerPhone,
+      currentState: CONVERSATION_STATE.AWAITING_CHECKOUT_CHANGE_CHOICE,
+      context: { ...checkoutContext, rememberedCheckout: remembered },
+    })
+
+    await this.dependencies.whatsAppSender.sendInteractiveList(
+      session.customerPhone,
+      MESSAGES.CHECKOUT_CHANGE_ASK,
+      MESSAGES.CHECKOUT_CHANGE_LIST_BUTTON,
+      [{ title: MESSAGES.CHECKOUT_CHANGE_SECTION_TITLE, rows: [...buildCheckoutChangeRows(remembered)] }],
+    )
+  }
+
+  /**
+   * Volta ao resumo depois de cada troca, com o valor novo já dentro dele.
+   *
+   * É o mesmo resumo e os mesmos botões do atalho lembrado, no mesmo estado: mudar uma segunda coisa
+   * custa dois toques, e confirmar continua sendo um só. Sem esta volta, cada troca teria de decidir
+   * sozinha para onde mandar o cliente, e é aí que os caminhos divergem.
+   */
+  private async backToRememberedSummary(params: {
+    readonly session: ConversationSession
+    readonly checkoutContext: ConversationContext
+    readonly remembered: RememberedCheckout
+  }): Promise<void> {
+    const { session, checkoutContext, remembered } = params
+    const nextContext = { ...checkoutContext, rememberedCheckout: remembered }
+    delete (nextContext as { checkoutChangeInProgress?: unknown }).checkoutChangeInProgress
+
+    await this.dependencies.conversationSessionRepository.updateStateByPhone({
+      customerPhone: session.customerPhone,
+      currentState: CONVERSATION_STATE.AWAITING_DELIVERY_TYPE,
+      context: nextContext,
+    })
+
+    await this.dependencies.whatsAppSender.sendInteractiveButtons(
+      session.customerPhone,
+      describeRememberedCheckout(remembered),
+      REMEMBERED_CHECKOUT_BUTTONS,
+    )
+  }
+
+  private async handleAwaitingCheckoutChangeChoice({ session, message }: ConversationHandlerContext): Promise<void> {
+    const checkoutContext = (session.context ?? {}) as ConversationContext
+    const remembered = checkoutContext.rememberedCheckout
+
+    /*
+     * Sem memória não há o que mudar — e o caminho longo é a única resposta honesta. Acontece quando a
+     * sessão foi retomada com um contexto antigo, não por erro do cliente.
+     */
+    if (!remembered) {
+      await this.dependencies.conversationSessionRepository.updateStateByPhone({
+        customerPhone: session.customerPhone,
+        currentState: CONVERSATION_STATE.AWAITING_DELIVERY_TYPE,
+        context: withoutDeliveryQuote(withoutRememberedCheckout(checkoutContext)),
+      })
+      await this.dependencies.whatsAppSender.sendInteractiveButtons(
+        session.customerPhone,
+        MESSAGES.CHECKOUT_ASK_DELIVERY_TYPE,
+        DELIVERY_TYPE_BUTTONS,
+      )
+      return
+    }
+
+    if (message.kind !== 'list_reply') {
+      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_CHANGE_UNEXPECTED_INPUT)
+      return
+    }
+
+    if (message.listId === CHECKOUT_CHANGE_ROW_ID.NONE) {
+      await this.backToRememberedSummary({ session, checkoutContext, remembered })
+      return
+    }
+
+    if (message.listId === CHECKOUT_CHANGE_ROW_ID.PAYMENT) {
+      await this.dependencies.conversationSessionRepository.updateStateByPhone({
+        customerPhone: session.customerPhone,
+        currentState: CONVERSATION_STATE.AWAITING_CHECKOUT_CHANGE_PAYMENT,
+        context: { ...checkoutContext, rememberedCheckout: remembered },
+      })
+      await this.dependencies.whatsAppSender.sendInteractiveButtons(
+        session.customerPhone,
+        MESSAGES.CHECKOUT_ASK_PAYMENT,
+        PAYMENT_METHOD_BUTTONS,
+      )
+      return
+    }
+
+    if (message.listId === CHECKOUT_CHANGE_ROW_ID.RECEIPT) {
+      await this.dependencies.conversationSessionRepository.updateStateByPhone({
+        customerPhone: session.customerPhone,
+        currentState: CONVERSATION_STATE.AWAITING_CHECKOUT_CHANGE_RECEIPT,
+        context: { ...checkoutContext, rememberedCheckout: remembered },
+      })
+      await this.dependencies.whatsAppSender.sendInteractiveButtons(
+        session.customerPhone,
+        MESSAGES.CHECKOUT_ASK_RECEIPT_PREFERENCE,
+        RECEIPT_PREFERENCE_BUTTONS,
+      )
+      return
+    }
+
+    /*
+     * Entrega e endereço voltam ao caminho longo de propósito: a taxa depende do endereço, e a
+     * cotação, o CEP, o número e o "fora do raio" já moram lá. `checkoutChangeInProgress` é o fio que
+     * traz o cliente de volta ao resumo quando esse caminho termina, em vez de emendar no pagamento.
+     */
+    if (message.listId === CHECKOUT_CHANGE_ROW_ID.ADDRESS) {
+      await this.dependencies.conversationSessionRepository.updateStateByPhone({
+        customerPhone: session.customerPhone,
+        currentState: CONVERSATION_STATE.AWAITING_ADDRESS,
+        context: {
+          ...withoutCheckoutAddress(withoutDeliveryQuote(checkoutContext)),
+          rememberedCheckout: remembered,
+          checkoutDeliveryType: DELIVERY_TYPE.DELIVERY,
+          checkoutChangeInProgress: true,
+        },
+      })
+      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_ASK_ADDRESS)
+      return
+    }
+
+    if (message.listId === CHECKOUT_CHANGE_ROW_ID.DELIVERY_TYPE) {
+      await this.dependencies.conversationSessionRepository.updateStateByPhone({
+        customerPhone: session.customerPhone,
+        currentState: CONVERSATION_STATE.AWAITING_DELIVERY_TYPE,
+        context: {
+          ...withoutCheckoutAddress(withoutDeliveryQuote(checkoutContext)),
+          rememberedCheckout: remembered,
+          checkoutChangeInProgress: true,
+        },
+      })
+      await this.dependencies.whatsAppSender.sendInteractiveButtons(
+        session.customerPhone,
+        MESSAGES.CHECKOUT_ASK_DELIVERY_TYPE,
+        DELIVERY_TYPE_BUTTONS,
+      )
+      return
+    }
+
+    await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_CHANGE_UNEXPECTED_INPUT)
+  }
+
+  private async handleAwaitingCheckoutChangePayment({ session, message }: ConversationHandlerContext): Promise<void> {
+    const checkoutContext = (session.context ?? {}) as ConversationContext
+    const remembered = checkoutContext.rememberedCheckout
+
+    if (!remembered) {
+      await this.handleAwaitingPayment({ session, message } as ConversationHandlerContext)
+      return
+    }
+
+    if (message.kind !== 'button_reply' || !this.isKnownButtonId(PAYMENT_METHOD_BUTTON_ID, message.buttonId)) {
+      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_UNEXPECTED_INPUT)
+      return
+    }
+
+    /*
+     * O troco NÃO é perguntado aqui: quem confirma o resumo passa por `applyRememberedCheckout`, que
+     * já repergunta o troco contra o total DESTA compra. Perguntar duas vezes seria pior que uma.
+     */
+    await this.backToRememberedSummary({
+      session,
+      checkoutContext,
+      remembered: { ...remembered, paymentMethod: message.buttonId },
+    })
+  }
+
+  private async handleAwaitingCheckoutChangeReceipt({ session, customer, message }: ConversationHandlerContext): Promise<void> {
+    const checkoutContext = (session.context ?? {}) as ConversationContext
+    const remembered = checkoutContext.rememberedCheckout
+
+    if (!remembered) {
+      await this.handleAwaitingReceiptPreference({ session, customer, message } as ConversationHandlerContext)
+      return
+    }
+
+    if (message.kind !== 'button_reply' || !this.isKnownButtonId(RECEIPT_PREFERENCE_BUTTON_ID, message.buttonId)) {
+      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_UNEXPECTED_INPUT)
+      return
+    }
+
+    const nextRemembered: RememberedCheckout = { ...remembered, receiptPreference: message.buttonId }
+    const savedEmail = remembered.email ?? customer.email?.trim()
+
+    if (message.buttonId === RECEIPT_PREFERENCE_BUTTON_ID.WHATSAPP || savedEmail) {
+      await this.backToRememberedSummary({
+        session,
+        checkoutContext,
+        remembered: savedEmail ? { ...nextRemembered, email: savedEmail } : nextRemembered,
+      })
+      return
+    }
+
+    await this.dependencies.conversationSessionRepository.updateStateByPhone({
+      customerPhone: session.customerPhone,
+      currentState: CONVERSATION_STATE.AWAITING_CHECKOUT_CHANGE_EMAIL,
+      context: { ...checkoutContext, rememberedCheckout: nextRemembered },
+    })
+    await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_ASK_EMAIL)
+  }
+
+  private async handleAwaitingCheckoutChangeEmail({ session, customer, message }: ConversationHandlerContext): Promise<void> {
+    const checkoutContext = (session.context ?? {}) as ConversationContext
+    const remembered = checkoutContext.rememberedCheckout
+
+    if (!remembered) {
+      await this.handleAwaitingEmail({ session, customer, message } as ConversationHandlerContext)
+      return
+    }
+
+    if (message.kind !== 'text') {
+      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_UNEXPECTED_INPUT)
+      return
+    }
+
+    const email = message.body.trim()
+    if (!EMAIL_PATTERN.test(email)) {
+      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_EMAIL_INVALID)
+      return
+    }
+
+    await this.dependencies.customerRepository.updateContactInfo({ customerId: customer.id, email })
+    await this.backToRememberedSummary({ session, checkoutContext, remembered: { ...remembered, email } })
+  }
+
+  /**
+   * O e-mail já cadastrado, oferecido em vez de pedido de novo.
+   *
+   * Digitar e-mail no teclado do celular é a pergunta mais cara do fechamento, e ela era feita em
+   * TODA compra mesmo com o endereço salvo no cadastro — foi assim que um "sim" acabou respondido
+   * como se fosse um e-mail, e o cliente levou uma mensagem de e-mail inválido.
+   */
+  private async handleAwaitingEmailConfirmation({ session, customer, message }: ConversationHandlerContext): Promise<void> {
+    const checkoutContext = (session.context ?? {}) as ConversationContext
+
+    if (message.kind !== 'button_reply') {
+      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_UNEXPECTED_INPUT)
+      return
+    }
+
+    if (message.buttonId === EMAIL_CONFIRMATION_BUTTON_ID.USE_ANOTHER) {
+      await this.dependencies.conversationSessionRepository.updateStateByPhone({
+        customerPhone: session.customerPhone,
+        currentState: CONVERSATION_STATE.AWAITING_EMAIL,
+        context: checkoutContext,
+      })
+      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_ASK_EMAIL)
+      return
+    }
+
+    const savedEmail = customer.email?.trim()
+    if (message.buttonId !== EMAIL_CONFIRMATION_BUTTON_ID.USE_SAVED || !savedEmail) {
+      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.CHECKOUT_UNEXPECTED_INPUT)
+      return
+    }
+
+    await enterConfirming({
+      dependencies: this.dependencies,
+      customerPhone: session.customerPhone,
+      customerId: customer.id,
+      checkoutContext: { ...checkoutContext, checkoutEmail: savedEmail },
+    })
+  }
+
   private async quoteRememberedDelivery(address: unknown): Promise<AcceptedDeliveryQuote | undefined> {
     const location = extractRememberedLocation(address)
     if (!location) return undefined
@@ -313,6 +605,18 @@ export class CheckoutHandler implements ConversationHandlerInterface {
 
   /** Retirada não cota (spec §3.4): taxa 0 direto, e qualquer endereço ou cotação anterior some. */
   private async choosePickup({ session, checkoutContext }: CheckoutStepParams): Promise<void> {
+    const remembered = checkoutContext.rememberedCheckout
+    if (checkoutContext.checkoutChangeInProgress && remembered) {
+      const next = { ...remembered, deliveryType: DELIVERY_TYPE.PICKUP }
+      delete (next as { address?: unknown }).address
+      await this.backToRememberedSummary({
+        session,
+        checkoutContext: withoutCheckoutAddress(withoutDeliveryQuote(checkoutContext)),
+        remembered: next,
+      })
+      return
+    }
+
     await this.dependencies.conversationSessionRepository.updateStateByPhone({
       customerPhone: session.customerPhone,
       currentState: CONVERSATION_STATE.AWAITING_PAYMENT,
@@ -346,6 +650,27 @@ export class CheckoutHandler implements ConversationHandlerInterface {
 
   private async askPaymentAfterQuote(params: AskPaymentAfterQuoteParams): Promise<void> {
     const { session } = params
+
+    /*
+     * Ponto de encontro de todo caminho de endereço: CEP, localização, aproximado e "fora do raio"
+     * terminam aqui. Por isso a volta ao resumo mora neste método e não em cada um deles — espalhada,
+     * um caminho novo esqueceria de voltar e o cliente cairia no pagamento sem ter pedido.
+     */
+    const remembered = params.context.rememberedCheckout
+    if (params.context.checkoutChangeInProgress && remembered) {
+      if (params.quoteMessage) await this.dependencies.whatsAppSender.sendText(session.customerPhone, params.quoteMessage)
+      await this.backToRememberedSummary({
+        session,
+        checkoutContext: params.context,
+        remembered: {
+          ...remembered,
+          deliveryType: params.context.checkoutDeliveryType ?? remembered.deliveryType,
+          ...(params.context.checkoutAddress !== undefined ? { address: params.context.checkoutAddress } : {}),
+        },
+      })
+      return
+    }
+
     await this.dependencies.conversationSessionRepository.updateStateByPhone({
       customerPhone: session.customerPhone,
       currentState: CONVERSATION_STATE.AWAITING_PAYMENT,
@@ -775,6 +1100,26 @@ export class CheckoutHandler implements ConversationHandlerInterface {
 
     if (message.buttonId === RECEIPT_PREFERENCE_BUTTON_ID.WHATSAPP) {
       await enterConfirming({ dependencies: this.dependencies, customerPhone: session.customerPhone, customerId: customer.id, checkoutContext: nextContext })
+      return
+    }
+
+    /*
+     * E-mail já cadastrado: oferece o que está lá em vez de pedir para digitar de novo. A pergunta
+     * aberta ("me manda seu e-mail?") num fluxo de botões convida a responder "sim" — e era isso que
+     * chegava aqui, para virar "e-mail inválido" na cara de quem só quis confirmar.
+     */
+    const savedEmail = customer.email?.trim()
+    if (savedEmail) {
+      await this.dependencies.conversationSessionRepository.updateStateByPhone({
+        customerPhone: session.customerPhone,
+        currentState: CONVERSATION_STATE.AWAITING_EMAIL_CONFIRMATION,
+        context: nextContext,
+      })
+      await this.dependencies.whatsAppSender.sendInteractiveButtons(
+        session.customerPhone,
+        MESSAGES.CHECKOUT_CONFIRM_SAVED_EMAIL.replace('{email}', savedEmail),
+        EMAIL_CONFIRMATION_BUTTONS,
+      )
       return
     }
 

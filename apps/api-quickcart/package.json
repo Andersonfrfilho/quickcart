@@ -26,7 +26,7 @@
     "@adatechnology/customer-module": "0.1.2",
     "@adatechnology/meta-whatsapp-contracts": "0.4.0",
     "@adatechnology/meta-whatsapp-module": "0.4.0",
-    "@adatechnology/meta-whatsapp-provider": "0.2.0",
+    "@adatechnology/meta-whatsapp-provider": "0.3.0",
     "@adatechnology/module-http": "0.1.1",
     "@adatechnology/notification-contracts": "0.1.0",
     "@adatechnology/notification-module": "0.1.2",

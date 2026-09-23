@@ -52,6 +52,13 @@ export type ConversationContext = {
   readonly editingCartPage?: number
   readonly awaitingQuantityProduct?: AwaitingQuantityProduct
   readonly wasExpired?: boolean
+  /**
+   * Marca que a entrega/endereço estão sendo trocados de dentro do "quero mudar".
+   *
+   * Sem ela, o caminho de endereço termina perguntando o pagamento — que é exatamente a pergunta que
+   * o cliente escolheu NÃO refazer ao entrar pela lista de mudanças.
+   */
+  readonly checkoutChangeInProgress?: boolean
   readonly editingCartItemId?: string
   readonly checkoutDeliveryType?: string
   /**
