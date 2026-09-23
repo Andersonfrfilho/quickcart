@@ -20,6 +20,7 @@ import { QuoteDeliveryFeeUseCase } from '@/modules/order/application/use-cases/Q
 import type { CustomerLocation } from '@/modules/order/application/types/QuoteDeliveryFee.types'
 import { GEOCODE_PRECISION } from '@/modules/shared/address/Address.schema'
 import type { ResolveCepCoordinateUseCase, ResolvedCoordinate } from '@/modules/shared/address/ResolveCepCoordinate.use-case'
+import type { ResolvedRoadRoute, ResolveRoadRouteParams, ResolveRoadRouteUseCase } from '@/modules/shared/address/ResolveRoadRoute.use-case'
 
 const STORE_CEP = '01415000'
 const NEAR_CEP = '01310100'
@@ -72,13 +73,30 @@ class FakeTierRepository implements DeliveryFeeTierRepositoryInterface {
   async markConfigured(): Promise<void> {}
 }
 
-function buildUseCase(overrides: { readonly tiers?: readonly DeliveryFeeTier[]; readonly storeCep?: string | undefined } = {}) {
+class FakeResolveRoadRoute implements Pick<ResolveRoadRouteUseCase, 'execute'> {
+  readonly calls: ResolveRoadRouteParams[] = []
+  constructor(private readonly result: ResolvedRoadRoute) {}
+
+  async execute(params: ResolveRoadRouteParams): Promise<ResolvedRoadRoute> {
+    this.calls.push(params)
+    return this.result
+  }
+}
+
+function buildUseCase(
+  overrides: {
+    readonly tiers?: readonly DeliveryFeeTier[]
+    readonly storeCep?: string | undefined
+    readonly resolveRoadRouteUseCase?: Pick<ResolveRoadRouteUseCase, 'execute'>
+  } = {},
+) {
   const resolveCepCoordinateUseCase = new FakeResolveCepCoordinate()
   const useCase = new QuoteDeliveryFeeUseCase({
     deliveryFeeTierRepository: new FakeTierRepository(overrides.tiers ?? TIERS),
     resolveCepCoordinateUseCase,
     storeCep: 'storeCep' in overrides ? overrides.storeCep : STORE_CEP,
     detourFactor: 1,
+    ...(overrides.resolveRoadRouteUseCase ? { resolveRoadRouteUseCase: overrides.resolveRoadRouteUseCase } : {}),
   })
   return { useCase, resolveCepCoordinateUseCase }
 }
@@ -163,5 +181,36 @@ describe('QuoteDeliveryFeeUseCase', () => {
     const { useCase } = buildUseCase()
     const result = await useCase.execute({ deliveryType: 'delivery', location: { kind: 'cep', cep: UNKNOWN_CEP } })
     expect(result).toEqual({ kind: 'unavailable', reason: 'geocoding_failed' })
+  })
+})
+
+describe('QuoteDeliveryFeeUseCase — distância vem da rota (OSRM) quando disponível', () => {
+  it('rota real disponível decide a faixa, mesmo quando a linha reta × fator estouraria', async () => {
+    // Loja e cliente a 8,25 km em linha reta (fora da faixa de 8 km); a rota real dá 7,91 km (dentro).
+    const resolveRoadRouteUseCase = new FakeResolveRoadRoute({ distanceKm: 7.91, durationMinutes: 12, isRouted: true })
+    const { useCase } = buildUseCase({ resolveRoadRouteUseCase })
+
+    const result = await useCase.execute({ deliveryType: 'delivery', location: coordinatesAtKm(8.25) })
+
+    expect(result).toMatchObject({ kind: 'quoted', feeInCents: 1000, tier: TIERS[1] })
+    if (result.kind === 'quoted') expect(result.distanceKm).toBeCloseTo(7.9, 6)
+    expect(resolveRoadRouteUseCase.calls).toHaveLength(1)
+  })
+
+  it('sem resolveRoadRouteUseCase, o resultado é idêntico ao comportamento de hoje (linha reta × fator)', async () => {
+    const { useCase } = buildUseCase()
+    const result = await useCase.execute({ deliveryType: 'delivery', location: coordinatesAtKm(6) })
+    expect(result).toMatchObject({ kind: 'quoted', feeInCents: 1000, tier: TIERS[1] })
+    if (result.kind === 'quoted') expect(result.distanceKm).toBeCloseTo(6, 6)
+  })
+
+  it('rota indisponível (isRouted false) usa a distância de fallback já calculada pelo use case injetado', async () => {
+    // Simula o próprio ResolveRoadRouteUseCase caindo para linha reta × fator quando o OSRM falha.
+    const resolveRoadRouteUseCase = new FakeResolveRoadRoute({ distanceKm: 6, isRouted: false })
+    const { useCase } = buildUseCase({ resolveRoadRouteUseCase })
+
+    const result = await useCase.execute({ deliveryType: 'delivery', location: coordinatesAtKm(6) })
+
+    expect(result).toMatchObject({ kind: 'quoted', feeInCents: 1000, tier: TIERS[1], distanceKm: 6 })
   })
 })

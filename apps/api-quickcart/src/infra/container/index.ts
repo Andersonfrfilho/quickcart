@@ -36,6 +36,9 @@ import { BrasilApiGeocodingProvider } from '@/infra/brasilapi/BrasilApiGeocoding
 import { ChainedAddressLookupProvider } from '@/infra/geocoding/ChainedAddressLookupProvider'
 import { ChainedGeocodingProvider } from '@/infra/geocoding/ChainedGeocodingProvider'
 import { NominatimGeocodingProvider } from '@/infra/nominatim/NominatimGeocodingProvider'
+import { StreetLevelGeocodingProvider } from '@/infra/geocoding/StreetLevelGeocodingProvider'
+import { OsrmRoutingProvider } from '@/infra/osrm/OsrmRoutingProvider'
+import { ResolveRoadRouteUseCase } from '@/modules/shared/address/ResolveRoadRoute.use-case'
 import type { AddressLookupProviderInterface } from '@/modules/shared/address/AddressLookupProvider.interface'
 import { ViaCepAddressLookupProvider } from '@/infra/viacep/ViaCepAddressLookupProvider'
 import type { CacheProvider } from '@/shared/providers/CacheProvider.interface'
@@ -251,16 +254,31 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     productRepository: dependencies.productRepository,
   })
   /*
-   * Coordenada por CEP, cacheada em Postgres. BrasilAPI primeiro — cobre CEP que o Nominatim não
-   * indexa (ex: Franca-SP) — e o Nominatim como fallback para quando ele chega a rua/bairro.
-   * Uma instância só do NominatimGeocodingProvider por processo, porque é ela que guarda o
-   * instante da última chamada para respeitar o 1 req/s do Nominatim.
+   * Coordenada por CEP, cacheada em Postgres. Ordem da cadeia: nível de rua primeiro (CEP → rua pelo
+   * `addressLookupProvider` já encadeado, rua → coordenada pela busca estruturada do Nominatim —
+   * precisão `street`), depois BrasilAPI (centroide da cidade, cobre CEP que o Nominatim não indexa,
+   * ex: Franca-SP) e por fim o Nominatim por CEP puro. Uma instância só do NominatimGeocodingProvider
+   * por processo — o nível de rua e a busca por CEP compartilham a mesma fila de 1 req/s — porque é
+   * ela que guarda o instante da última chamada para respeitar o limite do provedor.
    */
+  const nominatimGeocodingProvider = new NominatimGeocodingProvider()
   const resolveCepCoordinateUseCase = new ResolveCepCoordinateUseCase({
     geocodedAddressRepository: new DrizzleGeocodedAddressRepository(),
-    geocodingProvider: new ChainedGeocodingProvider([new BrasilApiGeocodingProvider(), new NominatimGeocodingProvider()]),
+    geocodingProvider: new ChainedGeocodingProvider([
+      new StreetLevelGeocodingProvider({
+        addressLookupProvider: dependencies.addressLookupProvider,
+        nominatimGeocodingProvider,
+      }),
+      new BrasilApiGeocodingProvider(),
+      nominatimGeocodingProvider,
+    ]),
     geocodeFailureRepository: new DrizzleGeocodeFailureRepository(),
     storeCep: environment.STORE_CEP,
+  })
+  // OSRM demo público sem SLA: primária quando responde, cai para linha reta × fator quando falha.
+  const resolveRoadRouteUseCase = new ResolveRoadRouteUseCase({
+    routingProvider: new OsrmRoutingProvider(),
+    detourFactor: environment.DISTANCE_DETOUR_FACTOR,
   })
   const deliveryFeeTierRepository = new DrizzleDeliveryFeeTierRepository()
   const quoteDeliveryFeeUseCase = new QuoteDeliveryFeeUseCase({
@@ -268,6 +286,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     resolveCepCoordinateUseCase,
     storeCep: environment.STORE_CEP,
     detourFactor: environment.DISTANCE_DETOUR_FACTOR,
+    resolveRoadRouteUseCase,
   })
   const createWebOrderUseCase = new CreateWebOrderUseCase({
     orderRepository,
@@ -294,6 +313,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     detourFactor: environment.DISTANCE_DETOUR_FACTOR,
     averageSpeedKmh: environment.DELIVERY_AVERAGE_SPEED_KMH,
     preparationMinutes: environment.STORE_PREPARATION_MINUTES,
+    resolveRoadRouteUseCase,
   })
   const getAdminOrderDetailUseCase = new GetAdminOrderDetailUseCase({
     orderRepository,

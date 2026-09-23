@@ -63,6 +63,12 @@ export type DeliveryEstimateParams = {
   readonly detourFactor: number
   readonly averageSpeedKmh: number
   readonly preparationMinutes: number
+  /**
+   * Rota real já resolvida (OSRM), quando disponível. Presente → substitui a linha reta corrigida
+   * como distância, e `durationMinutes` substitui a estimativa por velocidade média — o roteador já
+   * sabe quanto tempo o trajeto leva, então a média deixa de ser a melhor informação que temos.
+   */
+  readonly route?: { readonly distanceKm: number; readonly durationMinutes?: number }
 }
 
 export type DeliveryEstimate = {
@@ -90,16 +96,18 @@ function roundToStep(minutes: number): number {
 }
 
 export function estimateDelivery(params: DeliveryEstimateParams): DeliveryEstimate {
-  const roadDistanceKm = calculateRoadDistanceKm({
-    from: params.storeCoordinate,
-    to: params.customerCoordinate,
-    detourFactor: params.detourFactor,
-  })
+  const roadDistanceKm =
+    params.route?.distanceKm ??
+    calculateRoadDistanceKm({
+      from: params.storeCoordinate,
+      to: params.customerCoordinate,
+      detourFactor: params.detourFactor,
+    })
   const isApproximate = PRECISIONS_WITHOUT_ESTIMATE.has(params.precision)
 
   if (isApproximate) return { roadDistanceKm, isApproximate: true }
 
-  const travelMinutes = (roadDistanceKm / params.averageSpeedKmh) * MINUTES_PER_HOUR
+  const travelMinutes = params.route?.durationMinutes ?? (roadDistanceKm / params.averageSpeedKmh) * MINUTES_PER_HOUR
   const totalMinutes = params.preparationMinutes + travelMinutes
 
   return {

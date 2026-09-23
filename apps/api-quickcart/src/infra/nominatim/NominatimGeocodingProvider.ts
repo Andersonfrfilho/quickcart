@@ -30,6 +30,8 @@ import { maskCep } from '@/shared/maskCep'
 const nominatimLog = logger.child('NominatimGeocodingProvider')
 
 const PROVIDER_NAME = 'nominatim'
+/** Busca estruturada por rua (não por CEP): fonte separada da coordenada, mesmo endpoint. */
+const PROVIDER_NAME_STREET = 'nominatim-street'
 const NOMINATIM_SEARCH_URL = 'https://nominatim.openstreetmap.org/search'
 
 /** Exigência da política de uso: precisa identificar a aplicação, não um `fetch` anônimo. */
@@ -85,6 +87,12 @@ function resolvePrecision(address: NominatimAddress | undefined): GeocodePrecisi
   return GEOCODE_PRECISION.NONE
 }
 
+export type NominatimStreetAddressQuery = {
+  readonly street: string
+  readonly city: string
+  readonly state: string
+}
+
 type NominatimGeocodingProviderDependencies = {
   /** Injetáveis para teste, sem esperar 1,1s de verdade por chamada; produção usa os reais. */
   readonly now?: () => number
@@ -118,6 +126,70 @@ export class NominatimGeocodingProvider implements GeocodingProviderInterface {
       return await this.fetchCoordinate(digitsOnly)
     } finally {
       this.pendingCalls -= 1
+    }
+  }
+
+  /**
+   * Rua/cidade/UF → coordenada, via busca ESTRUTURADA (não `postalcode=`): é o caminho medido à mão
+   * que devolve `road` de verdade (spec: rua da loja e do cliente em Franca-SP resolvem com estrutura,
+   * `q=` em texto livre falha). Passa pela mesma fila e pelo mesmo `waitForRateLimit` do CEP — dois
+   * clientes por perto da loja não podem juntos furar o 1 req/s do provedor.
+   */
+  async geocodeByAddress(address: NominatimStreetAddressQuery): Promise<GeocodeOutcome> {
+    if (!address.street || !address.city || !address.state) return NOT_FOUND
+
+    if (this.pendingCalls >= MAX_PENDING_GEOCODE_CALLS) {
+      nominatimLog.warn('geocode_queue_full', { reason: 'structured_search' })
+      return TRANSIENT_ERROR
+    }
+
+    this.pendingCalls += 1
+    try {
+      await this.waitForRateLimit()
+      return await this.fetchStructuredCoordinate(address)
+    } finally {
+      this.pendingCalls -= 1
+    }
+  }
+
+  private async fetchStructuredCoordinate(address: NominatimStreetAddressQuery): Promise<GeocodeOutcome> {
+    const query = new URLSearchParams({
+      format: 'jsonv2',
+      limit: '1',
+      countrycodes: 'br',
+      street: address.street,
+      city: address.city,
+      state: address.state,
+    })
+    const url = `${NOMINATIM_SEARCH_URL}?${query.toString()}`
+
+    try {
+      const response = await fetch(url, {
+        headers: { 'User-Agent': USER_AGENT },
+        signal: AbortSignal.timeout(NOMINATIM_REQUEST_TIMEOUT_MS),
+      })
+      if (!response.ok) {
+        nominatimLog.warn('geocode_structured_http_error', { status: response.status })
+        const isTransient = response.status === 429 || response.status >= 500
+        return isTransient ? TRANSIENT_ERROR : NOT_FOUND
+      }
+
+      const hits = (await response.json()) as NominatimHit[]
+      const hit = hits[0]
+      if (!hit?.lat || !hit.lon) return NOT_FOUND
+
+      const latitude = Number(hit.lat)
+      const longitude = Number(hit.lon)
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return NOT_FOUND
+
+      // Consulta estruturada por rua: a precisão É a do logradouro, não a inferida das chaves de `address`.
+      return {
+        kind: GEOCODE_OUTCOME_KIND.FOUND,
+        coordinate: { latitude, longitude, precision: GEOCODE_PRECISION.STREET, provider: PROVIDER_NAME_STREET },
+      }
+    } catch (error: unknown) {
+      nominatimLog.warn('geocode_structured_failed', { error: serializeError(error) })
+      return TRANSIENT_ERROR
     }
   }
 
