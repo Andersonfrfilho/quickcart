@@ -25,6 +25,7 @@ import type { ConversationSessionRepositoryInterface } from '@/modules/webhook/d
 import type { WhatsAppSender } from '@/modules/webhook/infra/whatsapp/WhatsAppSender'
 import type { CartDraftItem, ConversationContext, PendingResolution } from '@/modules/conversation/shared/ConversationContext.types'
 import { advanceResolutionQueue } from '@/modules/conversation/application/handlers/support/advanceResolutionQueue'
+import { resolvePackQuantity } from '@/modules/conversation/application/resolvePackQuantity'
 import type { ListImportSource } from '@/modules/conversation/shared/ListImport.constant'
 import { MATCH_TYPE } from '@/modules/conversation/shared/Matcher.constant'
 import { generateId } from '@/shared/id'
@@ -86,11 +87,16 @@ export class ProcessParsedListItems {
     for (const result of matchResults) {
       if (result.matchType === MATCH_TYPE.AUTO) {
         const candidate = result.candidates[0]!
+        const packQuantity = resolvePackQuantity({
+          requestedQuantity: result.item.quantity,
+          requestedUnit: result.item.unit,
+          unitSize: candidate.unitSize,
+        })
         cartDraft.push({
           productId: candidate.productId,
           name: candidate.name,
           priceInCents: candidate.priceInCents,
-          quantity: result.item.quantity,
+          quantity: packQuantity?.quantity ?? result.item.quantity,
           matchType: 'auto',
           originalTerm: result.item.term,
         })
