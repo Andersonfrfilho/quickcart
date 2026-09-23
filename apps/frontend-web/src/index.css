@@ -285,11 +285,31 @@
   background-color: hsl(var(--muted));
 }
 
+/*
+  `width` junto de `inline-size`: o Chrome anima a largura deste pseudo-elemento pela propriedade
+  física, e só `inline-size` deixava a barra saltar sem transição nenhuma.
+
+  450ms, e não os 200ms de antes, para casar com a barra macro logo acima — duas barras na mesma tela
+  andando em velocidades diferentes lêem como duas coisas sem relação.
+*/
 .picking-progress::-webkit-progress-value {
   background-color: hsl(var(--primary));
-  transition: inline-size 200ms ease;
+  transition:
+    width 450ms cubic-bezier(0.4, 0, 0.2, 1),
+    inline-size 450ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* O Firefox anima o mesmo avanço por aqui; sem esta regra a barra andava só no Chrome. */
 .picking-progress::-moz-progress-bar {
   background-color: hsl(var(--primary));
+  transition:
+    width 450ms cubic-bezier(0.4, 0, 0.2, 1),
+    inline-size 450ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .picking-progress::-webkit-progress-value,
+  .picking-progress::-moz-progress-bar {
+    transition: none;
+  }
 }
