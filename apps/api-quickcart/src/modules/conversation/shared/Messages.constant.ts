@@ -213,6 +213,17 @@ export const HUMAN_HANDOFF_PHRASES = [
 ] as const
 
 /**
+ * A confirmação de quem pediu para cancelar a compra por escrito.
+ *
+ * Prefixo próprio e com o id dentro, como o do desvio: entre a pergunta e o toque o cliente pode ter
+ * feito outra compra, e "a última" já não seria a mesma que ele leu na pergunta.
+ */
+export const CUSTOMER_CANCEL_BUTTON_PREFIX = {
+  CONFIRM: 'customer_cancel_confirm:',
+  KEEP: 'customer_cancel_keep:',
+} as const
+
+/**
  * A decisão do cliente sobre um pedido com item em falta. O id carrega o pedido: `order_continue:<uuid>`.
  *
  * Carrega porque a pergunta pode ficar sem resposta por horas, e nesse meio-tempo a pessoa conversa sobre
@@ -418,6 +429,26 @@ export const MESSAGES = {
   CART_RESUME_STARTED_OVER: '🧹 Pronto, comecei uma compra nova: *{codigo}*. A lista anterior foi descartada.',
   /** Rótulo do pino no mapa. Curto porque o WhatsApp o mostra sob o quadradinho, junto do endereço. */
   CONFIRMING_SUMMARY_MAP_PIN_NAME: 'Entrega do seu pedido',
+  /**
+   * Cancelar é irreversível e devolve estoque: pergunta antes, com o código à vista.
+   *
+   * O código no texto porque o cliente pode ter mais de uma compra em andamento, e "seu pedido" não
+   * diz qual — confirmar o cancelamento errado é o tipo de erro que ninguém desfaz.
+   */
+  CUSTOMER_CANCEL_CONFIRM_ASK: 'Quer mesmo cancelar o pedido *{codigo}*?',
+  CUSTOMER_CANCEL_CONFIRM_BUTTON: '✅ Sim, cancelar',
+  CUSTOMER_CANCEL_KEEP_BUTTON: '🔙 Não, manter',
+  CUSTOMER_CANCEL_DONE: '❌ Pedido *{codigo}* cancelado. Se mudar de ideia, é só chamar que a gente monta de novo!',
+  CUSTOMER_CANCEL_KEPT: '👍 Tudo certo, seu pedido *{codigo}* continua de pé.',
+  /**
+   * Neutro sobre a etapa interna: o que o cliente precisa saber é que já não dá por aqui e com quem falar.
+   *
+   * Dizer "já está separado" convidaria a discutir a etapa; a sacola pronta é fato da loja, e quem
+   * pode abrir exceção é uma pessoa, não o bot.
+   */
+  CUSTOMER_CANCEL_TOO_LATE:
+    'Seu pedido *{codigo}* já está pronto e a caminho, então não consigo cancelar por aqui 😕\n\nMe chama que eu falo com a loja para resolver.',
+  CUSTOMER_CANCEL_NOTHING: 'Não encontrei nenhum pedido em andamento para cancelar 🙂',
   /**
    * O mesmo pino para endereço que veio de CEP, dizendo no rótulo que é aproximado.
    *

@@ -50,6 +50,7 @@ import { DrizzleConversationSessionRepository } from '@/modules/webhook/infra/da
 import { DrizzleMessageRepository } from '@/modules/webhook/infra/database/DrizzleMessageRepository'
 import { createQuickCartWhatsAppModule } from '@/modules/webhook/infra/whatsapp/metaWhatsAppModule'
 import { createQuickCartNotificationModule } from '@/modules/notification/infra/notificationModule'
+import { CancelOrderByCustomerUseCase } from '@/modules/order/application/use-cases/CancelOrderByCustomer.use-case'
 import { createSdkOrderStatusNotifier } from '@/modules/notification/infra/SdkOrderStatusNotifier'
 import { buildOrderStatusTemplates } from '@/modules/notification/shared/orderStatusTemplates.constant'
 import type { OrderRealtimeNotifierInterface } from '@/modules/order/domain/OrderRealtimeNotifier.interface'
@@ -495,6 +496,7 @@ type ConversationModuleDependencies = {
   readonly resolveOrderDeliveryEstimateUseCase: ResolveOrderDeliveryEstimateUseCase
   readonly quoteDeliveryFeeUseCase: QuoteDeliveryFeeUseCase
   readonly resolveCepCoordinateUseCase: ResolveCepCoordinateUseCase
+  readonly updateOrderStatusUseCase: UpdateOrderStatusUseCase
   readonly repeatLastOrderUseCase: RepeatLastOrderUseCase
   readonly resolveCustomerDecisionUseCase: ResolveCustomerDecisionUseCase
   readonly resolveItemSubstitutionUseCase: ResolveItemSubstitutionUseCase
@@ -622,6 +624,10 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     cartRepository,
     productRepository,
   })
+  const cancelOrderByCustomerUseCase = new CancelOrderByCustomerUseCase({
+    orderRepository: dependencies.orderRepository,
+    updateOrderStatusUseCase: dependencies.updateOrderStatusUseCase,
+  })
   const globalHandler = new GlobalHandler({
     conversationSessionRepository,
     whatsAppSender,
@@ -632,6 +638,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     resolveCustomerDecisionUseCase,
     resolveItemSubstitutionUseCase,
     orderRealtimeNotifier,
+    cancelOrderByCustomerUseCase,
     // O mesmo handler do estado `awaiting_list`: lista ditada fora de hora precisa dar no mesmo lugar.
     listHandler,
   })
@@ -945,6 +952,7 @@ const conversationModule = buildConversationModule({
   resolveOrderDeliveryEstimateUseCase: orderModule.resolveOrderDeliveryEstimateUseCase,
   quoteDeliveryFeeUseCase: orderModule.quoteDeliveryFeeUseCase,
   resolveCepCoordinateUseCase: orderModule.resolveCepCoordinateUseCase,
+  updateOrderStatusUseCase: orderModule.updateOrderStatusUseCase,
   repeatLastOrderUseCase: orderModule.repeatLastOrderUseCase,
   resolveCustomerDecisionUseCase: orderModule.resolveCustomerDecisionUseCase,
   resolveItemSubstitutionUseCase: orderModule.resolveItemSubstitutionUseCase,
