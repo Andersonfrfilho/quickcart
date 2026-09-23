@@ -225,11 +225,11 @@ export class OrderController {
       reason: ORDER_CHANGE_REASON.UNAVAILABLE_NOTIFIED,
     })
 
-    // `notifiedCount` no corpo para a tela dizer o que aconteceu: zero significa que não havia nada novo,
-    // e um "avisado!" nesse caso seria mentira.
+    // `notifiedCount` e `outcome` no corpo para a tela dizer o que aconteceu: zero com `queued` é a falta
+    // que entrou na fila atrás de uma pergunta em aberto, e um "avisado!" nesse caso seria mentira.
     response.json(200, {
       data: { ...withAllowedTransitions(result.detail.order), items: result.detail.items },
-      meta: { notifiedCount: result.notifiedCount },
+      meta: { notifiedCount: result.notifiedCount, outcome: result.outcome },
     })
   }
 

@@ -200,6 +200,8 @@ export function OrderDetailView({
   const unnotifiedUnavailable = items.filter(
     (item) => item.unavailableAt !== null && item.unavailableNotifiedAt === null,
   )
+  /** Pergunta no ar. É o único estado em que uma pergunta nova atropelaria a resposta que ainda vem. */
+  const isAwaitingCustomerDecision = order.status === ORDER_STATUS.AWAITING_CUSTOMER_DECISION
   /** Só oferece o passo que a esteira permite: em pedido já separado ou entregue, o convite seria ruído. */
   // Vem do servidor: a tela não decide mais o que é transição válida, só desenha o que ele permite.
   const nextStatuses = order.allowedNextStatuses
@@ -575,7 +577,7 @@ export function OrderDetailView({
         A hora é o dado que decide o que fazer: dez minutos de espera é normal, ontem à noite é telefonema.
         Sem ela, o painel diria só "aguardando" — que é o que o badge já diz, e não ajuda ninguém a agir.
       */}
-      {order.status === ORDER_STATUS.AWAITING_CUSTOMER_DECISION && (
+      {isAwaitingCustomerDecision && (
         <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-500/40 dark:bg-amber-500/10 print:hidden">
           <p className="font-semibold text-amber-900 dark:text-amber-200">⏳ Esperando o cliente responder</p>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -733,18 +735,32 @@ export function OrderDetailView({
               WhatsApp. Avisar e seguir manda o mesmo recado sem botão nenhum e não mexe no andamento — a
               separação continua, e "Marcar como separado" aparece assim que o último item disponível for
               marcado. Sem sobra no pedido, seguir entregaria sacola vazia: aí só existe perguntar.
+
+              Com pergunta em aberto, perguntar some e vira a frase: duas perguntas no WhatsApp voltam como
+              uma resposta só, e nos botões do pedido inteiro o id não diz a qual delas ela responde. A falta
+              recém-marcada não se perde — sai sozinha assim que o cliente responder a anterior. A trava de
+              verdade é da api; isto aqui é só não oferecer um botão que ela vai recusar.
             */}
+            {isAwaitingCustomerDecision ? (
+              <p className="text-sm text-muted-foreground">
+                ⏳ Já existe pergunta esperando resposta. Esta falta entra na fila e vira a próxima pergunta
+                assim que ele responder — não precisa fazer nada.
+              </p>
+            ) : null}
+
             <div className="flex flex-wrap gap-2">
-              <Button disabled={isNotifyingUnavailable} onClick={() => onNotifyUnavailable(true)}>
-                {isNotifyingUnavailable ? (
-                  'Enviando…'
-                ) : (
-                  <>
-                    <Icon>💬</Icon>
-                    Avisar e aguardar aprovação
-                  </>
-                )}
-              </Button>
+              {!isAwaitingCustomerDecision && (
+                <Button disabled={isNotifyingUnavailable} onClick={() => onNotifyUnavailable(true)}>
+                  {isNotifyingUnavailable ? (
+                    'Enviando…'
+                  ) : (
+                    <>
+                      <Icon>💬</Icon>
+                      Avisar e aguardar aprovação
+                    </>
+                  )}
+                </Button>
+              )}
 
               {availableItems.length > 0 && (
                 <Button

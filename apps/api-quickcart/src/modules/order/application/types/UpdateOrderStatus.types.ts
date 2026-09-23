@@ -9,6 +9,7 @@
  */
 
 import type { OrderRecord } from '@/modules/order/domain/OrderRepository.interface'
+import type { OrderActor } from '@/modules/order/domain/orderStatusFlow'
 import type { DeliveryFailureReason, OrderStatus } from '@/modules/order/shared/Order.constant'
 
 export type UpdateOrderStatusParams = {
@@ -21,6 +22,14 @@ export type UpdateOrderStatusParams = {
    * cancelamento, e é o motivo (não o status) que decide isso.
    */
   readonly deliveryFailureReason?: DeliveryFailureReason | undefined
+  /**
+   * Em nome de quem a transição está sendo pedida. Omitido é `staff`, que é o painel.
+   *
+   * Só quem age pelo cliente passa `customer`, e é o que faz a esteira recusar o cancelamento de uma
+   * sacola já separada — a verificação é aqui e não na tela, porque o botão escondido não protege
+   * rota nenhuma (`security.md` §8).
+   */
+  readonly actor?: OrderActor
 }
 
 export type UpdateOrderStatusResult = {
