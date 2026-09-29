@@ -9,9 +9,13 @@
  */
 
 import { describe, expect, it } from 'bun:test'
+import { hashWaMessageId } from '@/shared/hashWaMessageId'
 import { parseFailedDeliveries } from './parseFailedDeliveries'
 
 const RECIPIENT_PHONE = '5511988887777'
+/** wamid com a forma real da Meta: base64 que embute o telefone do destinatário. */
+const WAMID = 'wamid.HBgNNTUxMTk4ODg4Nzc3NxUCABEYEjBGRDc4OEMyMUFFQzM1MkFFRAA='
+const WAMID_HASH = '719211e3382f0967'
 
 function buildStatusWebhook(statuses: readonly unknown[]): string {
   return JSON.stringify({ entry: [{ changes: [{ value: { statuses } }] }] })
@@ -21,7 +25,7 @@ describe('parseFailedDeliveries', () => {
   it('extrai código, título e detalhe da recusa da Meta', () => {
     const rawBody = buildStatusWebhook([
       {
-        id: 'wamid.HBgN',
+        id: WAMID,
         status: 'failed',
         recipient_id: RECIPIENT_PHONE,
         errors: [
@@ -36,7 +40,7 @@ describe('parseFailedDeliveries', () => {
 
     expect(parseFailedDeliveries(rawBody)).toEqual([
       {
-        waMessageId: 'wamid.HBgN',
+        waMessageIdHash: WAMID_HASH,
         code: 131030,
         title: 'Recipient phone number not in allowed list',
         details: 'Recipient phone number not in allowed list for this WABA.',
@@ -46,7 +50,7 @@ describe('parseFailedDeliveries', () => {
 
   it('não carrega o telefone do cliente junto', () => {
     const rawBody = buildStatusWebhook([
-      { id: 'wamid.HBgN', status: 'failed', recipient_id: RECIPIENT_PHONE, errors: [{ code: 131030 }] },
+      { id: WAMID, status: 'failed', recipient_id: RECIPIENT_PHONE, errors: [{ code: 131030 }] },
     ])
 
     expect(JSON.stringify(parseFailedDeliveries(rawBody))).not.toContain(RECIPIENT_PHONE)
@@ -71,7 +75,7 @@ describe('parseFailedDeliveries', () => {
     const failures = parseFailedDeliveries(rawBody)
 
     expect(failures).toHaveLength(1)
-    expect(failures[0]?.waMessageId).toBe('wamid.B')
+    expect(failures[0]?.waMessageIdHash).toBe(hashWaMessageId('wamid.B'))
     expect(failures[0]?.code).toBe(131047)
   })
 
@@ -79,7 +83,7 @@ describe('parseFailedDeliveries', () => {
     const rawBody = buildStatusWebhook([{ id: 'wamid.A', status: 'failed' }])
 
     expect(parseFailedDeliveries(rawBody)).toEqual([
-      { waMessageId: 'wamid.A', code: undefined, title: undefined, details: undefined },
+      { waMessageIdHash: hashWaMessageId('wamid.A'), code: undefined, title: undefined, details: undefined },
     ])
   })
 
