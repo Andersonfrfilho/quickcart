@@ -7,9 +7,9 @@
  *
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  *
- * Cobre só o pedido de atendente por palavra-chave (T3.1). O resto do `GlobalHandler`
- * ("sair", decisão de pedido, repetir compra, lista solta) já tem comportamento estável e não
- * muda aqui.
+ * Cobre só o pedido de atendente por palavra-chave (T3.1). A saída mudou e ganhou arquivo próprio
+ * (`GlobalHandler.exit.test.ts`); decisão de pedido, repetir compra e lista solta seguem sem
+ * cobertura aqui.
  */
 
 import { describe, expect, it } from 'bun:test'

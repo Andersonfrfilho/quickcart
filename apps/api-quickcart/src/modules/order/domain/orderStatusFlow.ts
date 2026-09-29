@@ -130,6 +130,23 @@ export type OrderActor = (typeof ORDER_ACTOR)[keyof typeof ORDER_ACTOR]
  */
 const CUSTOMER_CANNOT_CANCEL_FROM: readonly string[] = [ORDER_STATUS.SEPARATED]
 
+/**
+ * Antes de a loja pôr a mão na sacola.
+ *
+ * Corte mais cedo que o de `CUSTOMER_CANNOT_CANCEL_FROM`, e de propósito: a pergunta aqui não é
+ * "ainda dá para cancelar?", e sim "vale lembrar o cliente de que dá?". De `preparing` em diante
+ * alguém já está separando, e convidar à desistência na despedida desfaria trabalho começado.
+ */
+const STATUSES_BEFORE_PICKING: readonly string[] = [
+  ORDER_STATUS.PENDING_CONFIRMATION,
+  ORDER_STATUS.CONFIRMED,
+]
+
+/** O pedido ainda não chegou à bancada: ninguém separou nada e desistir não custa trabalho. */
+export function isOrderBeforePicking(status: string): boolean {
+  return STATUSES_BEFORE_PICKING.includes(status)
+}
+
 export type OrderStatusFlowParams = {
   readonly status: string
   readonly deliveryType: string

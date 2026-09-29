@@ -197,6 +197,16 @@ export const GLOBAL_TRIGGER = {
 } as const
 
 /**
+ * Sair por toque, e não só digitando.
+ *
+ * `cart_review` já usa os três botões que o WhatsApp permite, então a saída não cabe no conjunto
+ * padrão — ela entra no conjunto do desvio de falta, onde "Fechar pedido" não faz sentido.
+ */
+export const GLOBAL_BUTTON_ID = {
+  EXIT: 'global_exit',
+} as const
+
+/**
  * Frases que pedem gente de verdade, em QUALQUER estado (spec §3.5, T3.1).
  *
  * Casamento é por mensagem inteira ou pelo prefixo "falar com" (ver `isHumanHandoffRequest`),
@@ -416,6 +426,12 @@ export const MESSAGES = {
   ORDER_HISTORY_HEADER: '📜 Suas últimas compras:',
   LIST_INTENT_DETECTED: '📝 Entendi que é uma lista! Já vou montar seu carrinho…',
   GOODBYE: '👋 Tudo bem, cancelei o que estávamos fazendo. Quando quiser começar de novo é só chamar!',
+  /**
+   * Sair encerra a conversa, não a compra já fechada. Sem esta linha, quem digita "sair" com um
+   * pedido em andamento sai achando que cancelou — e a sacola é separada mesmo assim.
+   */
+  GOODBYE_CANCELLABLE_ORDER_HINT:
+    'Seu pedido {codigo} continua em andamento. Se quiser cancelá-lo, é só me dizer "cancelar pedido".',
   SESSION_EXPIRED_PREFIX: '⏰ Faz um tempo que não conversamos, então recomecei sua sessão.\n\n',
   /**
    * `{codigo}` e `{itens}` preenchidos pelo CartResumeHandler.
@@ -597,7 +613,9 @@ export const MESSAGES = {
   /** Retirada usa `STORE_PREPARATION_MINUTES`, não a estimativa de rota. */
   ORDER_CONFIRMED_PICKUP_ESTIMATE_LINE: 'Pronto para retirada em cerca de {minutos} minutos.',
   ORDER_CANCELLED: 'Pedido cancelado. Seu carrinho continua salvo — quando quiser é só chamar de novo!',
-  ORDER_INSUFFICIENT_STOCK: '😕 Alguns itens não têm estoque suficiente no momento. Vamos revisar seu carrinho.',
+  ORDER_INSUFFICIENT_STOCK: '😕 Estes itens não têm estoque suficiente agora:\n{itens}\n\nVamos revisar seu carrinho.',
+  ORDER_INSUFFICIENT_STOCK_ITEM_SOLD_OUT: '• {item} — esgotado',
+  ORDER_INSUFFICIENT_STOCK_ITEM_PARTIAL: '• {item} — você pediu {pedido}, temos {disponivel}',
   ORDER_CART_EMPTY_ERROR: 'Seu carrinho está vazio, não dá pra fechar o pedido ainda.',
   REPEAT_ORDER_ADDED: '🔁 Adicionei os itens do seu último pedido no carrinho!',
   REPEAT_ORDER_SKIPPED_PREFIX: '⚠️ Alguns itens não estavam mais disponíveis e foram pulados:',
@@ -623,6 +641,18 @@ export const CART_REVIEW_BUTTONS = [
   { id: CART_REVIEW_BUTTON_ID.CHECKOUT, title: '✅ Fechar pedido' },
   { id: CART_REVIEW_BUTTON_ID.ADD_MORE, title: '➕ Adicionar mais' },
   { id: CART_REVIEW_BUTTON_ID.EDIT_CART, title: '✏️ Editar' },
+] as const
+
+/**
+ * O carrinho reaberto DEPOIS da falta de estoque.
+ *
+ * Sem "Fechar pedido" de propósito: com o mesmo carrinho a tentativa cai no mesmo erro, e um botão
+ * que só falha é pior que botão nenhum. A vaga que sobra é a saída, que até aqui só existia digitando.
+ */
+export const OUT_OF_STOCK_REVIEW_BUTTONS = [
+  { id: CART_REVIEW_BUTTON_ID.ADD_MORE, title: '➕ Adicionar mais' },
+  { id: CART_REVIEW_BUTTON_ID.EDIT_CART, title: '✏️ Editar' },
+  { id: GLOBAL_BUTTON_ID.EXIT, title: '👋 Sair' },
 ] as const
 
 export const DELIVERY_TYPE_BUTTONS = [

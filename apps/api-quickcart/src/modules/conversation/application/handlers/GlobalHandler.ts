@@ -35,7 +35,7 @@ import { requestHumanHandoff } from '@/modules/conversation/application/handlers
 import { isHumanHandoffRequest } from '@/modules/conversation/shared/isHumanHandoffRequest'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import type { ConversationContext } from '@/modules/conversation/shared/ConversationContext.types'
-import { MENU_BUTTON_ID, MESSAGES } from '@/modules/conversation/shared/Messages.constant'
+import { GLOBAL_BUTTON_ID, MENU_BUTTON_ID, MESSAGES } from '@/modules/conversation/shared/Messages.constant'
 import { parseOrderDecisionReply } from '@/modules/conversation/shared/orderDecisionReply'
 import { isCancelOrderRequest } from '@/modules/conversation/shared/isCancelOrderRequest'
 import { CUSTOMER_CANCEL_BUTTON_PREFIX } from '@/modules/conversation/shared/Messages.constant'
@@ -56,6 +56,8 @@ import {
 import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInCents'
 import { amountDueInCents } from '@/modules/order/shared/amountDue'
 import { CHANNEL } from '@/modules/shared/shared.constant'
+import { isOrderBeforePicking } from '@/modules/order/domain/orderStatusFlow'
+import type { OrderRepositoryInterface } from '@/modules/order/domain/OrderRepository.interface'
 import { OrderNoPreviousOrderError } from '@/shared/errors/OrderErrors'
 
 /**
@@ -106,6 +108,8 @@ export type GlobalHandlerDependencies = {
   readonly listHandler: ConversationHandlerInterface
   /** Desistência da compra pedida por escrito, fora do desvio de item em falta. */
   readonly cancelOrderByCustomerUseCase: Pick<CancelOrderByCustomerUseCase, 'execute'>
+  /** Só para a despedida saber se ainda cabe lembrar o cliente da palavra que cancela. */
+  readonly orderRepository: Pick<OrderRepositoryInterface, 'findLastByCustomer'>
 }
 
 export class GlobalHandler implements GlobalConversationHandlerInterface {
@@ -114,13 +118,8 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
   async tryHandle(context: ConversationHandlerContext): Promise<boolean> {
     const { session, customer, message } = context
 
-    if (message.kind === 'text' && isExitWord(message.body)) {
-      await this.dependencies.conversationSessionRepository.updateStateByPhone({
-        customerPhone: session.customerPhone,
-        currentState: CONVERSATION_STATE.GREETING,
-        context: {},
-      })
-      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.GOODBYE)
+    if (this.isExitRequest(message)) {
+      await this.handleExit({ customerPhone: session.customerPhone, customerId: customer.id })
       return true
     }
 
@@ -218,6 +217,45 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
     }
 
     return false
+  }
+
+  /** Digitar "sair"/"cancelar", ou tocar a saída que o desvio de falta de estoque oferece. */
+  private isExitRequest(message: ConversationHandlerContext['message']): boolean {
+    if (message.kind === 'button_reply') return message.buttonId === GLOBAL_BUTTON_ID.EXIT
+    return message.kind === 'text' && isExitWord(message.body)
+  }
+
+  /**
+   * Sair encerra a conversa e solta o carrinho para a pergunta da volta. Não cancela pedido.
+   *
+   * Desfazer a compra continua exigindo "cancelar pedido", com a confirmação que já existe: "sair" é
+   * o que se digita para encerrar o papo, e uma palavra solta não pode fechar um pedido, devolver
+   * estoque e disparar aviso. O que a despedida acrescenta é dizer QUAL é a palavra — e só enquanto a
+   * resposta ainda for sim, porque oferecer o que a esteira já não permite é pior que calar.
+   *
+   * `shouldAskCartResume` é o que faltava para "sair" resetar de verdade: sem ele, o estado voltava a
+   * `greeting` e o carrinho aberto ressurgia intacto na mensagem seguinte.
+   */
+  private async handleExit(params: {
+    readonly customerPhone: string
+    readonly customerId: string
+  }): Promise<void> {
+    await this.dependencies.conversationSessionRepository.updateStateByPhone({
+      customerPhone: params.customerPhone,
+      currentState: CONVERSATION_STATE.GREETING,
+      context: { shouldAskCartResume: true },
+    })
+
+    const lastOrder = await this.dependencies.orderRepository.findLastByCustomer(params.customerId)
+    const cancellableShortCode =
+      lastOrder && isOrderBeforePicking(lastOrder.status) ? lastOrder.shortCode : undefined
+
+    await this.dependencies.whatsAppSender.sendText(
+      params.customerPhone,
+      cancellableShortCode
+        ? `${MESSAGES.GOODBYE}\n\n${MESSAGES.GOODBYE_CANCELLABLE_ORDER_HINT.replace('{codigo}', cancellableShortCode)}`
+        : MESSAGES.GOODBYE,
+    )
   }
 
   /**

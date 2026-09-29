@@ -95,6 +95,7 @@ import {
   DELIVERY_TYPE_BUTTONS,
   MESSAGES,
   OUT_OF_RANGE_DECISION_BUTTONS,
+  OUT_OF_STOCK_REVIEW_BUTTONS,
   PAYMENT_METHOD_BUTTON_ID,
   PAYMENT_METHOD_BUTTONS,
   RECEIPT_PREFERENCE_BUTTON_ID,
@@ -1364,18 +1365,50 @@ export class CheckoutHandler implements ConversationHandlerInterface {
         currentState: CONVERSATION_STATE.CART_REVIEW,
         context: {},
       })
-      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.ORDER_INSUFFICIENT_STOCK)
+      await this.dependencies.whatsAppSender.sendText(
+        session.customerPhone,
+        MESSAGES.ORDER_INSUFFICIENT_STOCK.replace('{itens}', await this.describeMissingStock(error.items)),
+      )
       await sendCartSummary({
         customerPhone: session.customerPhone,
         cartId,
         cartRepository: this.dependencies.cartRepository,
         productRepository: this.dependencies.productRepository,
         whatsAppSender: this.dependencies.whatsAppSender,
+        buttons: OUT_OF_STOCK_REVIEW_BUTTONS,
       })
       return
     }
 
     throw error
+  }
+
+  /**
+   * Nomeia o que faltou, com o que ainda tem.
+   *
+   * O erro sempre carregou `productId`, `requested` e `available`, e os três eram descartados: o
+   * cliente lia "alguns itens" sobre um resumo de quinze linhas e não tinha como saber o que editar —
+   * o único caminho à mão era tentar fechar de novo e falhar igual.
+   */
+  private async describeMissingStock(
+    items: ReadonlyArray<{ readonly productId: string; readonly requested: number; readonly available: number }>,
+  ): Promise<string> {
+    const products = await Promise.all(
+      items.map((item) => this.dependencies.productRepository.findById(item.productId)),
+    )
+
+    const lines = items.map((item, index) => {
+      const productName = products[index]?.name ?? item.productId
+      if (item.available <= 0) {
+        return MESSAGES.ORDER_INSUFFICIENT_STOCK_ITEM_SOLD_OUT.replace('{item}', productName)
+      }
+
+      return MESSAGES.ORDER_INSUFFICIENT_STOCK_ITEM_PARTIAL.replace('{item}', productName)
+        .replace('{pedido}', String(item.requested))
+        .replace('{disponivel}', String(item.available))
+    })
+
+    return lines.join('\n')
   }
 
   /**

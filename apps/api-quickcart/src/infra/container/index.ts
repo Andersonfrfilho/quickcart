@@ -639,6 +639,8 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     resolveItemSubstitutionUseCase,
     orderRealtimeNotifier,
     cancelOrderByCustomerUseCase,
+    // A despedida só oferece "cancelar pedido" enquanto a esteira ainda aceita.
+    orderRepository,
     // O mesmo handler do estado `awaiting_list`: lista ditada fora de hora precisa dar no mesmo lugar.
     listHandler,
   })

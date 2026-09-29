@@ -15,6 +15,10 @@
  * Sessão expirada COM carrinho de itens não vai direto para o menu: antes, pergunta se o cliente quer
  * continuar aquela compra ou começar outra. O carrinho é por cliente, não por conversa — sem a
  * pergunta, a lista da conversa anterior continuava crescendo em silêncio na conversa seguinte.
+ *
+ * Quem digitou "sair" chega pela mesma porta (`shouldAskCartResume`). Sair zerava só a sessão, então
+ * a volta caía no menu e o carrinho antigo ressurgia intacto no primeiro "ver carrinho" — inclusive
+ * com os itens sem estoque que motivaram a saída.
  */
 
 import type { CartRepositoryInterface } from '@/modules/cart/domain/CartRepository.interface'
@@ -37,8 +41,9 @@ export class GreetingHandler implements ConversationHandlerInterface {
 
   async handle({ session, customer }: ConversationHandlerContext): Promise<void> {
     const context = (session.context ?? {}) as ConversationContext
+    const shouldAskAboutOpenCart = context.wasExpired === true || context.shouldAskCartResume === true
 
-    if (context.wasExpired) {
+    if (shouldAskAboutOpenCart) {
       const question = await buildCartResumeQuestion({
         customerId: customer.id,
         cartRepository: this.dependencies.cartRepository,
