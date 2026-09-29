@@ -16,6 +16,8 @@
  */
 
 import { isExitWord } from '@/modules/conversation/application/isExitWord'
+import { logger } from '@/shared/logger'
+import { LOG_EVENTS } from '@/shared/constants/log-events.constant'
 import type { CartRepositoryInterface } from '@/modules/cart/domain/CartRepository.interface'
 import type { ProductRepositoryInterface } from '@/modules/catalog/domain/ProductRepository.interface'
 import type { RepeatLastOrderUseCase } from '@/modules/order/application/use-cases/RepeatLastOrder.use-case'
@@ -112,6 +114,8 @@ export type GlobalHandlerDependencies = {
   readonly orderRepository: Pick<OrderRepositoryInterface, 'findLastByCustomer'>
 }
 
+const globalLog = logger.child('GlobalHandler')
+
 export class GlobalHandler implements GlobalConversationHandlerInterface {
   constructor(private readonly dependencies: GlobalHandlerDependencies) {}
 
@@ -119,7 +123,11 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
     const { session, customer, message } = context
 
     if (this.isExitRequest(message)) {
-      await this.handleExit({ customerPhone: session.customerPhone, customerId: customer.id })
+      await this.handleExit({
+        customerPhone: session.customerPhone,
+        customerId: customer.id,
+        fromState: session.currentState,
+      })
       return true
     }
 
@@ -235,10 +243,15 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
    *
    * `shouldAskCartResume` é o que faltava para "sair" resetar de verdade: sem ele, o estado voltava a
    * `greeting` e o carrinho aberto ressurgia intacto na mensagem seguinte.
+   *
+   * O log fecha o trace depois do envio: a engine não loga sucesso e a mensagem enviada é registrada no
+   * banco, não no stdout, então uma reclamação de "digitei sair e nada aconteceu" não tinha como ser
+   * confirmada nem desmentida pelos logs — sobrava o `flow_exited_by_customer` do FlowDriver e silêncio.
    */
   private async handleExit(params: {
     readonly customerPhone: string
     readonly customerId: string
+    readonly fromState: string
   }): Promise<void> {
     await this.dependencies.conversationSessionRepository.updateStateByPhone({
       customerPhone: params.customerPhone,
@@ -256,6 +269,11 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
         ? `${MESSAGES.GOODBYE}\n\n${MESSAGES.GOODBYE_CANCELLABLE_ORDER_HINT.replace('{codigo}', cancellableShortCode)}`
         : MESSAGES.GOODBYE,
     )
+
+    globalLog.info(LOG_EVENTS.CONVERSATION_EXITED, {
+      fromState: params.fromState,
+      hasCancellableOrder: cancellableShortCode !== undefined,
+    })
   }
 
   /**
