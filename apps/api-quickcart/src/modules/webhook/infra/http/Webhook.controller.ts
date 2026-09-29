@@ -23,6 +23,7 @@ import { logger } from '@/shared/logger'
 import { LOG_EVENTS } from '@/shared/constants/log-events.constant'
 import { WhatsAppInvalidSignatureError } from '@/shared/errors/WhatsAppErrors'
 import { serializeError } from '@/shared/serializeError'
+import { parseFailedDeliveries } from '@/modules/webhook/application/parseFailedDeliveries'
 
 const webhookLog = logger.child('Webhook')
 
@@ -72,6 +73,7 @@ export class WebhookController {
           messages: result.messagesProcessed,
           statuses: result.statusesProcessed,
         })
+        this.logFailedDeliveries(request.rawBody)
       }
     } catch (error) {
       // Assinatura inválida é a única falha que não vira 200: a chamada não veio da Meta, então
@@ -85,5 +87,20 @@ export class WebhookController {
     }
 
     response.json(200, { data: { status: 'ok' } })
+  }
+
+  /**
+   * Recusa de entrega não é erro nosso, mas some do log como se fosse: o módulo grava `failed` na
+   * mensagem e joga fora o motivo, que só passa por aqui, no corpo cru.
+   */
+  private logFailedDeliveries(rawBody: Buffer): void {
+    for (const delivery of parseFailedDeliveries(rawBody.toString('utf8'))) {
+      webhookLog.error(LOG_EVENTS.WHATSAPP_DELIVERY_FAILED, {
+        waMessageId: delivery.waMessageId,
+        code: delivery.code,
+        title: delivery.title,
+        details: delivery.details,
+      })
+    }
   }
 }

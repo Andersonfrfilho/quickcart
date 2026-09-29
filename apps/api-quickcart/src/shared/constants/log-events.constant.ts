@@ -37,6 +37,7 @@ export const LOG_EVENTS = {
   // WhatsApp sender
   WHATSAPP_SEND_MOCK: 'whatsapp_send_mock',
   WHATSAPP_SEND_FAILED: 'whatsapp_send_failed',
+  WHATSAPP_DELIVERY_FAILED: 'whatsapp_delivery_failed',
 
   // Motor de conversa
   CONVERSATION_ENGINE_FAILED: 'conversation_engine_failed',
