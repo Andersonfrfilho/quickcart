@@ -35,8 +35,14 @@ import { requestHumanHandoff } from '@/modules/conversation/application/handlers
 import { isHumanHandoffRequest } from '@/modules/conversation/shared/isHumanHandoffRequest'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import type { ConversationContext } from '@/modules/conversation/shared/ConversationContext.types'
-import { MENU_BUTTON_ID, MESSAGES } from '@/modules/conversation/shared/Messages.constant'
+import { GLOBAL_BUTTON_ID, MENU_BUTTON_ID, MESSAGES } from '@/modules/conversation/shared/Messages.constant'
 import { parseOrderDecisionReply } from '@/modules/conversation/shared/orderDecisionReply'
+import { isCancelOrderRequest } from '@/modules/conversation/shared/isCancelOrderRequest'
+import { CUSTOMER_CANCEL_BUTTON_PREFIX } from '@/modules/conversation/shared/Messages.constant'
+import {
+  CUSTOMER_CANCEL_SKIP_REASON,
+  type CancelOrderByCustomerUseCase,
+} from '@/modules/order/application/use-cases/CancelOrderByCustomer.use-case'
 import {
   ORDER_DECISION,
   type OrderDecision,
@@ -50,6 +56,8 @@ import {
 import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInCents'
 import { amountDueInCents } from '@/modules/order/shared/amountDue'
 import { CHANNEL } from '@/modules/shared/shared.constant'
+import { isOrderBeforePicking } from '@/modules/order/domain/orderStatusFlow'
+import type { OrderRepositoryInterface } from '@/modules/order/domain/OrderRepository.interface'
 import { OrderNoPreviousOrderError } from '@/shared/errors/OrderErrors'
 
 /**
@@ -98,6 +106,10 @@ export type GlobalHandlerDependencies = {
    * pedido a lista ou de ele ter ditado por conta própria.
    */
   readonly listHandler: ConversationHandlerInterface
+  /** Desistência da compra pedida por escrito, fora do desvio de item em falta. */
+  readonly cancelOrderByCustomerUseCase: Pick<CancelOrderByCustomerUseCase, 'execute'>
+  /** Só para a despedida saber se ainda cabe lembrar o cliente da palavra que cancela. */
+  readonly orderRepository: Pick<OrderRepositoryInterface, 'findLastByCustomer'>
 }
 
 export class GlobalHandler implements GlobalConversationHandlerInterface {
@@ -106,13 +118,8 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
   async tryHandle(context: ConversationHandlerContext): Promise<boolean> {
     const { session, customer, message } = context
 
-    if (message.kind === 'text' && isExitWord(message.body)) {
-      await this.dependencies.conversationSessionRepository.updateStateByPhone({
-        customerPhone: session.customerPhone,
-        currentState: CONVERSATION_STATE.GREETING,
-        context: {},
-      })
-      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.GOODBYE)
+    if (this.isExitRequest(message)) {
+      await this.handleExit({ customerPhone: session.customerPhone, customerId: customer.id })
       return true
     }
 
@@ -131,6 +138,29 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
         },
         session.customerPhone,
       )
+      return true
+    }
+
+    /**
+     * Desistir da compra vale em qualquer estado, e vem ANTES do parser de lista: "quero cancelar o
+     * pedido" sem esta porta cairia no montador de carrinho, que tentaria casar "pedido" com produto.
+     *
+     * Fica depois do `isExitWord` de propósito — "cancelar" sozinho continua sendo sair da conversa,
+     * e só a frase com o objeto ("cancelar o pedido") chega aqui.
+     */
+    if (message.kind === 'text' && isCancelOrderRequest(message.body)) {
+      await this.askCancelConfirmation({ customerPhone: session.customerPhone, customerId: customer.id })
+      return true
+    }
+
+    const cancelReply = this.parseCancelConfirmation(message)
+    if (cancelReply) {
+      await this.handleCancelConfirmation({
+        customerPhone: session.customerPhone,
+        customerId: customer.id,
+        orderId: cancelReply.orderId,
+        confirmed: cancelReply.confirmed,
+      })
       return true
     }
 
@@ -187,6 +217,45 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
     }
 
     return false
+  }
+
+  /** Digitar "sair"/"cancelar", ou tocar a saída que o desvio de falta de estoque oferece. */
+  private isExitRequest(message: ConversationHandlerContext['message']): boolean {
+    if (message.kind === 'button_reply') return message.buttonId === GLOBAL_BUTTON_ID.EXIT
+    return message.kind === 'text' && isExitWord(message.body)
+  }
+
+  /**
+   * Sair encerra a conversa e solta o carrinho para a pergunta da volta. Não cancela pedido.
+   *
+   * Desfazer a compra continua exigindo "cancelar pedido", com a confirmação que já existe: "sair" é
+   * o que se digita para encerrar o papo, e uma palavra solta não pode fechar um pedido, devolver
+   * estoque e disparar aviso. O que a despedida acrescenta é dizer QUAL é a palavra — e só enquanto a
+   * resposta ainda for sim, porque oferecer o que a esteira já não permite é pior que calar.
+   *
+   * `shouldAskCartResume` é o que faltava para "sair" resetar de verdade: sem ele, o estado voltava a
+   * `greeting` e o carrinho aberto ressurgia intacto na mensagem seguinte.
+   */
+  private async handleExit(params: {
+    readonly customerPhone: string
+    readonly customerId: string
+  }): Promise<void> {
+    await this.dependencies.conversationSessionRepository.updateStateByPhone({
+      customerPhone: params.customerPhone,
+      currentState: CONVERSATION_STATE.GREETING,
+      context: { shouldAskCartResume: true },
+    })
+
+    const lastOrder = await this.dependencies.orderRepository.findLastByCustomer(params.customerId)
+    const cancellableShortCode =
+      lastOrder && isOrderBeforePicking(lastOrder.status) ? lastOrder.shortCode : undefined
+
+    await this.dependencies.whatsAppSender.sendText(
+      params.customerPhone,
+      cancellableShortCode
+        ? `${MESSAGES.GOODBYE}\n\n${MESSAGES.GOODBYE_CANCELLABLE_ORDER_HINT.replace('{codigo}', cancellableShortCode)}`
+        : MESSAGES.GOODBYE,
+    )
   }
 
   /**
@@ -363,6 +432,106 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
 
       throw error
     }
+  }
+
+  /**
+   * Pergunta antes de cancelar, com o código à vista.
+   *
+   * Confirmação e não cancelamento direto: é irreversível, devolve estoque e o cliente pode ter mais
+   * de uma compra em andamento. O botão do desvio (`order_cancel:`) cancela na hora porque ali a
+   * pergunta já era sobre aquele pedido — aqui a frase não diz qual, e quem escolhe é ele.
+   */
+  private async askCancelConfirmation(params: {
+    readonly customerPhone: string
+    readonly customerId: string
+  }): Promise<void> {
+    const result = await this.dependencies.cancelOrderByCustomerUseCase.execute({
+      customerId: params.customerId,
+      dryRun: true,
+    })
+
+    if (!result.cancelled && result.reason === CUSTOMER_CANCEL_SKIP_REASON.NOTHING_TO_CANCEL) {
+      await this.dependencies.whatsAppSender.sendText(params.customerPhone, MESSAGES.CUSTOMER_CANCEL_NOTHING)
+      return
+    }
+
+    const shortCode = result.order?.shortCode ?? ''
+
+    if (!result.cancelled && result.reason === CUSTOMER_CANCEL_SKIP_REASON.TOO_LATE) {
+      await this.dependencies.whatsAppSender.sendText(
+        params.customerPhone,
+        MESSAGES.CUSTOMER_CANCEL_TOO_LATE.replace('{codigo}', shortCode),
+      )
+      return
+    }
+
+    const orderId = result.order?.id ?? ''
+    await this.dependencies.whatsAppSender.sendInteractiveButtons(
+      params.customerPhone,
+      MESSAGES.CUSTOMER_CANCEL_CONFIRM_ASK.replace('{codigo}', shortCode),
+      [
+        { id: `${CUSTOMER_CANCEL_BUTTON_PREFIX.CONFIRM}${orderId}`, title: MESSAGES.CUSTOMER_CANCEL_CONFIRM_BUTTON },
+        { id: `${CUSTOMER_CANCEL_BUTTON_PREFIX.KEEP}${orderId}`, title: MESSAGES.CUSTOMER_CANCEL_KEEP_BUTTON },
+      ],
+    )
+  }
+
+  private parseCancelConfirmation(
+    message: ConversationHandlerContext['message'],
+  ): { readonly orderId: string; readonly confirmed: boolean } | undefined {
+    const id = message.kind === 'button_reply' ? message.buttonId : undefined
+    if (!id) return undefined
+
+    if (id.startsWith(CUSTOMER_CANCEL_BUTTON_PREFIX.CONFIRM)) {
+      return { orderId: id.slice(CUSTOMER_CANCEL_BUTTON_PREFIX.CONFIRM.length), confirmed: true }
+    }
+    if (id.startsWith(CUSTOMER_CANCEL_BUTTON_PREFIX.KEEP)) {
+      return { orderId: id.slice(CUSTOMER_CANCEL_BUTTON_PREFIX.KEEP.length), confirmed: false }
+    }
+
+    return undefined
+  }
+
+  private async handleCancelConfirmation(params: {
+    readonly customerPhone: string
+    readonly customerId: string
+    readonly orderId: string
+    readonly confirmed: boolean
+  }): Promise<void> {
+    const result = await this.dependencies.cancelOrderByCustomerUseCase.execute({
+      customerId: params.customerId,
+      orderId: params.orderId,
+      ...(params.confirmed ? {} : { dryRun: true }),
+    })
+
+    const shortCode = result.order?.shortCode ?? ''
+
+    if (!params.confirmed) {
+      await this.dependencies.whatsAppSender.sendText(
+        params.customerPhone,
+        MESSAGES.CUSTOMER_CANCEL_KEPT.replace('{codigo}', shortCode),
+      )
+      return
+    }
+
+    if (result.cancelled) {
+      await this.dependencies.whatsAppSender.sendText(
+        params.customerPhone,
+        MESSAGES.CUSTOMER_CANCEL_DONE.replace('{codigo}', shortCode),
+      )
+      return
+    }
+
+    /*
+     * A loja separou a sacola entre a pergunta e o toque. Dizer "cancelado" aqui seria mentir sobre
+     * uma sacola que está saindo para entrega.
+     */
+    await this.dependencies.whatsAppSender.sendText(
+      params.customerPhone,
+      result.reason === CUSTOMER_CANCEL_SKIP_REASON.TOO_LATE
+        ? MESSAGES.CUSTOMER_CANCEL_TOO_LATE.replace('{codigo}', shortCode)
+        : MESSAGES.CUSTOMER_CANCEL_NOTHING,
+    )
   }
 
   private isRepeatOrderTrigger(message: ConversationHandlerContext['message']): boolean {

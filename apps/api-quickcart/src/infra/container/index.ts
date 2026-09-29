@@ -50,6 +50,7 @@ import { DrizzleConversationSessionRepository } from '@/modules/webhook/infra/da
 import { DrizzleMessageRepository } from '@/modules/webhook/infra/database/DrizzleMessageRepository'
 import { createQuickCartWhatsAppModule } from '@/modules/webhook/infra/whatsapp/metaWhatsAppModule'
 import { createQuickCartNotificationModule } from '@/modules/notification/infra/notificationModule'
+import { CancelOrderByCustomerUseCase } from '@/modules/order/application/use-cases/CancelOrderByCustomer.use-case'
 import { createSdkOrderStatusNotifier } from '@/modules/notification/infra/SdkOrderStatusNotifier'
 import { buildOrderStatusTemplates } from '@/modules/notification/shared/orderStatusTemplates.constant'
 import type { OrderRealtimeNotifierInterface } from '@/modules/order/domain/OrderRealtimeNotifier.interface'
@@ -258,6 +259,8 @@ type OrderModule = {
   readonly orderController: OrderController
   readonly resolveOrderDeliveryEstimateUseCase: ResolveOrderDeliveryEstimateUseCase
   readonly quoteDeliveryFeeUseCase: QuoteDeliveryFeeUseCase
+  /** Exposto porque o resumo da confirmação usa a MESMA coordenada que cotou a taxa, já em cache. */
+  readonly resolveCepCoordinateUseCase: ResolveCepCoordinateUseCase
   readonly deliveryFeeTiersController: DeliveryFeeTiersController
   readonly orderStreamController: OrderStreamController
   readonly orderRealtimeNotifier: OrderRealtimeNotifierInterface
@@ -434,6 +437,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     orderController,
     resolveOrderDeliveryEstimateUseCase,
     quoteDeliveryFeeUseCase,
+    resolveCepCoordinateUseCase,
     deliveryFeeTiersController,
     orderStreamController: new OrderStreamController({ sseHub, ticketStore: sseTicketStore }),
     orderRealtimeNotifier,
@@ -491,6 +495,8 @@ type ConversationModuleDependencies = {
   readonly createOrderFromCartUseCase: CreateOrderFromCartUseCase
   readonly resolveOrderDeliveryEstimateUseCase: ResolveOrderDeliveryEstimateUseCase
   readonly quoteDeliveryFeeUseCase: QuoteDeliveryFeeUseCase
+  readonly resolveCepCoordinateUseCase: ResolveCepCoordinateUseCase
+  readonly updateOrderStatusUseCase: UpdateOrderStatusUseCase
   readonly repeatLastOrderUseCase: RepeatLastOrderUseCase
   readonly resolveCustomerDecisionUseCase: ResolveCustomerDecisionUseCase
   readonly resolveItemSubstitutionUseCase: ResolveItemSubstitutionUseCase
@@ -601,12 +607,26 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     addressLookupProvider,
     storePreparationMinutes: environment.STORE_PREPARATION_MINUTES,
     quoteDeliveryFeeUseCase,
+    /*
+     * A MESMA coordenada que cotou a taxa, e por isso já em cache: o pino aproximado não paga uma
+     * segunda ida ao geocodificador nem depende de o endereço ter vindo com latitude.
+     */
+    resolveAddressCoordinates: async (address) => {
+      const cep = (address as { readonly cep?: unknown } | null)?.cep
+      if (typeof cep !== 'string' || !cep) return undefined
+
+      return await dependencies.resolveCepCoordinateUseCase.execute({ cep })
+    },
   })
   const cashChangeHandler = new CashChangeHandler({
     conversationSessionRepository,
     whatsAppSender,
     cartRepository,
     productRepository,
+  })
+  const cancelOrderByCustomerUseCase = new CancelOrderByCustomerUseCase({
+    orderRepository: dependencies.orderRepository,
+    updateOrderStatusUseCase: dependencies.updateOrderStatusUseCase,
   })
   const globalHandler = new GlobalHandler({
     conversationSessionRepository,
@@ -618,6 +638,9 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     resolveCustomerDecisionUseCase,
     resolveItemSubstitutionUseCase,
     orderRealtimeNotifier,
+    cancelOrderByCustomerUseCase,
+    // A despedida só oferece "cancelar pedido" enquanto a esteira ainda aceita.
+    orderRepository,
     // O mesmo handler do estado `awaiting_list`: lista ditada fora de hora precisa dar no mesmo lugar.
     listHandler,
   })
@@ -717,6 +740,17 @@ function buildWebhookModule(
   const orderStatusNotifier = createSdkOrderStatusNotifier({
     module: notification,
     companyId: environment.WHATSAPP_COMPANY_ID,
+    /*
+     * Dentro da janela de 24h o aviso de status sai como texto livre, pelo mesmo caminho do aviso de
+     * item em falta — que é o que de fato chega hoje. O template continua existindo para fora dela,
+     * onde a Graph API não aceita outra coisa.
+     */
+    freeFormWindow: {
+      resolveWhatsAppNumber: async (customerId) => (await customerRepository.findById(customerId))?.phone,
+      hoursSinceLastInbound: (whatsAppNumber) =>
+        metaWhatsApp.conversations.repository.hoursSinceLastInbound(environment.WHATSAPP_COMPANY_ID, whatsAppNumber),
+      sendText: (whatsAppNumber, body) => whatsAppSender.sendText(whatsAppNumber, body),
+    },
   })
 
   /**
@@ -919,6 +953,8 @@ const conversationModule = buildConversationModule({
   createOrderFromCartUseCase: orderModule.createOrderFromCartUseCase,
   resolveOrderDeliveryEstimateUseCase: orderModule.resolveOrderDeliveryEstimateUseCase,
   quoteDeliveryFeeUseCase: orderModule.quoteDeliveryFeeUseCase,
+  resolveCepCoordinateUseCase: orderModule.resolveCepCoordinateUseCase,
+  updateOrderStatusUseCase: orderModule.updateOrderStatusUseCase,
   repeatLastOrderUseCase: orderModule.repeatLastOrderUseCase,
   resolveCustomerDecisionUseCase: orderModule.resolveCustomerDecisionUseCase,
   resolveItemSubstitutionUseCase: orderModule.resolveItemSubstitutionUseCase,

@@ -63,6 +63,14 @@ Diferença: lá o fluxo conversacional fica no n8n; **aqui o motor de conversa v
   entrega, dinheiro); `receiptPreference` = `whatsapp` | `email` | `both`.
 - **Estados da conversa** em varchar (nunca enum de banco); handlers por estado em
   `modules/conversation/application/handlers/`.
+- **Sair** (`sair`/`cancelar`, ou o botão `global_exit`) encerra a conversa e marca
+  `shouldAskCartResume`: a volta cai na pergunta "continuar ou começar outro" em vez de reabrir o
+  carrinho em silêncio. **Sair não cancela pedido** — isso continua exigindo "cancelar pedido", com
+  confirmação. A despedida só menciona essa palavra enquanto o pedido está antes da separação
+  (`isOrderBeforePicking`: `pending_confirmation` ou `confirmed`).
+- **Falta de estoque no fechamento**: a mensagem nomeia cada item faltante (esgotado ou quanto
+  sobrou) e o carrinho volta com `OUT_OF_STOCK_REVIEW_BUTTONS` — sem "Fechar pedido", que repetiria
+  o mesmo erro, e com a saída no lugar dele.
 
 ### Roteiro de atendimento (`.specs/features/roteiro-atendimento/`)
 

@@ -107,11 +107,58 @@ const STATUS_REQUIRES_DELIVERY_TYPE: Readonly<Record<string, string>> = {
   [ORDER_STATUS.READY_FOR_PICKUP]: DELIVERY_TYPE.PICKUP,
 }
 
+/**
+ * Quem está pedindo a transição. A esteira é a mesma; o que muda é o que cada um pode desfazer.
+ *
+ * `staff` cobre loja e entregador: os dois estão com a sacola na mão e precisam poder encerrar um
+ * pedido em qualquer ponto — inclusive na rua, onde o cliente já não decide.
+ */
+export const ORDER_ACTOR = {
+  STAFF: 'staff',
+  CUSTOMER: 'customer',
+} as const
+
+export type OrderActor = (typeof ORDER_ACTOR)[keyof typeof ORDER_ACTOR]
+
+/**
+ * De onde em diante o cliente não cancela mais.
+ *
+ * Com a sacola fechada o custo já foi gasto: os itens saíram da prateleira, e o que sobra ao cliente
+ * é não receber — que é ocorrência de entrega, com motivo registrado, e não cancelamento. De
+ * `out_for_delivery` em diante o mapa de transições já não oferece `cancelled` a ninguém; esta lista
+ * fecha o degrau anterior, e só para o cliente.
+ */
+const CUSTOMER_CANNOT_CANCEL_FROM: readonly string[] = [ORDER_STATUS.SEPARATED]
+
+/**
+ * Antes de a loja pôr a mão na sacola.
+ *
+ * Corte mais cedo que o de `CUSTOMER_CANNOT_CANCEL_FROM`, e de propósito: a pergunta aqui não é
+ * "ainda dá para cancelar?", e sim "vale lembrar o cliente de que dá?". De `preparing` em diante
+ * alguém já está separando, e convidar à desistência na despedida desfaria trabalho começado.
+ */
+const STATUSES_BEFORE_PICKING: readonly string[] = [
+  ORDER_STATUS.PENDING_CONFIRMATION,
+  ORDER_STATUS.CONFIRMED,
+]
+
+/** O pedido ainda não chegou à bancada: ninguém separou nada e desistir não custa trabalho. */
+export function isOrderBeforePicking(status: string): boolean {
+  return STATUSES_BEFORE_PICKING.includes(status)
+}
+
 export type OrderStatusFlowParams = {
   readonly status: string
   readonly deliveryType: string
   /** Só preenchido em `delivery_failed`, e é o que decide se ainda cabe outra tentativa. */
   readonly deliveryFailureReason?: string | null | undefined
+  /**
+   * Omitido significa `staff`: a esteira do painel não muda, e quem restringe é quem sabe que está
+   * agindo pelo cliente. O default aberto é deliberado — o caminho do cliente é um só e passa pelo
+   * `ResolveCustomerDecision`, enquanto esquecer o parâmetro em qualquer tela da loja tiraria um
+   * botão que precisa existir.
+   */
+  readonly actor?: OrderActor
 }
 
 function nextStatusesFor(params: OrderStatusFlowParams): readonly OrderStatus[] {
@@ -126,7 +173,12 @@ function nextStatusesFor(params: OrderStatusFlowParams): readonly OrderStatus[] 
 
 /** Próximos estados válidos para ESTE pedido. É o que a API devolve para a tela desenhar. */
 export function allowedNextStatuses(params: OrderStatusFlowParams): readonly OrderStatus[] {
+  const blocksCustomerCancel =
+    params.actor === ORDER_ACTOR.CUSTOMER && CUSTOMER_CANNOT_CANCEL_FROM.includes(params.status)
+
   return nextStatusesFor(params).filter((next) => {
+    if (blocksCustomerCancel && next === ORDER_STATUS.CANCELLED) return false
+
     const required = STATUS_REQUIRES_DELIVERY_TYPE[next]
     return required === undefined || required === params.deliveryType
   })

@@ -197,6 +197,16 @@ export const GLOBAL_TRIGGER = {
 } as const
 
 /**
+ * Sair por toque, e não só digitando.
+ *
+ * `cart_review` já usa os três botões que o WhatsApp permite, então a saída não cabe no conjunto
+ * padrão — ela entra no conjunto do desvio de falta, onde "Fechar pedido" não faz sentido.
+ */
+export const GLOBAL_BUTTON_ID = {
+  EXIT: 'global_exit',
+} as const
+
+/**
  * Frases que pedem gente de verdade, em QUALQUER estado (spec §3.5, T3.1).
  *
  * Casamento é por mensagem inteira ou pelo prefixo "falar com" (ver `isHumanHandoffRequest`),
@@ -211,6 +221,17 @@ export const HUMAN_HANDOFF_PHRASES = [
   'falar com uma pessoa',
   'quero um atendente',
 ] as const
+
+/**
+ * A confirmação de quem pediu para cancelar a compra por escrito.
+ *
+ * Prefixo próprio e com o id dentro, como o do desvio: entre a pergunta e o toque o cliente pode ter
+ * feito outra compra, e "a última" já não seria a mesma que ele leu na pergunta.
+ */
+export const CUSTOMER_CANCEL_BUTTON_PREFIX = {
+  CONFIRM: 'customer_cancel_confirm:',
+  KEEP: 'customer_cancel_keep:',
+} as const
 
 /**
  * A decisão do cliente sobre um pedido com item em falta. O id carrega o pedido: `order_continue:<uuid>`.
@@ -405,6 +426,12 @@ export const MESSAGES = {
   ORDER_HISTORY_HEADER: '📜 Suas últimas compras:',
   LIST_INTENT_DETECTED: '📝 Entendi que é uma lista! Já vou montar seu carrinho…',
   GOODBYE: '👋 Tudo bem, cancelei o que estávamos fazendo. Quando quiser começar de novo é só chamar!',
+  /**
+   * Sair encerra a conversa, não a compra já fechada. Sem esta linha, quem digita "sair" com um
+   * pedido em andamento sai achando que cancelou — e a sacola é separada mesmo assim.
+   */
+  GOODBYE_CANCELLABLE_ORDER_HINT:
+    'Seu pedido {codigo} continua em andamento. Se quiser cancelá-lo, é só me dizer "cancelar pedido".',
   SESSION_EXPIRED_PREFIX: '⏰ Faz um tempo que não conversamos, então recomecei sua sessão.\n\n',
   /**
    * `{codigo}` e `{itens}` preenchidos pelo CartResumeHandler.
@@ -418,6 +445,33 @@ export const MESSAGES = {
   CART_RESUME_STARTED_OVER: '🧹 Pronto, comecei uma compra nova: *{codigo}*. A lista anterior foi descartada.',
   /** Rótulo do pino no mapa. Curto porque o WhatsApp o mostra sob o quadradinho, junto do endereço. */
   CONFIRMING_SUMMARY_MAP_PIN_NAME: 'Entrega do seu pedido',
+  /**
+   * Cancelar é irreversível e devolve estoque: pergunta antes, com o código à vista.
+   *
+   * O código no texto porque o cliente pode ter mais de uma compra em andamento, e "seu pedido" não
+   * diz qual — confirmar o cancelamento errado é o tipo de erro que ninguém desfaz.
+   */
+  CUSTOMER_CANCEL_CONFIRM_ASK: 'Quer mesmo cancelar o pedido *{codigo}*?',
+  CUSTOMER_CANCEL_CONFIRM_BUTTON: '✅ Sim, cancelar',
+  CUSTOMER_CANCEL_KEEP_BUTTON: '🔙 Não, manter',
+  CUSTOMER_CANCEL_DONE: '❌ Pedido *{codigo}* cancelado. Se mudar de ideia, é só chamar que a gente monta de novo!',
+  CUSTOMER_CANCEL_KEPT: '👍 Tudo certo, seu pedido *{codigo}* continua de pé.',
+  /**
+   * Neutro sobre a etapa interna: o que o cliente precisa saber é que já não dá por aqui e com quem falar.
+   *
+   * Dizer "já está separado" convidaria a discutir a etapa; a sacola pronta é fato da loja, e quem
+   * pode abrir exceção é uma pessoa, não o bot.
+   */
+  CUSTOMER_CANCEL_TOO_LATE:
+    'Seu pedido *{codigo}* já está pronto e a caminho, então não consigo cancelar por aqui 😕\n\nMe chama que eu falo com a loja para resolver.',
+  CUSTOMER_CANCEL_NOTHING: 'Não encontrei nenhum pedido em andamento para cancelar 🙂',
+  /**
+   * O mesmo pino para endereço que veio de CEP, dizendo no rótulo que é aproximado.
+   *
+   * A coordenada do CEP é da rua, não da casa: um pino mudo ali PARECE endereço conferido, e conferir
+   * é a função desta tela. O rótulo é o que separa "este é o seu ponto" de "esta é a sua rua".
+   */
+  CONFIRMING_SUMMARY_MAP_PIN_NAME_APPROXIMATE: 'Sua rua (ponto aproximado)',
   CHECKOUT_CHANGE_ASK: 'O que você quer mudar?',
   CHECKOUT_CHANGE_LIST_BUTTON: 'Escolher',
   CHECKOUT_CHANGE_SECTION_TITLE: 'Fechamento',
@@ -559,7 +613,9 @@ export const MESSAGES = {
   /** Retirada usa `STORE_PREPARATION_MINUTES`, não a estimativa de rota. */
   ORDER_CONFIRMED_PICKUP_ESTIMATE_LINE: 'Pronto para retirada em cerca de {minutos} minutos.',
   ORDER_CANCELLED: 'Pedido cancelado. Seu carrinho continua salvo — quando quiser é só chamar de novo!',
-  ORDER_INSUFFICIENT_STOCK: '😕 Alguns itens não têm estoque suficiente no momento. Vamos revisar seu carrinho.',
+  ORDER_INSUFFICIENT_STOCK: '😕 Estes itens não têm estoque suficiente agora:\n{itens}\n\nVamos revisar seu carrinho.',
+  ORDER_INSUFFICIENT_STOCK_ITEM_SOLD_OUT: '• {item} — esgotado',
+  ORDER_INSUFFICIENT_STOCK_ITEM_PARTIAL: '• {item} — você pediu {pedido}, temos {disponivel}',
   ORDER_CART_EMPTY_ERROR: 'Seu carrinho está vazio, não dá pra fechar o pedido ainda.',
   REPEAT_ORDER_ADDED: '🔁 Adicionei os itens do seu último pedido no carrinho!',
   REPEAT_ORDER_SKIPPED_PREFIX: '⚠️ Alguns itens não estavam mais disponíveis e foram pulados:',
@@ -585,6 +641,18 @@ export const CART_REVIEW_BUTTONS = [
   { id: CART_REVIEW_BUTTON_ID.CHECKOUT, title: '✅ Fechar pedido' },
   { id: CART_REVIEW_BUTTON_ID.ADD_MORE, title: '➕ Adicionar mais' },
   { id: CART_REVIEW_BUTTON_ID.EDIT_CART, title: '✏️ Editar' },
+] as const
+
+/**
+ * O carrinho reaberto DEPOIS da falta de estoque.
+ *
+ * Sem "Fechar pedido" de propósito: com o mesmo carrinho a tentativa cai no mesmo erro, e um botão
+ * que só falha é pior que botão nenhum. A vaga que sobra é a saída, que até aqui só existia digitando.
+ */
+export const OUT_OF_STOCK_REVIEW_BUTTONS = [
+  { id: CART_REVIEW_BUTTON_ID.ADD_MORE, title: '➕ Adicionar mais' },
+  { id: CART_REVIEW_BUTTON_ID.EDIT_CART, title: '✏️ Editar' },
+  { id: GLOBAL_BUTTON_ID.EXIT, title: '👋 Sair' },
 ] as const
 
 export const DELIVERY_TYPE_BUTTONS = [

@@ -53,6 +53,13 @@ export type ConversationContext = {
   readonly awaitingQuantityProduct?: AwaitingQuantityProduct
   readonly wasExpired?: boolean
   /**
+   * O cliente saiu por vontade própria e tem carrinho aberto — a volta pergunta antes de somar.
+   *
+   * Campo próprio, e não `wasExpired`: sair e esquecer a conversa levam à mesma pergunta, mas não à
+   * mesma frase. Só quem expirou ouve "sua sessão expirou".
+   */
+  readonly shouldAskCartResume?: boolean
+  /**
    * Marca que a entrega/endereço estão sendo trocados de dentro do "quero mudar".
    *
    * Sem ela, o caminho de endereço termina perguntando o pagamento — que é exatamente a pergunta que
