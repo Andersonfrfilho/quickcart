@@ -96,7 +96,7 @@ export class WebhookController {
   private logFailedDeliveries(rawBody: Buffer): void {
     for (const delivery of parseFailedDeliveries(rawBody.toString('utf8'))) {
       webhookLog.error(LOG_EVENTS.WHATSAPP_DELIVERY_FAILED, {
-        waMessageId: delivery.waMessageId,
+        waMessageIdHash: delivery.waMessageIdHash,
         code: delivery.code,
         title: delivery.title,
         details: delivery.details,

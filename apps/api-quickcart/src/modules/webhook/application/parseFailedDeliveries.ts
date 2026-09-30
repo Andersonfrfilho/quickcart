@@ -10,16 +10,22 @@
  * Por que a Meta recusou a entrega. O módulo marca a mensagem como `failed` e descarta o motivo, que
  * só existe no corpo do webhook de status — e sem ele todo envio recusado vira silêncio idêntico ao
  * de um bug nosso: o cliente não recebe nada, e o log não sabe dizer de quem é a culpa. Custou uma
- * investigação inteira descobrir que o número de teste da Meta só entrega para a allowlist (131030).
+ * investigação inteira — e duas hipóteses erradas — descobrir que a conta estava barrada de mandar
+ * mensagem para o Brasil (130497). Com este log, a mesma pergunta se responde na primeira recusa.
  *
  * Parser tolerante de propósito: isto alimenta log, não decisão. Corpo inesperado devolve lista
  * vazia — nunca lança, porque derrubar o webhook por causa de observabilidade é trocar um problema
  * por um pior.
  *
+ * O id do envio sai hasheado: o `wamid` é base64 com o telefone do destinatário dentro, então
+ * ele é PII disfarçada de identificador opaco (ver `hashWaMessageId`).
+ *
  * `recipient_id` fica de fora: é o telefone do cliente, e log com PII é proibido (security.md §1).
  */
 
 import { z } from 'zod'
+
+import { hashWaMessageId } from '@/shared/hashWaMessageId'
 
 const failedStatusSchema = z.object({
   entry: z
@@ -58,7 +64,7 @@ const failedStatusSchema = z.object({
 })
 
 export type FailedDelivery = {
-  readonly waMessageId: string | undefined
+  readonly waMessageIdHash: string | undefined
   readonly code: number | undefined
   readonly title: string | undefined
   readonly details: string | undefined
@@ -80,7 +86,7 @@ export function parseFailedDeliveries(rawBody: string): readonly FailedDelivery[
         .map((status) => {
           const error = status.errors?.[0]
           return {
-            waMessageId: status.id,
+            waMessageIdHash: hashWaMessageId(status.id),
             code: error?.code,
             title: error?.title,
             details: error?.error_data?.details,
