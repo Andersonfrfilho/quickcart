@@ -60,7 +60,11 @@ export class DrizzleMessageRepository implements MessageRepositoryInterface {
   }
 
   async updateStatusByWaMessageId(waMessageId: string, status: string): Promise<Message | undefined> {
-    const row = await this.messageRepository.updateMessageStatus(COMPANY_ID, waMessageId, status as MessageStatus)
+    const row = await this.messageRepository.updateMessageStatus({
+      companyId: COMPANY_ID,
+      waMessageId,
+      status: status as MessageStatus,
+    })
     return row ? toDomain(row) : undefined
   }
 }
