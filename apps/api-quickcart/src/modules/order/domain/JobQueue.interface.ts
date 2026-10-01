@@ -12,6 +12,11 @@
  * testes unitários sem subir Redis.
  */
 
+export type JobQueueAddOptions = {
+  /** Id estável: o BullMQ ignora um segundo `add` com o mesmo id. Não pode conter `:`. */
+  readonly jobId?: string
+}
+
 export interface JobQueue {
-  add(name: string, data: Record<string, unknown>): Promise<unknown>
+  add(name: string, data: Record<string, unknown>, options?: JobQueueAddOptions): Promise<unknown>
 }

@@ -14,6 +14,7 @@
 
 import { createMetaWhatsAppModule, type MetaWhatsAppModule } from '@adatechnology/meta-whatsapp-module'
 import type { NonceStoreInterface } from '@adatechnology/meta-whatsapp-module'
+import { hashWaMessageId } from '@adatechnology/meta-whatsapp-contracts'
 import { createTextModerator, parseTermList } from '@adatechnology/text-moderation'
 import { createQuickCartObjectStorage } from '@/modules/webhook/infra/storage/objectStorageAdapter'
 import { createQuickCartTranscriber } from '@/modules/webhook/infra/transcription/transcriberAdapter'
@@ -23,11 +24,14 @@ import { logger } from '@/shared/logger'
 import { LOG_EVENTS } from '@/shared/constants/log-events.constant'
 import { serializeError } from '@/shared/serializeError'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
+import { parseOrderDecisionReply } from '@/modules/conversation/shared/orderDecisionReply'
 import type { CacheProvider } from '@/shared/providers/CacheProvider.interface'
 import type { ConversationEngine } from '@/modules/conversation/application/ConversationEngine'
 import type { FlowDriver } from '@/modules/conversation/application/FlowDriver'
 import type { ResolveInboundAudio } from '@/modules/conversation/application/resolveInboundAudio'
+import type { ResolveInboundImage } from '@/modules/conversation/application/resolveInboundImage'
 import type { CustomerRepositoryInterface } from '@/modules/webhook/domain/CustomerRepository.interface'
+import { buildDeliveryFailureLog } from '@/modules/webhook/application/buildDeliveryFailureLog'
 import { parseInboundMessage } from '@/modules/webhook/application/parseInboundMessage'
 import { conversationSseHub } from '@/modules/conversation/infra/realtime/conversationRealtime'
 import { documentsQueue } from '@/infra/queue/queues'
@@ -86,6 +90,7 @@ type CreateQuickCartWhatsAppModuleParams = {
    * "escolha uma opção" para quem falava.
    */
   readonly resolveInboundAudio: () => ResolveInboundAudio | undefined
+  readonly resolveInboundImage: () => ResolveInboundImage | undefined
 }
 
 // O anti-replay do módulo precisa de um SET NX atômico compartilhado entre instâncias.
@@ -195,6 +200,18 @@ export function createQuickCartWhatsAppModule(params: CreateQuickCartWhatsAppMod
         }
       },
 
+      /**
+       * A Meta recusou a entrega de um envio nosso. Chega aqui e não vira exceção porque não é
+       * falha da aplicação: a mensagem saiu, e quem disse não foi o outro lado. O que pode ir para
+       * o log — sem o telefone do cliente junto — é decidido em `buildDeliveryFailureLog`.
+       */
+      onStatusUpdate: async (status) => {
+        const failure = buildDeliveryFailureLog(status)
+        if (!failure) return
+
+        webhookLog.error(LOG_EVENTS.WHATSAPP_DELIVERY_FAILED, failure)
+      },
+
       onMessageReceived: async (message, session, contact) => {
         // O cliente precisa existir antes da engine rodar — ela desiste com
         // conversation_customer_not_found se não achar. O módulo cuida da sessão, mas
@@ -212,12 +229,19 @@ export function createQuickCartWhatsAppModule(params: CreateQuickCartWhatsAppMod
         // e tanto o grafo quanto a engine fazem I/O longo (LLM, catálogo, carrinho).
         void (async () => {
           const resolveAudio = params.resolveInboundAudio()
+          const resolveImage = params.resolveInboundImage()
           const inbound = parseInboundMessage(message)
           // Uma transcrição por mensagem, aqui: quem atende recebe texto e não precisa saber que
           // houve áudio. Falha ou silêncio devolve o áudio original, e o caminho antigo segue valendo.
-          const parsed = resolveAudio
+          const afterAudio = resolveAudio
             ? await resolveAudio({ message: inbound, whatsappNumber: message.from })
             : inbound
+          // Foto de produto no mesmo ponto e pelo mesmo motivo: identificada, vira o texto que o
+          // cliente teria digitado. Os dois resolvedores são excludentes na prática — cada um só
+          // age no `kind` que conhece —, então encadear não custa chamada nenhuma.
+          const parsed = resolveImage
+            ? await resolveImage({ message: afterAudio, whatsappNumber: message.from })
+            : afterAudio
           const driver = params.resolveFlowDriver()
 
           // O grafo tem a primeira palavra. Ele devolve false quando não havia fluxo para
@@ -230,12 +254,27 @@ export function createQuickCartWhatsAppModule(params: CreateQuickCartWhatsAppMod
            */
           let messageForEngine = parsed
 
-          if (driver && session.flowKey !== null) {
+          /**
+           * A resposta sobre item em falta não passa pelo grafo, em nenhum estado (ADR 0003).
+           *
+           * A oferta de troca pode ficar horas sem resposta, e nesse meio-tempo a sessão expira para
+           * `greeting`. Com o grafo tendo a primeira palavra, o toque em "🔄 Trocar" virava resposta ao
+           * nó de saudação: o cliente aceitava a troca e recebia "Oi de novo!" — e o item não entrava
+           * na sacola. Quem sabe ler esse id é o `GlobalHandler`, na engine.
+           */
+          const isOrderDecisionReply = parseOrderDecisionReply(parsed) !== undefined
+
+          if (driver && !isOrderDecisionReply && session.flowKey !== null) {
             const result = await driver.handleInbound({ session, message: parsed })
             if (result.handled) return
             if (result.replayMessage) messageForEngine = result.replayMessage
           }
-          if (driver && messageForEngine === parsed && session.currentState === CONVERSATION_STATE.GREETING) {
+          if (
+            driver &&
+            !isOrderDecisionReply &&
+            messageForEngine === parsed &&
+            session.currentState === CONVERSATION_STATE.GREETING
+          ) {
             const result = await driver.handleInbound({ session, message: parsed })
             if (result.handled) return
             if (result.replayMessage) messageForEngine = result.replayMessage
@@ -244,7 +283,7 @@ export function createQuickCartWhatsAppModule(params: CreateQuickCartWhatsAppMod
           await params.resolveConversationEngine().handle(messageForEngine)
         })().catch((error: unknown) => {
           webhookLog.error(LOG_EVENTS.CONVERSATION_ENGINE_FAILED, {
-            waMessageId: message.id,
+            waMessageIdHash: hashWaMessageId(message.id),
             error: serializeError(error),
           })
         })

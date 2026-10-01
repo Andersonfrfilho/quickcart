@@ -34,9 +34,27 @@ import type { UserModule } from '@adatechnology/user-module'
 import { createUserAuthContextResolver } from '@/modules/user/infra/userAuthContextResolver'
 import { StoreController } from '@/modules/store/infra/http/Store.controller'
 import { registerStoreRoutes } from '@/modules/store/infra/http/StoreRoutes'
+import { FixedWindowRateLimiter } from '@/infra/http/rate-limit/FixedWindowRateLimiter'
+import { RedisRateLimitStore } from '@/infra/http/rate-limit/RedisRateLimitStore'
+import { redis } from '@/infra/redis/connection'
+import {
+  CHECKOUT_QUOTE_RATE_LIMIT_PER_WINDOW,
+  CHECKOUT_QUOTE_RATE_LIMIT_SCOPE,
+  CHECKOUT_QUOTE_RATE_LIMIT_WINDOW_SECONDS,
+  STORE_REGISTER_RATE_LIMIT_PER_WINDOW,
+  STORE_REGISTER_RATE_LIMIT_SCOPE,
+  STORE_REGISTER_RATE_LIMIT_WINDOW_SECONDS,
+} from '@/modules/store/shared/Store.constant'
 import { RegisterCustomerUseCase } from '@/modules/store/application/use-cases/RegisterCustomer.use-case'
 import { ListMyOrdersUseCase } from '@/modules/store/application/use-cases/ListMyOrders.use-case'
 import { environment } from '@/infra/config/environment'
+import {
+  AUTH_LOGIN_RATE_LIMIT_PER_WINDOW,
+  AUTH_LOGIN_RATE_LIMIT_SCOPE,
+  AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS,
+  AUTH_LOGIN_ROUTE_METHOD,
+  AUTH_LOGIN_ROUTE_PATHNAME,
+} from '@/modules/user/shared/User.constant'
 
 export type CreateRouterParams = {
   readonly userModule: UserModule
@@ -53,7 +71,12 @@ export function createRouter({ userModule }: CreateRouterParams): Router {
     categoryController: container.catalog.categoryController,
     productController: container.catalog.productController,
   })
-  registerOrderRoutes({ router, orderController: container.order.orderController })
+  registerOrderRoutes({
+    router,
+    orderController: container.order.orderController,
+    deliveryFeeTiersController: container.order.deliveryFeeTiersController,
+    orderStreamController: container.order.orderStreamController,
+  })
   registerWebhookRoutes({ router, webhookController: container.webhook.controller })
   registerInternalRoutes({ router, internalController: container.internal.controller })
   registerConversationRoutes({
@@ -65,6 +88,7 @@ export function createRouter({ userModule }: CreateRouterParams): Router {
     previewMediaController: container.conversationHttp.previewMediaController,
     previewInboundController: container.conversationHttp.previewInboundController,
     unmatchedDemandController: container.conversationHttp.unmatchedDemandController,
+    checkoutContextController: container.conversationHttp.checkoutContextController,
   })
 
   // Notificação inteira — inbox, SSE do sino, devices, preferências e templates — em três linhas.
@@ -89,15 +113,27 @@ export function createRouter({ userModule }: CreateRouterParams): Router {
    * `role` em `scope` é o produto, porque papel é vocabulário do produto.
    */
   const userRoutes = createUserRoutes({ module: userModule })
+  const rateLimitStore = new RedisRateLimitStore(redis)
+  const loginRateLimiter = new FixedWindowRateLimiter({
+    store: rateLimitStore,
+    scope: AUTH_LOGIN_RATE_LIMIT_SCOPE,
+    limit: AUTH_LOGIN_RATE_LIMIT_PER_WINDOW,
+    windowSeconds: AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS,
+  })
 
+  // A rota é do pacote; o limite é do host, aplicado na montagem sem mudar o pacote.
   router.mount(
-    createModuleFetchRouter({
-      routes: userRoutes,
-      basePath: '/v1',
-      authResolver: createUserAuthContextResolver({
-        userModule,
-        companyId: environment.WHATSAPP_COMPANY_ID,
+    loginRateLimiter.protectMountedRoute({
+      moduleRouter: createModuleFetchRouter({
+        routes: userRoutes,
+        basePath: '/v1',
+        authResolver: createUserAuthContextResolver({
+          userModule,
+          companyId: environment.WHATSAPP_COMPANY_ID,
+        }),
       }),
+      method: AUTH_LOGIN_ROUTE_METHOD,
+      pathname: AUTH_LOGIN_ROUTE_PATHNAME,
     }),
   )
 
@@ -140,9 +176,30 @@ export function createRouter({ userModule }: CreateRouterParams): Router {
       orderRepository: container.storeRepositories.orderRepository,
       customerRepository: container.storeRepositories.customerRepository,
     }),
+    productRepository: container.storeRepositories.productRepository,
+    quoteDeliveryFeeUseCase: container.order.quoteDeliveryFeeUseCase,
   })
 
-  registerStoreRoutes({ router, storeController })
+  const checkoutQuoteRateLimiter = new FixedWindowRateLimiter({
+    store: rateLimitStore,
+    scope: CHECKOUT_QUOTE_RATE_LIMIT_SCOPE,
+    limit: CHECKOUT_QUOTE_RATE_LIMIT_PER_WINDOW,
+    windowSeconds: CHECKOUT_QUOTE_RATE_LIMIT_WINDOW_SECONDS,
+  })
+
+  const registerRateLimiter = new FixedWindowRateLimiter({
+    store: rateLimitStore,
+    scope: STORE_REGISTER_RATE_LIMIT_SCOPE,
+    limit: STORE_REGISTER_RATE_LIMIT_PER_WINDOW,
+    windowSeconds: STORE_REGISTER_RATE_LIMIT_WINDOW_SECONDS,
+  })
+
+  /*
+   * O webhook do WhatsApp fica SEM limite por IP de propósito: as requisições vêm da Meta, de
+   * poucos IPs compartilhados por todos os clientes — um teto por IP derrubaria mensagens reais.
+   * A proteção dele é a assinatura HMAC + nonce do meta-whatsapp-module.
+   */
+  registerStoreRoutes({ router, storeController, checkoutQuoteRateLimiter, registerRateLimiter })
 
   registerOpenApiRoutes({ router, notificationRoutes })
 

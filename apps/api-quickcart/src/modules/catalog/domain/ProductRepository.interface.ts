@@ -22,6 +22,7 @@ export type CreateProductRecordParams = {
   readonly stockQuantity: number
   readonly isAvailable: boolean
   readonly imageUrl?: string | undefined
+  readonly aisle?: string | undefined
   readonly aliases: readonly string[]
   readonly barcode?: string | undefined
 }
@@ -36,6 +37,7 @@ export type UpdateProductRecordParams = {
   readonly priceInCents?: number | undefined
   readonly isAvailable?: boolean | undefined
   readonly imageUrl?: string | null | undefined
+  readonly aisle?: string | null | undefined
   readonly aliases?: readonly string[] | undefined
   readonly barcode?: string | null | undefined
 }
@@ -63,12 +65,32 @@ export type ProductSearchResult = {
   readonly score: number
 }
 
+/**
+ * O parecido que a loja pode oferecer no lugar do que faltou.
+ *
+ * `unit` e `unitSize` iguais fazem parte da busca, não do resultado: leite 1L por leite 2L não é
+ * substituição, é outra compra — e o `similarity()` não sabe disso, porque os nomes são quase idênticos.
+ */
+export type SubstituteCandidatesParams = {
+  readonly productId: string
+  /** Quanto precisa estar em estoque AGORA. Oferecer o que não dá para separar é perder o turno à toa. */
+  readonly requiredQuantity: number
+  /** Teto de parecidos a devolver, já ordenados por semelhança. */
+  readonly limit: number
+}
+
 export interface ProductRepositoryInterface {
   create(params: CreateProductRecordParams): Promise<Product>
   update(id: string, params: UpdateProductRecordParams): Promise<Product>
   findById(id: string): Promise<Product | undefined>
+  /** Uma consulta para N ids. Ordem do resultado não é garantida; id inexistente simplesmente não volta. */
+  findByIds(ids: readonly string[]): Promise<Product[]>
   findByBarcode(barcode: string): Promise<Product | undefined>
   adjustStock(id: string, delta: number): Promise<Product | undefined>
   list(params: ListProductsRepositoryParams): Promise<ListProductsRepositoryResult>
   searchByTerm(term: string, limit: number): Promise<ProductSearchResult[]>
+  /** Lista vazia = não há parecido, e isso é resposta legítima: sem candidato não se pergunta nada. */
+  findSubstituteCandidates(params: SubstituteCandidatesParams): Promise<ProductSearchResult[]>
+  /** Marcas do catálogo disponível, sem repetição. Usado para reconhecer "arroz, broto legal" como um item só. */
+  listDistinctBrands(): Promise<string[]>
 }

@@ -35,6 +35,7 @@ function toDomain(row: SessionRow): ConversationSession {
     currentState: row.currentState,
     context: row.context,
     mode: row.mode,
+    humanRequestedAt: row.humanRequestedAt,
     lastInteractionAt: row.lastActivity,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -93,5 +94,10 @@ export class DrizzleConversationSessionRepository implements ConversationSession
       context: params.context,
       lastActivity: new Date(),
     })
+  }
+
+  /** Marca a fila de espera (T3.1); não muda `mode` — calar o bot não é a semântica aqui. */
+  async requestHuman(customerPhone: string): Promise<void> {
+    await this.sessionRepository.requestHuman(COMPANY_ID, customerPhone)
   }
 }

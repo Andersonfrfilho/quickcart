@@ -12,7 +12,23 @@
  */
 
 import { describe, expect, test } from 'bun:test'
-import { OrderInsufficientStockError } from '@/shared/errors/OrderErrors'
+import {
+  OrderInsufficientStockError,
+  DeliveryOutOfRangeError,
+  DeliveryFeeChangedError,
+  DeliveryUnavailableError,
+} from '@/shared/errors/OrderErrors'
+import {
+  DELIVERY_QUOTE_KIND,
+  DELIVERY_LOCATION_SOURCE,
+  DELIVERY_UNAVAILABLE_REASON,
+} from '@/modules/order/shared/DeliveryFeeQuote.constant'
+import type {
+  AddressLookupProviderInterface,
+  AddressLookupResult,
+} from '@/modules/shared/address/AddressLookupProvider.interface'
+import type { QuoteDeliveryFeeUseCase } from './QuoteDeliveryFee.use-case'
+import type { QuoteDeliveryFeeResult } from '@/modules/order/application/types/QuoteDeliveryFee.types'
 import type { CacheProvider } from '@/shared/providers/CacheProvider.interface'
 import type {
   CustomerRepositoryInterface,
@@ -34,8 +50,8 @@ import type {
   OrderItemRecord,
   OrderRecord,
   OrderRepositoryInterface,
+  SubstituteItemResult,
 } from '@/modules/order/domain/OrderRepository.interface'
-import type { JobQueue } from '@/modules/order/domain/JobQueue.interface'
 import type { Customer, Product } from '@/infra/database/schema'
 import { CreateWebOrderUseCase } from './CreateWebOrder.use-case'
 
@@ -121,6 +137,15 @@ class FakeProductRepository implements ProductRepositoryInterface {
     throw new Error('not implemented')
   }
 
+  async findByIds(ids: readonly string[]): Promise<Product[]> {
+
+    const found = await Promise.all(ids.map((id) => this.findById(id)))
+
+    return found.filter((product): product is Product => product !== undefined)
+
+  }
+
+
   async findById(id: string): Promise<Product | undefined> {
     return this.products.get(id)
   }
@@ -137,7 +162,15 @@ class FakeProductRepository implements ProductRepositoryInterface {
     return { items: [], total: 0 }
   }
 
+  async findSubstituteCandidates(): Promise<ProductSearchResult[]> {
+    return []
+  }
+
   async searchByTerm(_term: string, _limit: number): Promise<ProductSearchResult[]> {
+    return []
+  }
+
+  async listDistinctBrands(): Promise<string[]> {
     return []
   }
 }
@@ -170,13 +203,22 @@ class FakeOrderRepository implements OrderRepositoryInterface {
       channel: params.channel,
       status: 'pending_confirmation',
       totalInCents: params.items.reduce((sum, item) => sum + item.totalInCents, 0),
+      deliveryFeeInCents: params.deliveryFeeInCents,
       deliveryType: params.deliveryType,
       address: params.address ?? null,
       legacyAddressText: null,
+      deliveryDistanceKm: params.deliveryDistanceKm ?? null,
+      deliveryTierMaxKm: params.deliveryTierMaxKm ?? null,
+      deliveryTierFeeInCents: params.deliveryTierFeeInCents ?? null,
+      deliveryLocationSource: params.deliveryLocationSource ?? null,
       paymentMethod: params.paymentMethod,
       receiptPreference: params.receiptPreference,
       fiscalDocumentId: null,
       notes: params.notes ?? null,
+      deliveryFailureReason: null,
+      customerDecisionAskedAt: null,
+      customerDecisionRemindedAt: null,
+      cashChangeForInCents: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -193,6 +235,7 @@ class FakeOrderRepository implements OrderRepositoryInterface {
       unavailableAt: null,
       unavailableNotifiedAt: null,
         pickedAt: null,
+        substitutesOrderItemId: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }))
@@ -222,7 +265,7 @@ class FakeOrderRepository implements OrderRepositoryInterface {
   async findDetailById(id: string) {
     const order = this.orders.get(id)
     // O fake não guarda cliente: os testes deste caso de uso não passam pelo detalhe.
-    return order ? { order: { ...order, customerName: null, customerPhone: '' }, items: [] } : undefined
+    return order ? { order: { ...order, customerName: null, customerPhone: '' }, items: [], deliveryAttempts: [] } : undefined
   }
 
   async setItemUnavailable(params: { orderId: string; itemId: string; unavailable: boolean }) {
@@ -238,6 +281,18 @@ class FakeOrderRepository implements OrderRepositoryInterface {
     throw new Error('not implemented')
   }
 
+  async markItemUnavailableNotified(_params: {
+    readonly orderId: string
+    readonly itemId: string
+  }): Promise<OrderItemRecord | undefined> {
+    // O fake não guarda item: os testes deste caso de uso não passam por troca de item em falta.
+    return undefined
+  }
+
+  async substituteItem(): Promise<SubstituteItemResult> {
+    return { ok: false, reason: 'not_substitutable' } as const
+  }
+
   async markUnavailableItemsNotified(_orderId: string) {
     // O fake não guarda item: os testes deste caso de uso não passam por aviso de falta.
     return []
@@ -251,38 +306,40 @@ class FakeOrderRepository implements OrderRepositoryInterface {
     return { items: [], total: 0 }
   }
 
-  async updateStatus(id: string, status: string): Promise<OrderRecord | undefined> {
-    const order = this.orders.get(id)
+  async updateStatus(params: { orderId: string; status: string }): Promise<OrderRecord | undefined> {
+    const order = this.orders.get(params.orderId)
     if (!order) return undefined
-    const updated = { ...order, status, updatedAt: new Date() }
-    this.orders.set(id, updated)
+    const updated = { ...order, status: params.status, updatedAt: new Date() }
+    this.orders.set(params.orderId, updated)
     return updated
   }
 
-  async cancelAndRestoreStock(id: string): Promise<OrderRecord | undefined> {
-    const order = this.orders.get(id)
+  async startCustomerDecision(): Promise<undefined> {
+    throw new Error('not implemented')
+  }
+
+  async markCustomerDecisionReminded(): Promise<undefined> {
+    throw new Error('not implemented')
+  }
+
+  async cancel(params: { orderId: string; restoreStock: boolean }): Promise<OrderRecord | undefined> {
+    const order = this.orders.get(params.orderId)
     if (!order) return undefined
     if (order.status === 'cancelled') return order
 
-    for (const item of this.itemsByOrder.get(id) ?? []) {
-      const product = this.products.get(item.productId)
-      if (product) product.stockQuantity += item.quantity
+    if (params.restoreStock) {
+      for (const item of this.itemsByOrder.get(params.orderId) ?? []) {
+        const product = this.products.get(item.productId)
+        if (product) product.stockQuantity += item.quantity
+      }
     }
 
     const updated = { ...order, status: 'cancelled', updatedAt: new Date() }
-    this.orders.set(id, updated)
+    this.orders.set(params.orderId, updated)
     return updated
   }
 }
 
-class FakeJobQueue implements JobQueue {
-  readonly jobs: { name: string; data: Record<string, unknown> }[] = []
-
-  async add(name: string, data: Record<string, unknown>): Promise<unknown> {
-    this.jobs.push({ name, data })
-    return undefined
-  }
-}
 
 function buildProduct(overrides: Partial<Product> = {}): Product {
   return {
@@ -297,6 +354,7 @@ function buildProduct(overrides: Partial<Product> = {}): Product {
     stockQuantity: 10,
     isAvailable: true,
     imageUrl: null,
+    aisle: null,
     aliases: [],
     barcode: null,
     createdAt: new Date(),
@@ -305,27 +363,85 @@ function buildProduct(overrides: Partial<Product> = {}): Product {
   }
 }
 
-function buildDependencies(products: Map<string, Product>) {
+class FakeQuoteDeliveryFeeUseCase implements Pick<QuoteDeliveryFeeUseCase, 'execute'> {
+  constructor(private readonly result: QuoteDeliveryFeeResult) {}
+
+  readonly calls: unknown[] = []
+
+  async execute(params: unknown): Promise<QuoteDeliveryFeeResult> {
+    this.calls.push(params)
+    return this.result
+  }
+}
+
+const DEFAULT_QUOTE_RESULT: QuoteDeliveryFeeResult = {
+  kind: DELIVERY_QUOTE_KIND.QUOTED,
+  feeInCents: 800,
+  distanceKm: 2,
+  tier: { maxDistanceKm: 3, feeInCents: 800 },
+  source: DELIVERY_LOCATION_SOURCE.CEP,
+}
+
+function buildAddress(overrides: Record<string, unknown> = {}) {
+  return {
+    cep: '01310-100',
+    street: 'Av. Paulista',
+    number: '1000',
+    neighborhood: 'Bela Vista',
+    city: 'São Paulo',
+    state: 'SP',
+    ...overrides,
+  }
+}
+
+const VIACEP_LOOKUP: AddressLookupResult = {
+  street: 'Avenida Paulista',
+  neighborhood: 'Bela Vista',
+  city: 'São Paulo',
+  state: 'SP',
+}
+
+class FakeAddressLookupProvider implements AddressLookupProviderInterface {
+  constructor(private readonly isKnownCep: boolean = true) {}
+
+  async lookupByCep(): Promise<AddressLookupResult | undefined> {
+    return this.isKnownCep ? VIACEP_LOOKUP : undefined
+  }
+}
+
+function buildDependencies(
+  products: Map<string, Product>,
+  quoteResult: QuoteDeliveryFeeResult = DEFAULT_QUOTE_RESULT,
+  addressLookupProvider: AddressLookupProviderInterface = new FakeAddressLookupProvider(),
+) {
   const orderRepository = new FakeOrderRepository(products)
   const productRepository = new FakeProductRepository(products)
   const customerRepository = new FakeCustomerRepository()
   const cacheProvider = new FakeCacheProvider()
-  const receiptQueue = new FakeJobQueue()
-  const useCase = new CreateWebOrderUseCase({ orderRepository, productRepository, customerRepository, cacheProvider, receiptQueue })
+  const quoteDeliveryFeeUseCase = new FakeQuoteDeliveryFeeUseCase(quoteResult)
+  const useCase = new CreateWebOrderUseCase({
+    orderRepository,
+    productRepository,
+    customerRepository,
+    cacheProvider,
+    quoteDeliveryFeeUseCase,
+    addressLookupProvider,
+  })
 
-  return { useCase, orderRepository, productRepository, customerRepository, cacheProvider, receiptQueue }
+  return { useCase, orderRepository, productRepository, customerRepository, cacheProvider, quoteDeliveryFeeUseCase }
 }
 
 describe('CreateWebOrderUseCase', () => {
-  test('cria pedido web, faz upsert do customer, decrementa estoque e enfileira recibo', async () => {
+  test('cria pedido web, faz upsert do customer, decrementa estoque e NÃO enfileira recibo (o total ainda pode mudar)', async () => {
     const products = new Map([['product-1', buildProduct()]])
-    const { useCase, customerRepository, cacheProvider, receiptQueue } = buildDependencies(products)
+    const { useCase, customerRepository, cacheProvider } = buildDependencies(products)
 
     const result = await useCase.execute({
       idempotencyKey: 'idem-1',
       customer: { name: 'Maria', phone: '5511999999999' },
       items: [{ productId: 'product-1', quantity: 2 }],
       deliveryType: 'delivery',
+      address: buildAddress(),
       paymentMethod: 'pix',
       receiptPreference: 'email',
     })
@@ -334,7 +450,6 @@ describe('CreateWebOrderUseCase', () => {
     expect(customerRepository.upsertCalls).toEqual([{ phone: '5511999999999', name: 'Maria' }])
     expect(products.get('product-1')?.stockQuantity).toBe(8)
     expect(await cacheProvider.get('order:idempotency:idem-1')).toBe(result.order.shortCode)
-    expect(receiptQueue.jobs).toEqual([{ name: 'issue-receipt', data: { orderId: result.order.id } }])
   })
 
   test('replay da mesma Idempotency-Key devolve o pedido já criado sem duplicar', async () => {
@@ -346,6 +461,7 @@ describe('CreateWebOrderUseCase', () => {
       customer: { name: 'Maria', phone: '5511999999999' },
       items: [{ productId: 'product-1', quantity: 1 }],
       deliveryType: 'delivery',
+      address: buildAddress(),
       paymentMethod: 'pix',
       receiptPreference: 'email',
     }
@@ -368,9 +484,141 @@ describe('CreateWebOrderUseCase', () => {
         customer: { name: 'Maria', phone: '5511999999999' },
         items: [{ productId: 'product-1', quantity: 5 }],
         deliveryType: 'delivery',
+        address: buildAddress(),
         paymentMethod: 'pix',
         receiptPreference: 'email',
       }),
     ).rejects.toBeInstanceOf(OrderInsufficientStockError)
+  })
+})
+
+describe('CreateWebOrderUseCase — recotação com QuoteDeliveryFee (T2.1)', () => {
+  function buildParams(deliveryType: string, overrides: Record<string, unknown> = {}) {
+    return {
+      idempotencyKey: `idem-${deliveryType}-${Math.random()}`,
+      customer: { name: 'Maria', phone: '5511999999999' },
+      items: [{ productId: 'product-1', quantity: 2 }],
+      deliveryType,
+      ...(deliveryType === 'delivery' ? { address: buildAddress() } : {}),
+      paymentMethod: 'pix',
+      receiptPreference: 'email',
+      ...overrides,
+    }
+  }
+
+  test('entrega "quoted" grava taxa, distância, faixa e fonte — fora do total dos itens', async () => {
+    const { useCase } = buildDependencies(new Map([['product-1', buildProduct()]]), DEFAULT_QUOTE_RESULT)
+
+    const result = await useCase.execute(buildParams('delivery'))
+
+    expect(result.order.deliveryFeeInCents).toBe(800)
+    expect(result.order.totalInCents).toBe(5000)
+    expect(result.order.deliveryDistanceKm).toBe(2)
+    expect(result.order.deliveryTierMaxKm).toBe(3)
+    expect(result.order.deliveryTierFeeInCents).toBe(800)
+    expect(result.order.deliveryLocationSource).toBe(DELIVERY_LOCATION_SOURCE.CEP)
+  })
+
+  test('entrega "approximate_max_tier" grava a maior faixa sem distância', async () => {
+    const { useCase } = buildDependencies(new Map([['product-1', buildProduct()]]), {
+      kind: DELIVERY_QUOTE_KIND.APPROXIMATE_MAX_TIER,
+      feeInCents: 1000,
+      tier: { maxDistanceKm: 8, feeInCents: 1000 },
+      source: DELIVERY_LOCATION_SOURCE.CEP_APPROXIMATE,
+    })
+
+    const result = await useCase.execute(buildParams('delivery'))
+
+    expect(result.order.deliveryFeeInCents).toBe(1000)
+    expect(result.order.deliveryDistanceKm).toBeNull()
+    expect(result.order.deliveryTierMaxKm).toBe(8)
+    expect(result.order.deliveryLocationSource).toBe(DELIVERY_LOCATION_SOURCE.CEP_APPROXIMATE)
+  })
+
+  test('retirada grava taxa 0 e as quatro colunas de cotação nulas — não chama QuoteDeliveryFee', async () => {
+    const { useCase, quoteDeliveryFeeUseCase } = buildDependencies(new Map([['product-1', buildProduct()]]))
+
+    const result = await useCase.execute(buildParams('pickup'))
+
+    expect(result.order.deliveryFeeInCents).toBe(0)
+    expect(result.order.deliveryDistanceKm).toBeNull()
+    expect(result.order.deliveryTierMaxKm).toBeNull()
+    expect(result.order.deliveryTierFeeInCents).toBeNull()
+    expect(result.order.deliveryLocationSource).toBeNull()
+    expect(quoteDeliveryFeeUseCase.calls).toHaveLength(0)
+  })
+
+  test('fora do raio lança DeliveryOutOfRangeError (422)', async () => {
+    const { useCase } = buildDependencies(new Map([['product-1', buildProduct()]]), {
+      kind: DELIVERY_QUOTE_KIND.OUT_OF_RANGE,
+      distanceKm: 12,
+      maxDistanceKm: 8,
+    })
+
+    await expect(useCase.execute(buildParams('delivery'))).rejects.toBeInstanceOf(DeliveryOutOfRangeError)
+  })
+
+  test('sem como cotar lança DeliveryUnavailableError', async () => {
+    const { useCase } = buildDependencies(new Map([['product-1', buildProduct()]]), {
+      kind: DELIVERY_QUOTE_KIND.UNAVAILABLE,
+      reason: 'no_store_cep',
+    })
+
+    await expect(useCase.execute(buildParams('delivery'))).rejects.toBeInstanceOf(DeliveryUnavailableError)
+  })
+
+  test('taxa mudou desde a cotação que o cliente viu → DeliveryFeeChangedError (409)', async () => {
+    const { useCase } = buildDependencies(new Map([['product-1', buildProduct()]]), DEFAULT_QUOTE_RESULT)
+
+    await expect(
+      useCase.execute(buildParams('delivery', { expectedDeliveryFeeInCents: 500 })),
+    ).rejects.toBeInstanceOf(DeliveryFeeChangedError)
+  })
+
+  test('taxa igual à esperada cria o pedido normalmente', async () => {
+    const { useCase } = buildDependencies(new Map([['product-1', buildProduct()]]), DEFAULT_QUOTE_RESULT)
+
+    const result = await useCase.execute(buildParams('delivery', { expectedDeliveryFeeInCents: 800 }))
+
+    expect(result.order.deliveryFeeInCents).toBe(800)
+  })
+
+  test('rua/bairro/cidade/UF do pedido web saem do ViaCEP, não do navegador; número e complemento ficam', async () => {
+    const { useCase } = buildDependencies(new Map([['product-1', buildProduct()]]))
+
+    const result = await useCase.execute(
+      buildParams('delivery', {
+        address: buildAddress({ street: 'Rua Falsa', neighborhood: 'Outro', city: 'Outra', state: 'RJ', complement: 'ap 2' }),
+      }),
+    )
+
+    expect(result.order.address).toEqual({
+      cep: '01310-100',
+      number: '1000',
+      complement: 'ap 2',
+      ...VIACEP_LOOKUP,
+    })
+  })
+
+  test('CEP que o ViaCEP não conhece → DeliveryUnavailableError com razão cep_not_found', async () => {
+    const { useCase, quoteDeliveryFeeUseCase } = buildDependencies(
+      new Map([['product-1', buildProduct()]]),
+      DEFAULT_QUOTE_RESULT,
+      new FakeAddressLookupProvider(false),
+    )
+
+    const error = await useCase.execute(buildParams('delivery')).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(DeliveryUnavailableError)
+    expect((error as DeliveryUnavailableError).details).toEqual({ reason: DELIVERY_UNAVAILABLE_REASON.CEP_NOT_FOUND })
+    expect(quoteDeliveryFeeUseCase.calls).toEqual([])
+  })
+
+  test('entrega sem endereço → DeliveryUnavailableError, sem asserção não nula', async () => {
+    const { useCase } = buildDependencies(new Map([['product-1', buildProduct()]]))
+
+    await expect(useCase.execute(buildParams('delivery', { address: undefined }))).rejects.toBeInstanceOf(
+      DeliveryUnavailableError,
+    )
   })
 })

@@ -21,6 +21,7 @@ export type UpdateProductParams = {
   readonly priceInCents?: number | undefined
   readonly isAvailable?: boolean | undefined
   readonly imageUrl?: string | null | undefined
+  readonly aisle?: string | null | undefined
   readonly aliases?: readonly string[] | undefined
   readonly barcode?: string | null | undefined
 }

@@ -65,6 +65,15 @@ export type ParsedInboundMessage =
       readonly mimeType: string
     }
   | {
+      readonly kind: 'image'
+      readonly from: string
+      readonly waMessageId: string
+      readonly mediaId: string
+      readonly mimeType: string
+      /** Legenda da foto. O cliente costuma escrever "tem esse?" junto, e isso ajuda a busca. */
+      readonly caption?: string
+    }
+  | {
       readonly kind: 'button_reply'
       readonly from: string
       readonly waMessageId: string
@@ -77,5 +86,13 @@ export type ParsedInboundMessage =
       readonly waMessageId: string
       readonly listId: string
       readonly listTitle: string
+    }
+  | {
+      /** Localização enviada pelo WhatsApp. Coordenada é dado pessoal: nunca vai para log. */
+      readonly kind: 'location'
+      readonly from: string
+      readonly waMessageId: string
+      readonly latitude: number
+      readonly longitude: number
     }
   | { readonly kind: 'unsupported'; readonly from: string; readonly waMessageId: string; readonly type: string }

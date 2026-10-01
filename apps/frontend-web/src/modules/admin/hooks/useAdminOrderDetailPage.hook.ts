@@ -4,26 +4,49 @@ import { useRouter } from '@/app/router'
 import { useRequireStaff } from '@/modules/auth/shared/useSession.hook'
 import { STAFF_ROLES } from '@/modules/auth/shared/roles.constant'
 import { useUpdateOrderStatusMutation } from '@/modules/admin/shared/mutations/useUpdateOrderStatus.mutation'
+import { readReceiptEnqueueFailure } from '@/modules/admin/shared/receiptEnqueueFailure'
 import { useSetOrderItemUnavailableMutation } from '@/modules/admin/shared/mutations/useSetOrderItemUnavailable.mutation'
 import { useNotifyUnavailableItemsMutation } from '@/modules/admin/shared/mutations/useNotifyUnavailableItems.mutation'
 import { useSetOrderItemPickedMutation } from '@/modules/admin/shared/mutations/useSetOrderItemPicked.mutation'
 import { adminGetOrderDetail } from '@/shared/api/client'
+import { useOrderRealtime } from '@/modules/admin/hooks/useOrderRealtime.hook'
+import { resolveOrderRefetchInterval } from '@/modules/admin/shared/orderRefetchPolicy'
 
 export function useAdminOrderDetailPage() {
   const { isReady } = useRequireStaff(STAFF_ROLES)
   const { params, navigate } = useRouter()
   const orderId = params.id ?? ''
 
+  /*
+   * O pedido muda por fora desta tela, e a resposta do cliente sobre item em falta é o caso que dói:
+   * quem está com a sacola continuaria vendo "acabou · cliente avisado" e o total antigo, e fecharia a
+   * separação sem o substituto que o cliente escolheu.
+   *
+   * O stream é o caminho normal; o `refetchInterval` abaixo só existe para a janela em que ele não está
+   * de pé, e se desliga sozinho quando está (ver `orderRefetchPolicy`).
+   */
+  const { isRealtimeConnected } = useOrderRealtime(orderId)
+
   const { data, isLoading, isError } = useQuery({
     queryKey: ['admin-order-detail', orderId],
     queryFn: () => adminGetOrderDetail(orderId),
     enabled: orderId.length > 0,
+    refetchInterval: (query) =>
+      resolveOrderRefetchInterval({ status: query.state.data?.data.status, isRealtimeConnected }),
   })
 
   const updateStatusMutation = useUpdateOrderStatusMutation()
   const setUnavailableMutation = useSetOrderItemUnavailableMutation()
   const notifyUnavailableMutation = useNotifyUnavailableItemsMutation()
   const setPickedMutation = useSetOrderItemPickedMutation()
+
+  /** Só existe depois que a fila do recibo falhou; repetir o mesmo status só reenfileira. */
+  const receiptRetryMessage = readReceiptEnqueueFailure(updateStatusMutation.error)
+
+  function retryReceipt() {
+    const failed = updateStatusMutation.variables
+    if (failed) updateStatusMutation.mutate({ id: failed.id, status: failed.status })
+  }
 
   const [hidePickedItems, setHidePickedItems] = React.useState(false)
 
@@ -44,7 +67,15 @@ export function useAdminOrderDetailPage() {
    * qual das duas era verdade.
    */
   const pickedItemIds = items.filter((item) => item.pickedAt !== null).map((item) => item.id)
-  const pickedCount = pickedItemIds.length
+  /*
+   * Conta só o que ainda está na conta.
+   *
+   * O denominador da barra são os itens que existem (`availableItems`), então contar aqui os que faltaram
+   * comparava dois conjuntos diferentes: um item em falta com marcação antiga fazia a tela anunciar
+   * "5/4 separados · 125%". O servidor passou a limpar a marcação ao registrar a falta, e esta linha é a
+   * segunda tranca — nenhum dado torto deveria virar uma porcentagem que não existe.
+   */
+  const pickedCount = items.filter((item) => item.pickedAt !== null && item.unavailableAt === null).length
   const visibleItems = hidePickedItems ? items.filter((item) => item.pickedAt === null) : items
 
   function togglePicked(itemId: string) {
@@ -62,24 +93,28 @@ export function useAdminOrderDetailPage() {
     setPickedMutation.mutate({ orderId, picked: false })
   }
 
-  function updateStatus(status: string) {
-    updateStatusMutation.mutate({ id: orderId, status })
+  function updateStatus(params: { readonly status: string; readonly deliveryFailureReason?: string }) {
+    updateStatusMutation.mutate({
+      id: orderId,
+      status: params.status,
+      deliveryFailureReason: params.deliveryFailureReason,
+    })
   }
 
   function setUnavailable({ itemId, unavailable }: { itemId: string; unavailable: boolean }) {
-    setUnavailableMutation.mutate({ orderId, itemId, unavailable })
-
     /*
-     * Item que acabou não fica marcado como separado: são estados que se excluem, e deixar as duas
-     * marcas juntas faria o progresso contar como pronto algo que não vai na sacola. Vai ao servidor
-     * também, senão a contradição só desapareceria neste aparelho.
+     * Um pedido só: registrar a falta já limpa a separação do item no servidor, na mesma transação.
+     *
+     * Eram dois, e o segundo podia falhar sozinho — deixando o item em falta e marcado como separado,
+     * que é a contradição que a barra traduzia em 125%.
      */
-    if (unavailable) setPickedMutation.mutate({ orderId, itemId, picked: false })
+    setUnavailableMutation.mutate({ orderId, itemId, unavailable })
   }
 
   return {
     isReady,
-    notifyUnavailable: () => notifyUnavailableMutation.mutate(orderId),
+    notifyUnavailable: (requiresCustomerApproval: boolean) =>
+      notifyUnavailableMutation.mutate({ orderId, requiresCustomerApproval }),
     isNotifyingUnavailable: notifyUnavailableMutation.isPending,
     /**
      * Abre a conversa daquele cliente na inbox.
@@ -94,6 +129,7 @@ export function useAdminOrderDetailPage() {
     visibleItems,
     isLoading,
     isError,
+    isRealtimeConnected,
     pickedItemIds,
     pickedCount,
     togglePicked,
@@ -103,6 +139,9 @@ export function useAdminOrderDetailPage() {
     setHidePickedItems,
     updateStatus,
     isUpdatingStatus: updateStatusMutation.isPending,
+    receiptRetryMessage,
+    retryReceipt,
+    isRetryingReceipt: updateStatusMutation.isPending,
     setUnavailable,
     pendingUnavailableItemId: setUnavailableMutation.isPending
       ? setUnavailableMutation.variables?.itemId

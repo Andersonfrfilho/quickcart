@@ -34,6 +34,13 @@ export type Product = {
   readonly isAvailable: boolean
   readonly imageUrl: string | null
   /**
+   * Onde o produto fica na loja, na placa que está pendurada lá ("Corredor 3", "Hortifruti").
+   *
+   * `null` é o normal: nenhuma loja mapeia o catálogo inteiro de uma vez, e a lista de separação só
+   * mostra o corredor de quem tem.
+   */
+  readonly aisle: string | null
+  /**
    * Apelidos que o casador usa para reconhecer o produto na fala do cliente.
    *
    * Declarado aqui porque a tela de demanda ACRESCENTA um apelido, e a rota de atualização substitui a
@@ -88,14 +95,86 @@ export const ORDER_STATUS = {
   PREPARING: 'preparing',
   /** Itens na sacola, esperando entregador ou cliente. */
   SEPARATED: 'separated',
+  /**
+   * A separação parou porque falta item e a decisão é do cliente.
+   *
+   * Desvio, não degrau: o pedido sai de "separando", volta para lá quando o cliente responde que segue, ou
+   * termina em "cancelado". Nunca é destino de botão — quem coloca o pedido aqui é "Avisar o cliente".
+   */
+  AWAITING_CUSTOMER_DECISION: 'awaiting_customer_decision',
+  /** Deixou a loja. Daqui em diante o pedido está com o entregador, não com quem separa. */
   OUT_FOR_DELIVERY: 'out_for_delivery',
+  /** A caminho DESTE endereço — o entregador sai com quatro sacolas e a terceira demora. */
+  IN_TRANSIT: 'in_transit',
+  /** Na porta. É o aviso que faz alguém descer. */
+  ARRIVED_AT_CUSTOMER: 'arrived_at_customer',
   READY_FOR_PICKUP: 'ready_for_pickup',
+  /**
+   * A entrega não aconteceu, e o porquê está em `deliveryFailureReason`.
+   *
+   * Um status com motivo, e não um status por ocorrência: é o motivo que decide se ainda cabe outra
+   * tentativa, e a esteira ficaria ilegível com seis caixas de desfecho ruim lado a lado.
+   */
+  DELIVERY_FAILED: 'delivery_failed',
   COMPLETED: 'completed',
   CANCELLED: 'cancelled',
 } as const
 export type OrderStatus = (typeof ORDER_STATUS)[keyof typeof ORDER_STATUS]
 
+/**
+ * Por que a entrega não aconteceu. Vocabulário INTERNO — nada disto chega ao cliente.
+ *
+ * Os três primeiros admitem outra viagem; recusado e extraviado encerram, e é no cancelamento que a
+ * diferença aparece: o extraviado é o único que não devolve os itens ao estoque, porque a sacola não
+ * voltou para a prateleira.
+ */
+export const DELIVERY_FAILURE_REASON = {
+  CUSTOMER_ABSENT: 'customer_absent',
+  WRONG_ADDRESS: 'wrong_address',
+  RETURNED: 'returned',
+  REFUSED: 'refused',
+  LOST: 'lost',
+} as const
+export type DeliveryFailureReason = (typeof DELIVERY_FAILURE_REASON)[keyof typeof DELIVERY_FAILURE_REASON]
+
 export type DeliveryType = 'delivery' | 'pickup'
+
+/**
+ * `POST /v1/store/checkout-quote` (T2.2). Preço, taxa e total sempre calculados pelo servidor a
+ * partir dos preços ATUAIS do banco — o carrinho web guarda preço no navegador, que pode estar
+ * velho. Substitui o antigo `GET /v1/store/checkout-config`, que só devolvia a taxa por tipo de
+ * entrega e não o total cobrado.
+ */
+export type CheckoutQuoteItem = {
+  readonly productId: string
+  readonly unitPriceInCents: number
+  readonly lineTotalInCents: number
+}
+/** Espelha `DELIVERY_QUOTE_KIND` do backend — nunca coordenada nem CEP (spec §3.5, T4.1). */
+export type DeliveryQuoteTier = {
+  readonly maxDistanceKm: number
+  readonly feeInCents: number
+}
+export type CheckoutDeliveryQuote =
+  | { readonly kind: 'pickup' }
+  | { readonly kind: 'quoted'; readonly distanceKm: number; readonly tier: DeliveryQuoteTier }
+  | { readonly kind: 'approximate_max_tier'; readonly tier: DeliveryQuoteTier }
+  | { readonly kind: 'out_of_range'; readonly distanceKm: number; readonly maxDistanceKm: number }
+  | { readonly kind: 'unavailable' }
+export type CheckoutQuote = {
+  readonly subtotalInCents: number
+  readonly deliveryFeeInCents: number
+  readonly amountDueInCents: number
+  readonly items: readonly CheckoutQuoteItem[]
+  readonly deliveryQuote: CheckoutDeliveryQuote
+  readonly isDeliveryAvailable: boolean
+}
+export type CheckoutQuoteInput = {
+  readonly items: ReadonlyArray<{ readonly productId: string; readonly quantity: number }>
+  readonly deliveryType: DeliveryType
+  /** 8 dígitos, obrigatório quando `deliveryType` é `delivery` (spec §3.5). */
+  readonly cep?: string | undefined
+}
 export type PaymentMethod = 'pix' | 'card_on_delivery' | 'cash'
 export type ReceiptPreference = 'whatsapp' | 'email' | 'both'
 
@@ -104,11 +183,25 @@ export type Order = {
   readonly shortCode: string
   readonly customerName: string | null
   readonly customerPhone: string
+  /** Só a soma dos itens (é o que a NFC-e registra). Para exibir o que o cliente paga, use `amountDueInCents`. */
   readonly totalInCents: number
+  /** Taxa de entrega, fora de `totalInCents` (spec §3.4). Retirada = 0. */
+  readonly deliveryFeeInCents: number
+  /** Valor cobrado (itens + taxa), calculado pelo BACKEND — a tela nunca soma os dois. */
+  readonly amountDueInCents: number
   readonly status: OrderStatus
   readonly deliveryType: DeliveryType
   readonly paymentMethod: PaymentMethod
   readonly createdAt: string
+  /** Só preenchido com `status = delivery_failed`. É ele que decide se a tela oferece outra tentativa. */
+  readonly deliveryFailureReason: DeliveryFailureReason | null
+  /**
+   * Se o entregador precisa levar a maquininha (roteiro §11, spec §3.2).
+   *
+   * Calculado pelo BACKEND (`requiresCardMachine`), nunca aqui: `payment_method = card_on_delivery`
+   * na retirada não conta — a tela só lê o booleano e desenha o selo "Levar maquininha".
+   */
+  readonly requiresCardMachine: boolean
   /**
    * Próximos passos válidos, decididos pelo SERVIDOR.
    *
@@ -117,6 +210,23 @@ export type Order = {
    * tela só desenha o que ela permite.
    */
   readonly allowedNextStatuses: readonly string[]
+  /**
+   * Snapshot da cotação de entrega (spec §3.7): `null` nos quatro campos em retirada e em pedido
+   * anterior a esta coluna. Lido do PEDIDO, nunca da configuração atual — a faixa é substituída a
+   * cada PUT do painel, então recalcular pela config vigente mentiria sobre o que foi cobrado.
+   */
+  readonly deliveryDistanceKm: number | null
+  readonly deliveryTierMaxKm: number | null
+  readonly deliveryTierFeeInCents: number | null
+  readonly deliveryLocationSource: DeliveryLocationSource | null
+}
+
+export type DeliveryLocationSource = 'whatsapp_location' | 'cep' | 'cep_approximate'
+
+/** "Até X km, cobra Y" — a faixa i cobre (X[i-1], X[i]] (spec §3.1). */
+export type DeliveryFeeTier = {
+  readonly maxDistanceKm: number
+  readonly feeInCents: number
 }
 
 export type OrderItem = {
@@ -143,6 +253,17 @@ export type OrderItem = {
    * num pedido cuja esteira já dizia "Separado", e ninguém sabia qual das duas era verdade.
    */
   readonly pickedAt: string | null
+  /**
+   * O que o CATÁLOGO sabe do produto hoje — foto, embalagem e onde ele fica na loja.
+   *
+   * Nada disto é dinheiro, então vem do catálogo atual e não do snapshot da linha: serve para achar o
+   * produto na prateleira agora. `null` é o caso comum (produto sem foto, loja que não mapeou corredor),
+   * e a tela decide por presença — não existe "—" aqui, que quem separa leria como informação.
+   */
+  readonly productImageUrl?: string | null
+  readonly productBrand?: string | null
+  readonly productUnitSize?: string | null
+  readonly productAisle?: string | null
 }
 
 /**
@@ -175,7 +296,38 @@ export type OrderDetail = Order & {
   readonly legacyAddressText: string | null
   readonly receiptPreference: ReceiptPreference
   readonly notes: string | null
+  /**
+   * Quando a pergunta sobre os itens em falta saiu para o cliente. `null` = nunca saiu.
+   *
+   * É a hora que diz se a espera é de dez minutos ou de ontem — e é ela que decide se o lojista liga.
+   */
+  readonly customerDecisionAskedAt: string | null
+  /** Troco no pagamento em dinheiro (roteiro §9). `null` = não precisa, ou pagamento não é em dinheiro. */
+  readonly cashChangeForInCents: number | null
   readonly items: readonly OrderItem[]
+  /**
+   * Uma linha por viagem da sacola, na ordem em que saíram.
+   *
+   * Vazia numa retirada e num pedido que ainda não saiu. `deliveryFailureReason` do pedido continua sendo
+   * a ocorrência CORRENTE — esta lista é o que aconteceu antes, e que aquele campo apaga na retentativa.
+   */
+  readonly deliveryAttempts: readonly OrderDeliveryAttempt[]
+}
+
+export const DELIVERY_ATTEMPT_OUTCOME = {
+  DELIVERED: 'delivered',
+  FAILED: 'failed',
+} as const
+
+export type DeliveryAttemptOutcome = (typeof DELIVERY_ATTEMPT_OUTCOME)[keyof typeof DELIVERY_ATTEMPT_OUTCOME]
+
+export type OrderDeliveryAttempt = {
+  readonly attempt: number
+  readonly startedAt: string
+  /** `null` = a viagem de agora, e é o único jeito de distinguir "na rua" de "voltou". */
+  readonly endedAt: string | null
+  readonly outcome: DeliveryAttemptOutcome | null
+  readonly failureReason: DeliveryFailureReason | null
 }
 
 export const PRODUCT_SORTABLE_FIELDS = ['name', 'priceInCents', 'stockQuantity', 'createdAt'] as const
@@ -185,3 +337,21 @@ export const ORDER_SORTABLE_FIELDS = ['createdAt', 'totalInCents', 'status'] as 
 export type OrderSortableField = (typeof ORDER_SORTABLE_FIELDS)[number]
 
 export type SortDirection = 'asc' | 'desc'
+
+/** Recorte do pedido em andamento de uma conversa. Os totais vêm prontos do backend: o painel não soma. */
+export type ConversationCheckoutContext = {
+  readonly items: ReadonlyArray<{ readonly name: string; readonly quantity: number; readonly lineTotalInCents: number }>
+  readonly subtotalInCents: number
+  readonly deliveryType: 'delivery' | 'pickup' | null
+  /** `null` = entrega ainda sem cotação por faixa (endereço não informado) — nunca "grátis" (T3.3). */
+  readonly deliveryFeeInCents: number | null
+  /** Só em cotação `quoted` — a aproximada pela cidade (D3) não calcula a distância da casa. */
+  readonly deliveryDistanceKm: number | null
+  readonly deliveryTierMaxKm: number | null
+  /** `whatsapp_location` | `cep` | `cep_approximate` — nunca a coordenada nem o CEP em si. */
+  readonly deliveryLocationSource: 'whatsapp_location' | 'cep' | 'cep_approximate' | null
+  readonly amountDueInCents: number
+  readonly address: string | null
+  readonly paymentMethod: string | null
+  readonly cashChangeForInCents: number | null
+}

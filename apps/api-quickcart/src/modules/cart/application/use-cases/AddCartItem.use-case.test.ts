@@ -45,6 +45,15 @@ class FakeProductRepository implements ProductRepositoryInterface {
     throw new Error('not implemented')
   }
 
+  async findByIds(ids: readonly string[]): Promise<Product[]> {
+
+    const found = await Promise.all(ids.map((id) => this.findById(id)))
+
+    return found.filter((product): product is Product => product !== undefined)
+
+  }
+
+
   async findById(id: string): Promise<Product | undefined> {
     return this.products.get(id)
   }
@@ -61,7 +70,15 @@ class FakeProductRepository implements ProductRepositoryInterface {
     return { items: [], total: 0 }
   }
 
+  async findSubstituteCandidates(): Promise<ProductSearchResult[]> {
+    return []
+  }
+
   async searchByTerm(_term: string, _limit: number): Promise<ProductSearchResult[]> {
+    return []
+  }
+
+  async listDistinctBrands(): Promise<string[]> {
     return []
   }
 }
@@ -78,6 +95,7 @@ class FakeCartRepository implements CartRepositoryInterface {
 
   async create(params: CreateCartRecordParams): Promise<CartRecord> {
     const cart: CartRecord = {
+      shortCode: 'LC-1000',
       id: params.id,
       customerId: params.customerId,
       channel: params.channel,
@@ -154,6 +172,7 @@ function buildProduct(overrides: Partial<Product> = {}): Product {
     stockQuantity: 10,
     isAvailable: true,
     imageUrl: null,
+    aisle: null,
     aliases: [],
     barcode: null,
     createdAt: new Date(),

@@ -13,7 +13,8 @@
  *
  * A cadeia existe para o dia em que o free tier do Groq apertar: ligar
  * TRANSCRIPTION_LOCAL_FALLBACK_ENABLED acrescenta o engine local ao fim da fila sem tocar em
- * módulo, migration ou UI. Enquanto está desligado, a imagem não carrega ffmpeg nem modelo.
+ * módulo, migration ou UI. Sem chave do Groq, o local vira o único engine. O Dockerfile.api já
+ * traz ffmpeg, whisper-cli e o modelo.
  */
 
 import { createGroqTranscriber, createTranscriberChain } from '@adatechnology/audio-transcription-provider'
@@ -35,21 +36,20 @@ const transcriptionLog = logger.child('Transcription')
 export function createQuickCartTranscriber(): AudioTranscriber | undefined {
   if (!environment.TRANSCRIPTION_ENABLED) return undefined
 
-  if (!environment.TRANSCRIPTION_GROQ_API_KEY) {
-    // Ligado sem chave é erro de configuração, e silenciar faria a inbox parecer quebrada sem pista.
+  const engines = [createHostedTranscriber(), createOptionalLocalTranscriber()].filter(
+    (engine): engine is AudioTranscriber => engine !== undefined,
+  )
+
+  if (engines.length === 0) {
+    // Ligado sem engine é erro de configuração, e silenciar faria a inbox parecer quebrada sem pista.
     transcriptionLog.warn(LOG_EVENTS.TRANSCRIPTION_DISABLED_NO_KEY)
     return undefined
   }
 
-  const groq = createGroqTranscriber({
-    apiKey: environment.TRANSCRIPTION_GROQ_API_KEY,
-    model: environment.TRANSCRIPTION_MODEL,
-    languageHint: environment.TRANSCRIPTION_LANGUAGE,
-  })
+  const [onlyEngine] = engines
+  if (engines.length === 1 && onlyEngine) return onlyEngine
 
-  if (!environment.TRANSCRIPTION_LOCAL_FALLBACK_ENABLED) return groq
-
-  return createTranscriberChain([groq, createLocalTranscriber()], {
+  return createTranscriberChain(engines, {
     // Cair para o reserva não pode ser silencioso: tudo continua "funcionando" e ninguém descobre
     // que o engine principal está fora há uma semana.
     onEngineFailure: (error, details) => {
@@ -60,6 +60,22 @@ export function createQuickCartTranscriber(): AudioTranscriber | undefined {
       })
     },
   })
+}
+
+function createHostedTranscriber(): AudioTranscriber | undefined {
+  if (!environment.TRANSCRIPTION_GROQ_API_KEY) return undefined
+
+  return createGroqTranscriber({
+    apiKey: environment.TRANSCRIPTION_GROQ_API_KEY,
+    model: environment.TRANSCRIPTION_MODEL,
+    languageHint: environment.TRANSCRIPTION_LANGUAGE,
+  })
+}
+
+/** Sem chave do Groq, o local deixa de ser reserva e vira o único engine — transcrição sem custo por áudio. */
+function createOptionalLocalTranscriber(): AudioTranscriber | undefined {
+  if (!environment.TRANSCRIPTION_LOCAL_FALLBACK_ENABLED) return undefined
+  return createLocalTranscriber()
 }
 
 /**

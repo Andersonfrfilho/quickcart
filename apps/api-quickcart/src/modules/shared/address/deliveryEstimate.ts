@@ -63,6 +63,12 @@ export type DeliveryEstimateParams = {
   readonly detourFactor: number
   readonly averageSpeedKmh: number
   readonly preparationMinutes: number
+  /**
+   * Rota real já resolvida (OSRM), quando disponível. Presente → substitui a linha reta corrigida
+   * como distância, e `durationMinutes` substitui a estimativa por velocidade média — o roteador já
+   * sabe quanto tempo o trajeto leva, então a média deixa de ser a melhor informação que temos.
+   */
+  readonly route?: { readonly distanceKm: number; readonly durationMinutes?: number }
 }
 
 export type DeliveryEstimate = {
@@ -74,18 +80,34 @@ export type DeliveryEstimate = {
   readonly isApproximate: boolean
 }
 
+export type RoadDistanceParams = {
+  readonly from: Coordinate
+  readonly to: Coordinate
+  readonly detourFactor: number
+}
+
+/** A distância que a loja usa para tudo — previsão na tela e faixa de taxa — para as duas nunca divergirem. */
+export function calculateRoadDistanceKm(params: RoadDistanceParams): number {
+  return haversineDistanceKm(params.from, params.to) * params.detourFactor
+}
+
 function roundToStep(minutes: number): number {
   return Math.max(MINUTES_ROUNDING_STEP, Math.round(minutes / MINUTES_ROUNDING_STEP) * MINUTES_ROUNDING_STEP)
 }
 
 export function estimateDelivery(params: DeliveryEstimateParams): DeliveryEstimate {
-  const straightLineKm = haversineDistanceKm(params.storeCoordinate, params.customerCoordinate)
-  const roadDistanceKm = straightLineKm * params.detourFactor
+  const roadDistanceKm =
+    params.route?.distanceKm ??
+    calculateRoadDistanceKm({
+      from: params.storeCoordinate,
+      to: params.customerCoordinate,
+      detourFactor: params.detourFactor,
+    })
   const isApproximate = PRECISIONS_WITHOUT_ESTIMATE.has(params.precision)
 
   if (isApproximate) return { roadDistanceKm, isApproximate: true }
 
-  const travelMinutes = (roadDistanceKm / params.averageSpeedKmh) * MINUTES_PER_HOUR
+  const travelMinutes = params.route?.durationMinutes ?? (roadDistanceKm / params.averageSpeedKmh) * MINUTES_PER_HOUR
   const totalMinutes = params.preparationMinutes + travelMinutes
 
   return {

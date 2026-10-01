@@ -7,9 +7,10 @@
  *
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  *
- * Fase 4 não tem tabelas `carts`/`cart_items` (chegam na Fase 5) — o carrinho
- * em progresso vive dentro de `conversation_sessions.context` (jsonb) até lá,
- * conforme spec §3.3.
+ * As tabelas `carts`/`cart_items` existem e são a fonte verdadeira do carrinho aberto (lidas por
+ * `CartHandler`, `enterConfirming` e pelo checkout). `cartDraft`, aqui neste contexto, é só o
+ * rascunho da lista/navegação ANTES da revisão — `enterCartReview` o materializa em `cart_items`
+ * via `AddCartItemUseCase` (ver T3.2, `.specs/features/roteiro-atendimento/evidence.md`).
  */
 
 import type { MatchCandidate } from '@/modules/conversation/application/types/MatchProducts.types'
@@ -28,6 +29,8 @@ export type PendingResolution = {
   readonly quantity: number
   readonly unit: string
   readonly candidates: readonly MatchCandidate[]
+  /** Página atual da lista de candidatos, 1-indexed. Ausente equivale a 1. */
+  readonly page?: number
 }
 
 export type AwaitingQuantityProduct = {
@@ -42,10 +45,41 @@ export type ConversationContext = {
   readonly pendingResolutions?: readonly PendingResolution[]
   readonly browsingCategoryId?: string
   readonly browsingPage?: number
+  /** Termo de busca livre digitado durante a navegação — guardado para a página seguinte re-executar a mesma busca. */
+  readonly browsingSearchTerm?: string
+  readonly browsingSearchPage?: number
+  /** Página atual da lista de edição do carrinho, 1-indexed. Ausente equivale a 1. */
+  readonly editingCartPage?: number
   readonly awaitingQuantityProduct?: AwaitingQuantityProduct
   readonly wasExpired?: boolean
+  /**
+   * O cliente saiu por vontade própria e tem carrinho aberto — a volta pergunta antes de somar.
+   *
+   * Campo próprio, e não `wasExpired`: sair e esquecer a conversa levam à mesma pergunta, mas não à
+   * mesma frase. Só quem expirou ouve "sua sessão expirou".
+   */
+  readonly shouldAskCartResume?: boolean
+  /**
+   * Marca que a entrega/endereço estão sendo trocados de dentro do "quero mudar".
+   *
+   * Sem ela, o caminho de endereço termina perguntando o pagamento — que é exatamente a pergunta que
+   * o cliente escolheu NÃO refazer ao entrar pela lista de mudanças.
+   */
+  readonly checkoutChangeInProgress?: boolean
   readonly editingCartItemId?: string
   readonly checkoutDeliveryType?: string
+  /**
+   * Taxa cotada pela faixa quando o endereço ficou pronto (retirada = 0). Troco e pedido usam ESTE valor,
+   * nunca uma recotação: o troco já foi validado contra ele. Entrega sem `checkoutDeliveryLocationSource`
+   * é sessão anterior à cotação por faixa e não vale como cotação (`resolveCheckoutDeliveryFeeInCents`).
+   */
+  readonly checkoutDeliveryFeeInCents?: number
+  /** Só em cotação `quoted` — a aproximada pela cidade não calcula distância. */
+  readonly checkoutDeliveryDistanceKm?: number
+  readonly checkoutDeliveryTierMaxKm?: number
+  readonly checkoutDeliveryTierFeeInCents?: number
+  /** `whatsapp_location` | `cep` | `cep_approximate`: presente em toda entrega cotada. */
+  readonly checkoutDeliveryLocationSource?: string
   readonly checkoutAddress?: unknown
   /**
    * CEP resolvido, à espera do número (e complemento) para virar `checkoutAddress` completo.
@@ -61,7 +95,31 @@ export type ConversationContext = {
     readonly city: string
     readonly state: string
   }
+  /**
+   * Cotação aproximada (D3) à espera da confirmação do cliente: ainda NÃO é taxa cobrada — só vira
+   * cotação de verdade (com `checkoutDeliveryLocationSource`) quando ele confirma a estimativa.
+   * `retryCount` conta as respostas que não são botão nem CEP; `locationAttempts` conta o que chegou
+   * depois de "Enviar localização" e não era localização.
+   */
+  readonly checkoutApproximateDecision?: {
+    readonly feeInCents: number
+    readonly tierMaxKm: number
+    readonly tierFeeInCents: number
+    readonly retryCount?: number
+    readonly locationAttempts?: number
+    readonly awaitingLocation?: boolean
+  }
+  /** Localização do WhatsApp já cotada, à espera do número/complemento para o entregador. */
+  readonly checkoutLocationDraft?: {
+    readonly latitude: number
+    readonly longitude: number
+  }
   readonly checkoutPaymentMethod?: string
+  /**
+   * Troco no pagamento em dinheiro (roteiro §9). Ausente enquanto a pergunta não foi respondida;
+   * `null` para "Não preciso"; um número para o valor com que o cliente vai pagar.
+   */
+  readonly checkoutCashChangeForInCents?: number | null
   readonly checkoutReceiptPreference?: string
   readonly checkoutEmail?: string
   /**

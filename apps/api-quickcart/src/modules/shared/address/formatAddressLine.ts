@@ -12,6 +12,10 @@
  * assim que o checkout passou a guardar objeto em vez de texto (T2.2).
  */
 
+import { isWhatsAppLocationAddress } from '@/modules/shared/address/WhatsAppLocationAddress'
+
+const LOCATION_ADDRESS_LABEL = 'Localização enviada pelo WhatsApp'
+
 type StructuredAddressLike = {
   readonly street: unknown
   readonly number: unknown
@@ -34,6 +38,11 @@ function isStructuredAddressLike(address: unknown): address is StructuredAddress
 }
 
 export function formatAddressLine(address: unknown): string | undefined {
+  // A coordenada nunca é mostrada: o cliente reconhece a própria localização pelo número que digitou.
+  if (isWhatsAppLocationAddress(address)) {
+    const complement = address.complement ? ` - ${address.complement}` : ''
+    return `${LOCATION_ADDRESS_LABEL}, nº ${address.number}${complement}`
+  }
   if (isStructuredAddressLike(address)) {
     const complement = typeof address.complement === 'string' && address.complement ? ` - ${address.complement}` : ''
     return `${String(address.street)}, ${String(address.number)}${complement} — ${String(address.neighborhood)}, ${String(address.city)}/${String(address.state)}`

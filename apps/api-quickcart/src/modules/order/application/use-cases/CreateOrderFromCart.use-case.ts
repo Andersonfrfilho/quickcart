@@ -13,17 +13,16 @@ import { CartProductUnavailableError } from '@/shared/errors/CartErrors'
 import { OrderEmptyCartError, OrderInsufficientStockError } from '@/shared/errors/OrderErrors'
 import { CART_STATUS } from '@/modules/cart/shared/Cart.constant'
 import { generateId } from '@/shared/id'
+import { DELIVERY_TYPE } from '@/modules/order/shared/Order.constant'
 import type { CartRepositoryInterface } from '@/modules/cart/domain/CartRepository.interface'
 import type { ProductRepositoryInterface } from '@/modules/catalog/domain/ProductRepository.interface'
 import type { OrderRepositoryInterface, CreateOrderItemInput } from '@/modules/order/domain/OrderRepository.interface'
-import type { JobQueue } from '@/modules/order/domain/JobQueue.interface'
 import type { CreateOrderFromCartParams, CreateOrderFromCartResult } from '../types/CreateOrderFromCart.types'
 
 type CreateOrderFromCartUseCaseDependencies = {
   readonly orderRepository: OrderRepositoryInterface
   readonly cartRepository: CartRepositoryInterface
   readonly productRepository: ProductRepositoryInterface
-  readonly receiptQueue: JobQueue
 }
 
 export class CreateOrderFromCartUseCase {
@@ -58,13 +57,19 @@ export class CreateOrderFromCartUseCase {
       paymentMethod: params.paymentMethod,
       receiptPreference: params.receiptPreference,
       notes: params.notes,
+      cashChangeForInCents: params.cashChangeForInCents,
+      // Retirada nunca cobra, qualquer que seja o valor recebido; entrega cobra a cotação do contexto, sem recotar.
+      deliveryFeeInCents: params.deliveryType === DELIVERY_TYPE.PICKUP ? 0 : params.quotedDeliveryFeeInCents,
+      deliveryDistanceKm: params.quotedDeliveryDistanceKm ?? null,
+      deliveryTierMaxKm: params.quotedDeliveryTierMaxKm ?? null,
+      deliveryTierFeeInCents: params.quotedDeliveryTierFeeInCents ?? null,
+      deliveryLocationSource: params.quotedDeliveryLocationSource ?? null,
       items,
     })
 
     if (!result.ok) throw new OrderInsufficientStockError(result.insufficientItems)
 
     await this.dependencies.cartRepository.updateStatus(params.cartId, CART_STATUS.ORDERED)
-    await this.dependencies.receiptQueue.add('issue-receipt', { orderId: result.order.id })
 
     return { order: result.order, items: result.items }
   }

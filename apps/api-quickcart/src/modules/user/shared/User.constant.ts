@@ -73,3 +73,10 @@ export const SERVICE_ONLY: readonly QuickCartRole[] = [QUICKCART_ROLE.SERVICE]
 
 /** Loja: só o cliente final vê os próprios pedidos. Ninguém do painel entra por aqui. */
 export const CUSTOMER_ONLY: readonly QuickCartRole[] = [QUICKCART_ROLE.CUSTOMER]
+
+/** Login do user-module, limitado no host: brute force de senha é o risco. */
+export const AUTH_LOGIN_ROUTE_METHOD = 'POST'
+export const AUTH_LOGIN_ROUTE_PATHNAME = '/v1/auth/login'
+export const AUTH_LOGIN_RATE_LIMIT_SCOPE = 'auth-login'
+export const AUTH_LOGIN_RATE_LIMIT_PER_WINDOW = 10
+export const AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS = 60

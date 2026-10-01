@@ -27,6 +27,7 @@ import { CONVERSATION_STATE, SESSION_EXPIRY_MS, type ConversationState } from '@
 import { MESSAGES } from '@/modules/conversation/shared/Messages.constant'
 import { LOG_EVENTS } from '@/shared/constants/log-events.constant'
 import { logger } from '@/shared/logger'
+import { maskPhone } from '@/shared/maskPhone'
 
 const engineLog = logger.child('conversation', 'engine')
 
@@ -35,7 +36,12 @@ export type ConversationEngineDependencies = {
   readonly customerRepository: CustomerRepositoryInterface
   readonly whatsAppSender: WhatsAppSender
   readonly globalHandler: GlobalConversationHandlerInterface
-  readonly handlers: Partial<Record<ConversationState, ConversationHandlerInterface>>
+  /**
+   * Um handler para CADA estado — sem `Partial`. Com `Partial`, um estado novo sem rota compilava,
+   * passava nos testes e só falhava com um cliente real: foi assim que `awaiting_address_number`
+   * ficou sem handler e o número da casa depois do CEP caía em "ainda estou aprendendo".
+   */
+  readonly handlers: Record<ConversationState, ConversationHandlerInterface>
 }
 
 export class ConversationEngine {
@@ -44,7 +50,7 @@ export class ConversationEngine {
   async handle(message: ParsedInboundMessage): Promise<void> {
     const customer = await this.dependencies.customerRepository.findByPhone(message.from)
     if (!customer) {
-      engineLog.warn(LOG_EVENTS.CONVERSATION_CUSTOMER_NOT_FOUND, { from: message.from })
+      engineLog.warn(LOG_EVENTS.CONVERSATION_CUSTOMER_NOT_FOUND, { from: maskPhone(message.from) })
       return
     }
 

@@ -7,6 +7,7 @@ import { createBullMqQueue } from '@adatechnology/notification-module/queue/bull
 import { createWorkerNotificationModule } from '@/modules/notification/notificationModule'
 import { processReceiptJob } from '@/modules/receipt/infra/processors/ReceiptProcessor'
 import { processDocumentsJob, PURGE_EXPIRED_JOB } from '@/modules/documents/infra/processors/DocumentsProcessor'
+import { processOrderDecisionJob } from '@/modules/order/infra/processors/OrderDecisionProcessor'
 import { Queue } from 'bullmq'
 import { environment } from '@/infra/config/environment'
 import { logger } from '@/shared/logger'
@@ -17,10 +18,14 @@ export function startWorkers(): Worker[] {
   const sttWorker = new Worker(QUEUE_NAMES.STT, processSttJob, { connection: queueConnection })
   const receiptWorker = new Worker(QUEUE_NAMES.RECEIPT, processReceiptJob, { connection: queueConnection })
   const documentsWorker = new Worker(QUEUE_NAMES.DOCUMENTS, processDocumentsJob, { connection: queueConnection })
+  const orderDecisionWorker = new Worker(QUEUE_NAMES.ORDER_DECISION, processOrderDecisionJob, {
+    connection: queueConnection,
+  })
 
   sttWorker.on('ready', () => workersLog.info('worker_ready', { queue: QUEUE_NAMES.STT }))
   receiptWorker.on('ready', () => workersLog.info('worker_ready', { queue: QUEUE_NAMES.RECEIPT }))
   documentsWorker.on('ready', () => workersLog.info('worker_ready', { queue: QUEUE_NAMES.DOCUMENTS }))
+  orderDecisionWorker.on('ready', () => workersLog.info('worker_ready', { queue: QUEUE_NAMES.ORDER_DECISION }))
 
   sttWorker.on('failed', (job, error) => workersLog.error('job_failed', { queue: QUEUE_NAMES.STT, jobId: job?.id, error: String(error) }))
   receiptWorker.on('failed', (job, error) =>
@@ -29,6 +34,10 @@ export function startWorkers(): Worker[] {
 
   documentsWorker.on('failed', (job, error) =>
     workersLog.error('job_failed', { queue: QUEUE_NAMES.DOCUMENTS, jobId: job?.id, error: String(error) }),
+  )
+
+  orderDecisionWorker.on('failed', (job, error) =>
+    workersLog.error('job_failed', { queue: QUEUE_NAMES.ORDER_DECISION, jobId: job?.id, error: String(error) }),
   )
 
   // Varredura de retenção como job repetível na mesma fila. Agendado no boot, e não por cron
@@ -82,5 +91,11 @@ export function startWorkers(): Worker[] {
     workersLog.info('worker_ready', { queue: QUEUE_NAMES.NOTIFICATION_DELIVERY }),
   )
 
-  return [sttWorker, receiptWorker, documentsWorker, ...(notificationWorker ? [notificationWorker] : [])]
+  return [
+    sttWorker,
+    receiptWorker,
+    documentsWorker,
+    orderDecisionWorker,
+    ...(notificationWorker ? [notificationWorker] : []),
+  ]
 }

@@ -18,55 +18,131 @@
  *
  * Idempotente por construção: só entram os itens em falta AINDA não avisados. Dois cliques no botão não
  * mandam dois recados, e um item marcado depois do primeiro aviso entra no segundo.
+ *
+ * Dois caminhos, escolhidos pela loja no clique: PERGUNTAR (o pedido para até o cliente responder) ou
+ * INFORMAR (o recado sai como aviso e a separação segue). Quem conhece o cliente e o item que faltou é
+ * quem está com a sacola na mão — falta de sacola plástica não merece parar uma entrega, e falta do
+ * remédio da criança não deve seguir sem consulta.
  */
 
-import { OrderNotFoundError } from '@/shared/errors/OrderErrors'
+import { OrderCustomerApprovalRequiredError, OrderNotFoundError } from '@/shared/errors/OrderErrors'
 import type { OrderDetail, OrderRepositoryInterface } from '@/modules/order/domain/OrderRepository.interface'
-import { MESSAGES } from '@/modules/conversation/shared/Messages.constant'
-import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInCents'
+import {
+  buildUnavailableNoticeBody,
+  hasAnythingLeftToDeliver,
+  type NotifyCustomer,
+} from '@/modules/order/shared/customerDecisionMessage'
+import type { AskUnavailableItemsUseCase } from './AskUnavailableItems.use-case'
+import { ORDER_STATUS } from '@/modules/order/shared/Order.constant'
 import { logger } from '@/shared/logger'
 import { serializeError } from '@/shared/serializeError'
 
 const useCaseLog = logger.child('NotifyUnavailableItems')
 
+/**
+ * De onde se pode entrar no desvio: a falta só aparece com alguém de fato mexendo na sacola.
+ *
+ * `AWAITING_CUSTOMER_DECISION` esteve nesta lista e saiu. Estava aqui pela segunda falta — quem já perguntou
+ * uma vez encontra outro item vazio na prateleira —, mas o efeito era duas perguntas em aberto no mesmo
+ * número. Nos botões do pedido inteiro o id carrega só o `orderId` (`buildOrderDecisionButtons`): com duas
+ * dessas em aberto, "✅ Seguir assim" responde as duas e ninguém sabe qual o cliente leu.
+ *
+ * A segunda falta continua atendida, e por um caminho que já existia: ela fica em fila pelo carimbo
+ * `unavailable_notified_at` e sai sozinha quando a resposta da primeira chegar, porque a resposta reentra
+ * em `AskUnavailableItems` (ADR 0003). A cobrança da primeira segue armada e cobre a espera inteira — é
+ * uma só por desvio, e `RemindCustomerDecision` reenvia a pergunta com TODAS as faltas do pedido.
+ */
+const ASKABLE_FROM_STATUSES = [ORDER_STATUS.PREPARING, ORDER_STATUS.SEPARATED] as const
+
+/** O que este use case fez, para a tela não ter que adivinhar pelo `notifiedCount`. */
+export const NOTIFY_UNAVAILABLE_OUTCOME = {
+  /** A pergunta saiu e o pedido entrou no desvio. */
+  ASKED: 'asked',
+  /** O recado saiu sem botão e a separação seguiu. */
+  INFORMED: 'informed',
+  /** Já havia pergunta sem resposta: a falta entra na fila e sai quando o cliente responder. */
+  QUEUED: 'queued',
+  /** Nada de novo a avisar. */
+  NOTHING: 'nothing',
+} as const
+
+export type NotifyUnavailableOutcome =
+  (typeof NOTIFY_UNAVAILABLE_OUTCOME)[keyof typeof NOTIFY_UNAVAILABLE_OUTCOME]
+
 type NotifyUnavailableItemsDependencies = {
   readonly orderRepository: OrderRepositoryInterface
-  readonly notifyCustomer: (params: { readonly whatsappNumber: string; readonly body: string }) => Promise<void>
+  /**
+   * Quem decide QUAL pergunta sai e a manda com botões.
+   *
+   * Um use case e não um `sendText`: sem botão a resposta vem em texto livre ("pode mandar o resto"), e aí
+   * alguém precisa ler e clicar por ele — que é o trabalho que a pergunta automática existe para poupar. E
+   * a escolha entre perguntar a troca de um item ou o pedido inteiro é a mesma que a resposta do cliente
+   * refaz depois, então mora fora daqui (ADR 0003).
+   */
+  readonly askUnavailableItemsUseCase: AskUnavailableItemsUseCase
+  /**
+   * O aviso sem pergunta, para quando a loja já decidiu seguir. Texto puro, sem botão.
+   *
+   * Dependência separada e não uma flag no `askCustomer`: são canais com formatos diferentes na Graph API,
+   * e um `sendInteractiveButtons` com lista vazia de botões é mensagem recusada.
+   */
+  readonly notifyCustomer: NotifyCustomer
+  /**
+   * A cobrança única, N horas depois. Recebe só o id — fila carrega referência, não dado pessoal.
+   *
+   * Fica como dependência porque BullMQ não tem por que existir dentro de uma regra de negócio: o use case
+   * diz "cobre mais tarde", e quem monta o container decide se isso é uma fila, um cron ou nada.
+   */
+  readonly scheduleDecisionReminder: (params: { readonly orderId: string }) => Promise<void>
 }
 
 export type NotifyUnavailableItemsResult = {
   readonly detail: OrderDetail
-  /** Quantos itens entraram no recado. Zero significa que não havia nada novo a avisar. */
+  /** Quantos itens entraram no recado. Zero significa que nada saiu — veja `outcome` para saber por quê. */
   readonly notifiedCount: number
+  readonly outcome: NotifyUnavailableOutcome
 }
 
 export class NotifyUnavailableItemsUseCase {
   constructor(private readonly dependencies: NotifyUnavailableItemsDependencies) {}
 
-  async execute(params: { readonly orderId: string }): Promise<NotifyUnavailableItemsResult> {
+  async execute(params: {
+    readonly orderId: string
+    /**
+     * Esperar o cliente decidir, ou só informar e seguir.
+     *
+     * A escolha é da loja e muda tudo depois daqui: com aprovação o pedido para no desvio e a separação só
+     * continua com a resposta; sem aprovação o recado sai como informação e quem está com a sacola fecha a
+     * etapa na hora. Não há padrão — deixar implícito faria a loja descobrir qual dos dois pelo efeito.
+     */
+    readonly requiresCustomerApproval: boolean
+  }): Promise<NotifyUnavailableItemsResult> {
     const detail = await this.dependencies.orderRepository.findDetailById(params.orderId)
     if (!detail) throw new OrderNotFoundError(params.orderId)
 
     const pending = detail.items.filter(
       (item) => item.unavailableAt !== null && item.unavailableNotifiedAt === null,
     )
-    if (pending.length === 0) return { detail, notifiedCount: 0 }
-
-    const itemLines = pending.map((item) => `• ${Number(item.quantity)}x ${item.productName}`).join('\n')
-    const hasAnythingLeft = detail.items.some((item) => item.unavailableAt === null)
+    if (pending.length === 0) return { detail, notifiedCount: 0, outcome: NOTIFY_UNAVAILABLE_OUTCOME.NOTHING }
 
     /**
-     * Nada sobrou: outra conversa, não o mesmo recado com total zero.
+     * Uma pergunta em aberto por vez, e esta é a trava — não a tela.
      *
-     * "O novo total é R$ 0,00" deixaria o cliente esperando uma entrega vazia. Quando não há o que
-     * entregar, a pergunta certa é se ele quer montar outra lista ou cancelar.
+     * A tela esconde o botão enquanto o cliente deve resposta, mas quem chega pela rota direto não vê tela
+     * nenhuma, e a regra vale igual. A falta recém-marcada não se perde: fica sem carimbo, que é o mesmo
+     * lugar de onde a próxima pergunta sempre saiu.
+     *
+     * Só o caminho da pergunta. Informar e seguir continua liberado: é recado sem botão, não compete com
+     * pergunta nenhuma, e é a saída de quem precisa avisar de uma segunda falta antes da resposta chegar.
      */
-    const body = hasAnythingLeft
-      ? MESSAGES.ORDER_ITEMS_UNAVAILABLE.replace('{itens}', itemLines).replace(
-          '{total}',
-          formatPriceInCents(detail.order.totalInCents),
-        )
-      : MESSAGES.ORDER_ALL_ITEMS_UNAVAILABLE.replace('{itens}', itemLines)
+    if (params.requiresCustomerApproval && detail.order.status === ORDER_STATUS.AWAITING_CUSTOMER_DECISION) {
+      useCaseLog.info('unavailable_notice_queued', { orderId: params.orderId, pendingCount: pending.length })
+      return { detail, notifiedCount: 0, outcome: NOTIFY_UNAVAILABLE_OUTCOME.QUEUED }
+    }
+
+    if (!params.requiresCustomerApproval && !hasAnythingLeftToDeliver(detail)) {
+      throw new OrderCustomerApprovalRequiredError(params.orderId)
+    }
 
     /**
      * Manda primeiro, marca depois.
@@ -76,15 +152,58 @@ export class NotifyUnavailableItemsUseCase {
      * cliente já ter sido avisado: a tela continua oferecendo avisar, alguém clica de novo e ele recebe
      * duas mensagens. Mensagem repetida incomoda; cliente sem aviso perde a compra.
      */
-    await this.dependencies.notifyCustomer({ whatsappNumber: detail.order.customerPhone, body })
+    if (params.requiresCustomerApproval) {
+      /*
+       * Qual pergunta sai — a troca de um item ou a do pedido inteiro — é decisão de um lugar só, porque a
+       * resposta do cliente reentra pelo mesmo caminho para perguntar o item seguinte (ADR 0003). Ela também
+       * carimba os itens que entraram no recado, então o carimbo em lote abaixo não vale para este ramo.
+       */
+      await this.dependencies.askUnavailableItemsUseCase.execute({ detail })
+    } else {
+      await this.dependencies.notifyCustomer({
+        whatsappNumber: detail.order.customerPhone,
+        body: buildUnavailableNoticeBody({ detail, unavailableItems: pending }),
+      })
 
-    try {
-      await this.dependencies.orderRepository.markUnavailableItemsNotified(params.orderId)
-    } catch (error: unknown) {
-      useCaseLog.error('notification_not_stamped', { orderId: params.orderId, error: serializeError(error) })
+      try {
+        await this.dependencies.orderRepository.markUnavailableItemsNotified(params.orderId)
+      } catch (error: unknown) {
+        useCaseLog.error('notification_not_stamped', { orderId: params.orderId, error: serializeError(error) })
+      }
+    }
+
+    /*
+     * Sem aprovação, o pedido não sai do lugar: a separação continua de onde estava e a loja fecha a etapa
+     * quando terminar. Nada de desvio, nada de cobrança horas depois — não há resposta a esperar.
+     */
+    if (!params.requiresCustomerApproval) {
+      const informed = await this.dependencies.orderRepository.findDetailById(params.orderId)
+      return {
+        detail: informed ?? detail,
+        notifiedCount: pending.length,
+        outcome: NOTIFY_UNAVAILABLE_OUTCOME.INFORMED,
+      }
+    }
+
+    /**
+     * Só agora o pedido entra no desvio: a pergunta já saiu, então "aguardando o cliente" é verdade.
+     *
+     * `undefined` aqui é o pedido que saiu de `preparing`/`separated` entre a leitura e esta escrita — a
+     * loja cancelou, por exemplo. Nesse caso o recado já foi (não dá para desmandar), mas forçar o status
+     * atropelaria a decisão de quem estava com a sacola na mão. Fica logado e a tela mostra o estado real.
+     */
+    const moved = await this.dependencies.orderRepository.startCustomerDecision({
+      orderId: params.orderId,
+      allowedCurrentStatuses: ASKABLE_FROM_STATUSES,
+    })
+
+    if (moved) {
+      await this.dependencies.scheduleDecisionReminder({ orderId: params.orderId })
+    } else {
+      useCaseLog.warn('customer_decision_not_started', { orderId: params.orderId, status: detail.order.status })
     }
 
     const updated = await this.dependencies.orderRepository.findDetailById(params.orderId)
-    return { detail: updated ?? detail, notifiedCount: pending.length }
+    return { detail: updated ?? detail, notifiedCount: pending.length, outcome: NOTIFY_UNAVAILABLE_OUTCOME.ASKED }
   }
 }

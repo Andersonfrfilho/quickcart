@@ -104,6 +104,8 @@ const orderRepository = new DrizzleOrderRepository()
 const updateOrderStatus = new UpdateOrderStatusUseCase({
   orderRepository,
   orderStatusNotifier: createSdkOrderStatusNotifier({ module: notification, companyId: COMPANY_ID }),
+  // Este e2e é sobre o aviso de status; o recibo tem teste próprio.
+  receiptQueue: { add: async () => undefined },
 })
 
 /** O módulo não expõe repositórios — num E2E, ler a tabela é a asserção mais forte de todo jeito. */

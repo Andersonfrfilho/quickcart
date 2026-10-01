@@ -18,10 +18,12 @@ import { requireSession } from '@/infra/http/middlewares/requireSession'
 import { SERVICE_ONLY } from '@/modules/user/shared/User.constant'
 import { validateBody } from '@/infra/http/middlewares/validateBody'
 import type { ResumeConversationUseCase } from '@/modules/webhook/application/use-cases/ResumeConversation.use-case'
+import type { RemindCustomerDecisionUseCase } from '@/modules/order/application/use-cases/RemindCustomerDecision.use-case'
 import { resumeConversationBodySchema } from './schemas/ResumeConversation.schema'
 
 type InternalControllerDependencies = {
   readonly resumeConversationUseCase: ResumeConversationUseCase
+  readonly remindCustomerDecisionUseCase: RemindCustomerDecisionUseCase
 }
 
 export class InternalController {
@@ -31,6 +33,19 @@ export class InternalController {
     await requireSession({ request, roles: SERVICE_ONLY })
     const input = validateBody(resumeConversationBodySchema, request.body)
     const result = await this.dependencies.resumeConversationUseCase.execute(input)
+    response.json(200, { data: result })
+  }
+
+  /**
+   * 200 mesmo quando nada foi enviado, e o motivo vai no corpo.
+   *
+   * O worker retenta em cima de não-2xx, e "o cliente já respondeu" não é falha que melhore tentando de
+   * novo — devolver erro aí só produziria três tentativas inúteis por pedido resolvido a tempo.
+   */
+  handleRemindCustomerDecision: RouteHandler = async (request, response) => {
+    await requireSession({ request, roles: SERVICE_ONLY })
+    const orderId = request.params[0] ?? ''
+    const result = await this.dependencies.remindCustomerDecisionUseCase.execute({ orderId })
     response.json(200, { data: result })
   }
 }

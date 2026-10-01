@@ -12,8 +12,13 @@ import type { WhatsAppMessage } from '@adatechnology/meta-whatsapp-contracts'
 import type { ParsedInboundMessage } from '@/modules/webhook/application/types/WhatsAppWebhookPayload.types'
 
 // Recebe a mensagem crua da Meta já validada pelo módulo e a reduz à união fechada que os
-// handlers do QuickCart entendem. Tudo que a loja não trata (imagem, documento, sticker,
-// pedido de catálogo) cai em 'unsupported' — o mesmo comportamento de antes da migração.
+// handlers do QuickCart entendem. Tudo que a loja não trata (documento, sticker, pedido de
+// catálogo) cai em 'unsupported'.
+function isValidCoordinate(latitude: number, longitude: number): boolean {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return false
+  return Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180
+}
+
 export function parseInboundMessage(message: WhatsAppMessage): ParsedInboundMessage {
   const { from, id: waMessageId, type } = message
 
@@ -25,6 +30,17 @@ export function parseInboundMessage(message: WhatsAppMessage): ParsedInboundMess
     return { kind: 'audio', from, waMessageId, mediaId: message.audio.id, mimeType: message.audio.mime_type }
   }
 
+  if (type === 'image' && message.image) {
+    return {
+      kind: 'image',
+      from,
+      waMessageId,
+      mediaId: message.image.id,
+      mimeType: message.image.mime_type,
+      ...(message.image.caption ? { caption: message.image.caption } : {}),
+    }
+  }
+
   if (type === 'interactive' && message.interactive?.type === 'button_reply' && message.interactive.button_reply) {
     const { id, title } = message.interactive.button_reply
     return { kind: 'button_reply', from, waMessageId, buttonId: id, buttonTitle: title }
@@ -33,6 +49,11 @@ export function parseInboundMessage(message: WhatsAppMessage): ParsedInboundMess
   if (type === 'interactive' && message.interactive?.type === 'list_reply' && message.interactive.list_reply) {
     const { id, title } = message.interactive.list_reply
     return { kind: 'list_reply', from, waMessageId, listId: id, listTitle: title }
+  }
+
+  if (type === 'location' && message.location && isValidCoordinate(message.location.latitude, message.location.longitude)) {
+    const { latitude, longitude } = message.location
+    return { kind: 'location', from, waMessageId, latitude, longitude }
   }
 
   return { kind: 'unsupported', from, waMessageId, type }

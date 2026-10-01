@@ -13,6 +13,7 @@ import { db } from '@/infra/database/connection'
 import { customers, type Customer } from '@/infra/database/schema'
 import { generateId } from '@/shared/id'
 import { logger } from '@/shared/logger'
+import { serializeError } from '@/shared/serializeError'
 import type {
   CustomerRepositoryInterface,
   LinkCustomerToUserParams,
@@ -121,6 +122,6 @@ async function mirrorIntoRegistry(customer: Customer): Promise<void> {
       )
     `)
   } catch (error) {
-    customerLog.warn('registry_mirror_failed', { customerId: customer.id, error: String(error) })
+    customerLog.warn('registry_mirror_failed', { customerId: customer.id, error: serializeError(error) })
   }
 }

@@ -1,10 +1,14 @@
 import axios from 'axios'
 import type { InternalAxiosRequestConfig } from 'axios'
 import type {
+  ConversationCheckoutContext,
   ApiCollectionResponse,
   ApiItemResponse,
   ApiListResponse,
   Category,
+  CheckoutQuote,
+  CheckoutQuoteInput,
+  DeliveryFeeTier,
   DeliveryType,
   Order,
   OrderSortableField,
@@ -37,6 +41,26 @@ apiClient.interceptors.request.use((config) => {
   return config
 })
 
+/**
+ * Erro de API com o `code` da resposta (`{ error: { code, message } }`) preservado — sem ele, a
+ * tela não teria como distinguir `DELIVERY_FEE_CHANGED` de `DELIVERY_OUT_OF_RANGE` (spec §3.5),
+ * já que os dois viram texto igualzinho a qualquer outro erro. Ver `getApiErrorCode`.
+ */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly code: string | undefined,
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
+/** Lê o `code` de um erro de API (`code-standart.md` §7: "Frontend filtra por código via getApiErrorCode()"). */
+export function getApiErrorCode(error: unknown): string | undefined {
+  return error instanceof ApiError ? error.code : undefined
+}
+
 apiClient.interceptors.response.use(
   (response) => response.data,
   async (error) => {
@@ -50,7 +74,8 @@ apiClient.interceptors.response.use(
     }
 
     const message = error.response?.data?.error?.message ?? 'Erro inesperado'
-    return Promise.reject(new Error(message))
+    const code = error.response?.data?.error?.code as string | undefined
+    return Promise.reject(new ApiError(message, code))
   },
 )
 
@@ -89,6 +114,8 @@ export type CreateOrderInput = {
   address?: CreateOrderAddressInput
   paymentMethod: PaymentMethod
   receiptPreference: ReceiptPreference
+  /** A taxa que a cotação mostrou (spec §3.5) — o servidor recota e compara, 409 se mudou. */
+  expectedDeliveryFeeInCents?: number
 }
 
 export type ListAdminOrdersParams = {
@@ -109,6 +136,10 @@ export type ListAdminProductsParams = {
   categoryId?: string[]
   sortBy?: ProductSortableField
   sortDirection?: SortDirection
+}
+
+export async function getCheckoutQuote(body: CheckoutQuoteInput): Promise<ApiItemResponse<CheckoutQuote>> {
+  return apiClient.post('/v1/store/checkout-quote', body)
 }
 
 export async function getCategories(): Promise<ApiCollectionResponse<Category>> {
@@ -156,6 +187,17 @@ export async function adminAdjustStock(id: string, body: { delta: number }): Pro
   return apiClient.patch(`/v1/admin/products/${id}/stock`, body, { })
 }
 
+export async function adminListDeliveryFeeTiers(): Promise<ApiCollectionResponse<DeliveryFeeTier>> {
+  return apiClient.get('/v1/admin/delivery-fee-tiers', { })
+}
+
+/** Lista vazia é válida: desliga a entrega (spec §3.1, §4 item 9). */
+export async function adminReplaceDeliveryFeeTiers(
+  tiers: readonly DeliveryFeeTier[],
+): Promise<ApiCollectionResponse<DeliveryFeeTier>> {
+  return apiClient.put('/v1/admin/delivery-fee-tiers', tiers, { })
+}
+
 export type ListUnmatchedDemandsParams = {
   limit?: number
   windowDays?: number
@@ -201,6 +243,12 @@ export async function adminListOrders(params: ListAdminOrdersParams = {}): Promi
   })
 }
 
+export async function adminGetConversationCheckoutContext(
+  whatsappNumber: string,
+): Promise<ApiItemResponse<ConversationCheckoutContext | null>> {
+  return apiClient.get(`/v1/admin/conversations/${encodeURIComponent(whatsappNumber)}/checkout-context`)
+}
+
 export async function adminGetOrderDetail(id: string): Promise<ApiItemResponse<OrderDetail>> {
   return apiClient.get(`/v1/admin/orders/${id}`, { })
 }
@@ -234,13 +282,38 @@ export type NotifyUnavailableItemsResponse = {
   readonly meta: { readonly notifiedCount: number }
 }
 
-export async function adminNotifyUnavailableItems(orderId: string,
-): Promise<NotifyUnavailableItemsResponse> {
-  return apiClient.post(`/v1/admin/orders/${orderId}/unavailable-items/notify`, undefined, {
+/**
+ * `requiresCustomerApproval` explícito, sem valor padrão dos dois lados.
+ *
+ * Perguntar para o pedido e informar seguindo são decisões diferentes da loja, e a API recusa o corpo sem
+ * a escolha — assim nenhum caminho vira o "acidental" quando alguém esquecer de passar o parâmetro.
+ */
+export async function adminNotifyUnavailableItems(params: {
+  readonly orderId: string
+  readonly requiresCustomerApproval: boolean
+}): Promise<NotifyUnavailableItemsResponse> {
+  return apiClient.post(`/v1/admin/orders/${params.orderId}/unavailable-items/notify`, {
+    requiresCustomerApproval: params.requiresCustomerApproval,
   })
 }
 
-export async function adminUpdateOrderStatus(id: string, status: string): Promise<ApiItemResponse<Order>> {
-  return apiClient.patch(`/v1/admin/orders/${id}/status`, { status }, {
-  })
+/**
+ * O motivo vai junto do status, na MESMA chamada.
+ *
+ * A rota recusa `delivery_failed` sem motivo e recusa motivo com qualquer outro status — registrar a
+ * ocorrência primeiro e o porquê depois deixaria o pedido num estado que ninguém sabe explicar. Por
+ * isso a chave só entra no corpo quando existe: mandar `deliveryFailureReason: undefined` num status
+ * comum é o mesmo que mandar a chave, e a validação rejeitaria.
+ */
+export async function adminUpdateOrderStatus(params: {
+  readonly orderId: string
+  readonly status: string
+  readonly deliveryFailureReason?: string | undefined
+}): Promise<ApiItemResponse<Order>> {
+  const body = params.deliveryFailureReason
+    ? { status: params.status, deliveryFailureReason: params.deliveryFailureReason }
+    : { status: params.status }
+
+  return apiClient.patch(`/v1/admin/orders/${params.orderId}/status`, body)
 }
+

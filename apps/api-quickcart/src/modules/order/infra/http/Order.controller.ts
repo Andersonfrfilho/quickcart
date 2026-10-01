@@ -17,6 +17,7 @@ import type { SetOrderItemUnavailableUseCase } from '@/modules/order/application
 import type { SetOrderItemPickedUseCase } from '@/modules/order/application/use-cases/SetOrderItemPicked.use-case'
 import type { NotifyUnavailableItemsUseCase } from '@/modules/order/application/use-cases/NotifyUnavailableItems.use-case'
 import { setOrderItemUnavailableBodySchema } from '@/modules/order/infra/http/schemas/SetOrderItemUnavailable.schema'
+import { notifyUnavailableItemsBodySchema } from '@/modules/order/infra/http/schemas/NotifyUnavailableItems.schema'
 import { setOrderItemPickedBodySchema } from '@/modules/order/infra/http/schemas/SetOrderItemPicked.schema'
 import { validateBody } from '@/infra/http/middlewares/validateBody'
 import { validateQuery } from '@/infra/http/middlewares/validateQuery'
@@ -34,6 +35,13 @@ import { CUSTOMER_ONLY } from '@/modules/user/shared/User.constant'
 import { ForbiddenError } from '@/shared/errors/AppError.error'
 import { SESSION_ROLE_FORBIDDEN } from '@/shared/errors/codes'
 import type { CustomerRepositoryInterface } from '@/modules/webhook/domain/CustomerRepository.interface'
+import { requiresCardMachine } from '@/modules/order/shared/requiresCardMachine'
+import { amountDueInCents } from '@/modules/order/shared/amountDue'
+import { withoutAddressCoordinates } from '@/modules/order/shared/withoutAddressCoordinates'
+import {
+  ORDER_CHANGE_REASON,
+  type OrderRealtimeNotifierInterface,
+} from '@/modules/order/domain/OrderRealtimeNotifier.interface'
 
 type OrderControllerDependencies = {
   readonly createWebOrderUseCase: CreateWebOrderUseCase
@@ -46,21 +54,53 @@ type OrderControllerDependencies = {
   readonly notifyUnavailableItemsUseCase: NotifyUnavailableItemsUseCase
   /** Para amarrar o pedido a QUEM está logado, e não a quem o corpo disser que é. */
   readonly customerRepository: CustomerRepositoryInterface
+  /**
+   * Avisa as OUTRAS telas abertas no mesmo pedido.
+   *
+   * Quem fez o PATCH já recebeu o pedido novo na resposta; o tablet do balcão e o celular de quem
+   * separa é que ficariam com a tela de dois minutos atrás.
+   */
+  readonly orderRealtimeNotifier: OrderRealtimeNotifierInterface
 }
 
 /**
- * Acrescenta ao pedido os próximos passos válidos.
+ * Acrescenta ao pedido os próximos passos válidos e o selo da maquininha.
  *
  * A tela precisa desenhar botões, e a única forma de não existirem duas esteiras (uma no servidor, outra no
  * front) é o servidor dizer quais são. Antes o front tinha o mapa próprio, e qualquer mudança de fluxo
  * precisava ser feita nos dois lugares — divergir era questão de tempo.
+ *
+ * Pela mesma razão, `requiresCardMachine` (spec §3.2) entra aqui: é o único ponto de serialização de
+ * pedido para fora da api, então nasce único também no DTO — nenhuma tela recalcula por conta própria.
+ * `amountDueInCents` (spec §3.4) idem: o valor cobrado sai daqui, e o frontend não soma itens + taxa.
  */
-function withAllowedTransitions<TOrder extends { readonly status: string; readonly deliveryType: string }>(
+export function withAllowedTransitions<
+  TOrder extends {
+    readonly status: string
+    readonly deliveryType: string
+    readonly paymentMethod: string
+    readonly deliveryFailureReason?: string | null
+    readonly totalInCents: number
+    readonly deliveryFeeInCents: number
+    readonly address?: unknown
+  },
+>(
   order: TOrder,
-): TOrder & { readonly allowedNextStatuses: readonly string[] } {
+): TOrder & {
+  readonly allowedNextStatuses: readonly string[]
+  readonly requiresCardMachine: boolean
+  readonly amountDueInCents: number
+} {
   return {
-    ...order,
-    allowedNextStatuses: allowedNextStatuses({ status: order.status, deliveryType: order.deliveryType }),
+    ...withoutAddressCoordinates(order),
+    allowedNextStatuses: allowedNextStatuses({
+      status: order.status,
+      deliveryType: order.deliveryType,
+      // Numa ocorrência é o motivo que decide se ainda cabe outra tentativa ou só o cancelamento.
+      deliveryFailureReason: order.deliveryFailureReason,
+    }),
+    requiresCardMachine: requiresCardMachine(order),
+    amountDueInCents: amountDueInCents(order),
   }
 }
 
@@ -92,14 +132,19 @@ export class OrderController {
       ...input,
       customer: { ...input.customer, phone: customer.phone },
     })
-    response.json(201, { data: { ...result.order, items: result.items } })
+    // Pedido novo tem de aparecer na lista do balcão sem F5 — é o caso em que esperar 20s é esperar demais.
+    this.dependencies.orderRealtimeNotifier.notifyOrderChanged({
+      orderId: result.order.id,
+      reason: ORDER_CHANGE_REASON.CREATED,
+    })
+    response.json(201, { data: { ...withoutAddressCoordinates(result.order), items: result.items } })
   }
 
   handleGetByShortCode: RouteHandler = async (request, response) => {
     const shortCode = request.params[0] ?? ''
     const { phone } = validateQuery(getOrderByShortCodeQuerySchema, request.query)
     const result = await this.dependencies.getOrderByShortCodeUseCase.execute({ shortCode, requesterPhone: phone })
-    response.json(200, { data: { ...result.order, items: result.items } })
+    response.json(200, { data: { ...withoutAddressCoordinates(result.order), items: result.items } })
   }
 
   handleListAdmin: RouteHandler = async (request, response) => {
@@ -120,6 +165,8 @@ export class OrderController {
       data: {
         ...withAllowedTransitions(detail.order),
         items: detail.items,
+        // Sempre presente, mesmo vazio: a lista é o histórico de viagens, e "nenhuma" é uma resposta.
+        deliveryAttempts: detail.deliveryAttempts,
         // Chave ausente, e não `null`, quando não há estimativa: a tela decide por presença.
         ...(detail.deliveryEstimate ? { deliveryEstimate: detail.deliveryEstimate } : {}),
       },
@@ -134,6 +181,10 @@ export class OrderController {
     const { unavailable } = validateBody(setOrderItemUnavailableBodySchema, request.body)
 
     const detail = await this.dependencies.setOrderItemUnavailableUseCase.execute({ orderId, itemId, unavailable })
+    this.dependencies.orderRealtimeNotifier.notifyOrderChanged({
+      orderId,
+      reason: ORDER_CHANGE_REASON.ITEM_UNAVAILABLE,
+    })
     response.json(200, { data: { ...withAllowedTransitions(detail.order), items: detail.items } })
   }
 
@@ -154,27 +205,44 @@ export class OrderController {
       ...(itemId ? { itemId } : {}),
       picked,
     })
+    this.dependencies.orderRealtimeNotifier.notifyOrderChanged({
+      orderId,
+      reason: ORDER_CHANGE_REASON.ITEM_PICKED,
+    })
     response.json(200, { data: { ...withAllowedTransitions(detail.order), items: detail.items } })
   }
 
   handleNotifyUnavailableItems: RouteHandler = async (request, response) => {
     await requireSession({ request, roles: ORDER_NOTIFIERS })
     const orderId = request.params[0] ?? ''
-    const result = await this.dependencies.notifyUnavailableItemsUseCase.execute({ orderId })
+    const { requiresCustomerApproval } = validateBody(notifyUnavailableItemsBodySchema, request.body)
+    const result = await this.dependencies.notifyUnavailableItemsUseCase.execute({
+      orderId,
+      requiresCustomerApproval,
+    })
+    this.dependencies.orderRealtimeNotifier.notifyOrderChanged({
+      orderId,
+      reason: ORDER_CHANGE_REASON.UNAVAILABLE_NOTIFIED,
+    })
 
-    // `notifiedCount` no corpo para a tela dizer o que aconteceu: zero significa que não havia nada novo,
-    // e um "avisado!" nesse caso seria mentira.
+    // `notifiedCount` e `outcome` no corpo para a tela dizer o que aconteceu: zero com `queued` é a falta
+    // que entrou na fila atrás de uma pergunta em aberto, e um "avisado!" nesse caso seria mentira.
     response.json(200, {
       data: { ...withAllowedTransitions(result.detail.order), items: result.detail.items },
-      meta: { notifiedCount: result.notifiedCount },
+      meta: { notifiedCount: result.notifiedCount, outcome: result.outcome },
     })
   }
 
   handleUpdateStatus: RouteHandler = async (request, response) => {
     await requireSession({ request, roles: ORDER_STATUS_WRITERS })
     const id = request.params[0] ?? ''
-    const { status } = validateBody(updateOrderStatusBodySchema, request.body)
-    const result = await this.dependencies.updateOrderStatusUseCase.execute({ orderId: id, status })
-    response.json(200, { data: result.order })
+    const { status, deliveryFailureReason } = validateBody(updateOrderStatusBodySchema, request.body)
+    const result = await this.dependencies.updateOrderStatusUseCase.execute({
+      orderId: id,
+      status,
+      deliveryFailureReason,
+    })
+    this.dependencies.orderRealtimeNotifier.notifyOrderChanged({ orderId: id, reason: ORDER_CHANGE_REASON.STATUS })
+    response.json(200, { data: withAllowedTransitions(result.order) })
   }
 }

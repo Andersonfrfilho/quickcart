@@ -82,6 +82,7 @@ const ADMIN_SECTIONS: NavSection[] = [
     items: [
       { label: 'Equipe', path: '/admin/equipe', icon: '👥', roles: ADMIN_ONLY },
       { label: 'Cadastro de clientes', path: '/admin/customer-settings', icon: '⚙️', roles: ADMIN_ONLY },
+      { label: 'Faixas de entrega', path: '/admin/delivery-fees', icon: '🚚', roles: ADMIN_ONLY },
     ],
   },
 ]
@@ -248,6 +249,38 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   )
 }
 
+const ADA_WEBSITE_URL = 'https://adatechnology.com.br'
+
+/**
+ * A análise do nome de exibição da Meta procura no site público a ligação entre o nome pedido e o
+ * Portfólio Empresarial que pede a aprovação. Sem ela o nome é recusado, ou aprovado sujo, com o
+ * fornecedor vazando para dentro da conversa do cliente final. O painel já assinava na barra
+ * lateral, que só o operador logado enxerga; a loja, que é o que a revisão abre, não assinava.
+ */
+export function StoreFooter() {
+  return (
+    <footer className="border-t border-border mt-8">
+      <div
+        className="max-w-7xl mx-auto px-4 py-6 flex flex-col items-center gap-1 text-center text-muted-foreground"
+        style={{ fontSize: TYPOGRAPHY.size.xs }}
+      >
+        <p>&copy; {new Date().getFullYear()} QuickCart. Todos os direitos reservados.</p>
+        <p className="flex items-center gap-2">
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+          </svg>
+          <span>
+            Uma solução tecnológica{' '}
+            <a href={ADA_WEBSITE_URL} target="_blank" rel="noreferrer" className="underline">
+              Ada Technology
+            </a>
+          </span>
+        </p>
+      </div>
+    </footer>
+  )
+}
+
 export function StoreLayout({ children }: { children: React.ReactNode }) {
   const { currentPath, navigate } = useRouter()
   const cartItemCount = useCartStore((state) => state.items.reduce((sum, item) => sum + item.quantity, 0))
@@ -296,6 +329,8 @@ export function StoreLayout({ children }: { children: React.ReactNode }) {
       <main className="max-w-7xl mx-auto px-4 py-6">
         {children}
       </main>
+
+      <StoreFooter />
     </div>
   )
 }

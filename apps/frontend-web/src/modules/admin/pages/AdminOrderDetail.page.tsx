@@ -1,6 +1,7 @@
-import { useAdminOrderDetailPage } from '@/modules/admin/hooks/useAdminOrderDetailPage.hook'
-import { OrderDetailView } from '@/modules/admin/components/OrderDetailView'
-import { Button } from '@/components/ui'
+import { useAdminOrderDetailPage } from "@/modules/admin/hooks/useAdminOrderDetailPage.hook";
+import { OrderDetailView } from "@/modules/admin/components/OrderDetailView";
+import { Button } from "@/components/ui";
+import { ReceiptRetryAlert } from "@/modules/admin/components/ReceiptRetryAlert";
 
 /**
  * Só liga o hook na tela. O desenho vive em `OrderDetailView`, que renderiza também no preview de dev
@@ -29,11 +30,15 @@ export function AdminOrderDetailPage() {
     isNotifyingUnavailable,
     openConversation,
     goBackToList,
-  } = useAdminOrderDetailPage()
+    receiptRetryMessage,
+    retryReceipt,
+    isRetryingReceipt,
+  } = useAdminOrderDetailPage();
 
-  if (!isReady) return null
+  if (!isReady) return null;
 
-  if (isLoading) return <p className="p-6 text-muted-foreground">Carregando pedido…</p>
+  if (isLoading)
+    return <p className="p-6 text-muted-foreground">Carregando pedido…</p>;
 
   if (isError || !order) {
     return (
@@ -43,29 +48,40 @@ export function AdminOrderDetailPage() {
           Voltar para a lista
         </Button>
       </div>
-    )
+    );
   }
 
   return (
-    <OrderDetailView
-      order={order}
-      items={items}
-      visibleItems={visibleItems}
-      pickedItemIds={pickedItemIds}
-      pickedCount={pickedCount}
-      hidePickedItems={hidePickedItems}
-      isUpdatingStatus={isUpdatingStatus}
-      onTogglePicked={togglePicked}
-      onClearPicked={clearPicked}
-      onPickAll={pickAll}
-      onToggleHidePicked={setHidePickedItems}
-      onUpdateStatus={updateStatus}
-      onSetUnavailable={setUnavailable}
-      pendingUnavailableItemId={pendingUnavailableItemId}
-      onNotifyUnavailable={notifyUnavailable}
-      isNotifyingUnavailable={isNotifyingUnavailable}
-      onOpenConversation={openConversation}
-      onBack={goBackToList}
-    />
-  )
+    <>
+      {receiptRetryMessage ? (
+        <div className="px-4 pt-4 lg:px-6">
+          <ReceiptRetryAlert
+            message={receiptRetryMessage}
+            isRetrying={isRetryingReceipt}
+            onRetry={retryReceipt}
+          />
+        </div>
+      ) : null}
+      <OrderDetailView
+        order={order}
+        items={items}
+        visibleItems={visibleItems}
+        pickedItemIds={pickedItemIds}
+        pickedCount={pickedCount}
+        hidePickedItems={hidePickedItems}
+        isUpdatingStatus={isUpdatingStatus}
+        onTogglePicked={togglePicked}
+        onClearPicked={clearPicked}
+        onPickAll={pickAll}
+        onToggleHidePicked={setHidePickedItems}
+        onUpdateStatus={updateStatus}
+        onSetUnavailable={setUnavailable}
+        pendingUnavailableItemId={pendingUnavailableItemId}
+        onNotifyUnavailable={notifyUnavailable}
+        isNotifyingUnavailable={isNotifyingUnavailable}
+        onOpenConversation={openConversation}
+        onBack={goBackToList}
+      />
+    </>
+  );
 }

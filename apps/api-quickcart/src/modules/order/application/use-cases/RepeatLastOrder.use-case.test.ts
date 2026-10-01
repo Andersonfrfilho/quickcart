@@ -29,7 +29,7 @@ import type {
   ProductSearchResult,
   UpdateProductRecordParams,
 } from '@/modules/catalog/domain/ProductRepository.interface'
-import type { OrderItemRecord, OrderRecord, OrderRepositoryInterface } from '@/modules/order/domain/OrderRepository.interface'
+import type { OrderItemRecord, OrderRecord, OrderRepositoryInterface , SubstituteItemResult } from '@/modules/order/domain/OrderRepository.interface'
 import type { Product } from '@/infra/database/schema'
 import { RepeatLastOrderUseCase } from './RepeatLastOrder.use-case'
 
@@ -43,6 +43,15 @@ class FakeProductRepository implements ProductRepositoryInterface {
   async update(_id: string, _params: UpdateProductRecordParams): Promise<Product> {
     throw new Error('not implemented')
   }
+
+  async findByIds(ids: readonly string[]): Promise<Product[]> {
+
+    const found = await Promise.all(ids.map((id) => this.findById(id)))
+
+    return found.filter((product): product is Product => product !== undefined)
+
+  }
+
 
   async findById(id: string): Promise<Product | undefined> {
     return this.products.get(id)
@@ -60,7 +69,15 @@ class FakeProductRepository implements ProductRepositoryInterface {
     return { items: [], total: 0 }
   }
 
+  async findSubstituteCandidates(): Promise<ProductSearchResult[]> {
+    return []
+  }
+
   async searchByTerm(_term: string, _limit: number): Promise<ProductSearchResult[]> {
+    return []
+  }
+
+  async listDistinctBrands(): Promise<string[]> {
     return []
   }
 }
@@ -77,6 +94,7 @@ class FakeCartRepository implements CartRepositoryInterface {
 
   async create(params: CreateCartRecordParams): Promise<CartRecord> {
     const cart: CartRecord = {
+      shortCode: 'LC-1000',
       id: params.id,
       customerId: params.customerId,
       channel: params.channel,
@@ -169,7 +187,7 @@ class FakeOrderRepository implements OrderRepositoryInterface {
   async findDetailById(id: string) {
     const order = this.orders.get(id)
     // O fake não guarda cliente: os testes deste caso de uso não passam pelo detalhe.
-    return order ? { order: { ...order, customerName: null, customerPhone: '' }, items: [] } : undefined
+    return order ? { order: { ...order, customerName: null, customerPhone: '' }, items: [], deliveryAttempts: [] } : undefined
   }
 
   async setItemUnavailable(params: { orderId: string; itemId: string; unavailable: boolean }) {
@@ -183,6 +201,18 @@ class FakeOrderRepository implements OrderRepositoryInterface {
 
   async setAllItemsPicked(): Promise<undefined> {
     throw new Error('not implemented')
+  }
+
+  async markItemUnavailableNotified(_params: {
+    readonly orderId: string
+    readonly itemId: string
+  }): Promise<OrderItemRecord | undefined> {
+    // O fake não guarda item: os testes deste caso de uso não passam por troca de item em falta.
+    return undefined
+  }
+
+  async substituteItem(): Promise<SubstituteItemResult> {
+    return { ok: false, reason: 'not_substitutable' } as const
   }
 
   async markUnavailableItemsNotified(_orderId: string) {
@@ -202,7 +232,15 @@ class FakeOrderRepository implements OrderRepositoryInterface {
     return undefined
   }
 
-  async cancelAndRestoreStock(): Promise<OrderRecord | undefined> {
+  async startCustomerDecision(): Promise<undefined> {
+    throw new Error('not implemented')
+  }
+
+  async markCustomerDecisionReminded(): Promise<undefined> {
+    throw new Error('not implemented')
+  }
+
+  async cancel(): Promise<OrderRecord | undefined> {
     return undefined
   }
 }
@@ -216,13 +254,22 @@ function buildOrder(overrides: Partial<OrderRecord> = {}): OrderRecord {
     channel: 'whatsapp',
     status: 'completed',
     totalInCents: 5000,
+    deliveryFeeInCents: 0,
     deliveryType: 'delivery',
     address: null,
     legacyAddressText: null,
+    deliveryDistanceKm: null,
+    deliveryTierMaxKm: null,
+    deliveryTierFeeInCents: null,
+    deliveryLocationSource: null,
     paymentMethod: 'pix',
     receiptPreference: 'whatsapp',
     fiscalDocumentId: null,
     notes: null,
+    deliveryFailureReason: null,
+    customerDecisionAskedAt: null,
+    customerDecisionRemindedAt: null,
+      cashChangeForInCents: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
@@ -241,6 +288,7 @@ function buildOrderItem(overrides: Partial<OrderItemRecord> = {}): OrderItemReco
     unavailableAt: null,
     unavailableNotifiedAt: null,
         pickedAt: null,
+        substitutesOrderItemId: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
@@ -260,6 +308,7 @@ function buildProduct(overrides: Partial<Product> = {}): Product {
     stockQuantity: 10,
     isAvailable: true,
     imageUrl: null,
+    aisle: null,
     aliases: [],
     barcode: null,
     createdAt: new Date(),

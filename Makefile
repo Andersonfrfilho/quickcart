@@ -116,6 +116,15 @@ test-reply: ## 👆 Simula toque em item de lista (MSG=<id da linha> TEL=...)
 test-button: ## 🔘 Simula toque em botão (MSG=<id do botão> TEL=...)
 	@bash scripts/send-test-webhook.sh "$(MSG)" "$(TEL)" button
 
+whatsapp-status: ## 📱 Mostra o estado do número no Cloud API (ENVIRONMENT_NAME=staging)
+	@bash scripts/register-whatsapp-number.sh status
+
+whatsapp-subscribe: ## 🔗 Assina o app na WABA (sem isso o webhook não recebe nada)
+	@bash scripts/register-whatsapp-number.sh subscribe
+
+whatsapp-register: ## 📲 Ativa o número no Cloud API (gera e guarda o PIN de 2 etapas)
+	@bash scripts/register-whatsapp-number.sh register
+
 link-sdk: ## 🔗 Aponta os pacotes do SDK para o checkout local (dev cross-repo)
 	@echo "🔗 Registrando pacotes do SDK em $(SDK_PATH)..."
 	@for package in $(SDK_PACKAGES); do \

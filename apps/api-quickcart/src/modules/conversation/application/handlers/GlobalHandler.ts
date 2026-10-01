@@ -15,10 +15,14 @@
  * nada pra repetir.
  */
 
+import { isExitWord } from '@/modules/conversation/application/isExitWord'
+import { logger } from '@/shared/logger'
+import { LOG_EVENTS } from '@/shared/constants/log-events.constant'
 import type { CartRepositoryInterface } from '@/modules/cart/domain/CartRepository.interface'
 import type { ProductRepositoryInterface } from '@/modules/catalog/domain/ProductRepository.interface'
 import type { RepeatLastOrderUseCase } from '@/modules/order/application/use-cases/RepeatLastOrder.use-case'
 import type { ConversationSessionRepositoryInterface } from '@/modules/webhook/domain/ConversationSessionRepository.interface'
+import type { CacheProvider } from '@/shared/providers/CacheProvider.interface'
 import type { WhatsAppSender } from '@/modules/webhook/infra/whatsapp/WhatsAppSender'
 import type {
   ConversationHandlerContext,
@@ -27,9 +31,35 @@ import type {
 } from '@/modules/conversation/application/handlers/ConversationHandler.interface'
 import { looksLikeShoppingList } from '@/modules/conversation/application/looksLikeShoppingList'
 import { sendCartSummary } from '@/modules/conversation/application/handlers/support/CartSummary'
+import { carryRememberedCheckout } from '@/modules/conversation/application/handlers/support/carryRememberedCheckout'
+import type { HandleRepeatOrderParams } from '@/modules/conversation/application/types/GlobalHandler.types'
+import { requestHumanHandoff } from '@/modules/conversation/application/handlers/support/requestHumanHandoff'
+import { isHumanHandoffRequest } from '@/modules/conversation/shared/isHumanHandoffRequest'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
-import { GLOBAL_TRIGGER, MENU_BUTTON_ID, MESSAGES } from '@/modules/conversation/shared/Messages.constant'
+import type { ConversationContext } from '@/modules/conversation/shared/ConversationContext.types'
+import { GLOBAL_BUTTON_ID, MENU_BUTTON_ID, MESSAGES } from '@/modules/conversation/shared/Messages.constant'
+import { parseOrderDecisionReply } from '@/modules/conversation/shared/orderDecisionReply'
+import { isCancelOrderRequest } from '@/modules/conversation/shared/isCancelOrderRequest'
+import { CUSTOMER_CANCEL_BUTTON_PREFIX } from '@/modules/conversation/shared/Messages.constant'
+import {
+  CUSTOMER_CANCEL_SKIP_REASON,
+  type CancelOrderByCustomerUseCase,
+} from '@/modules/order/application/use-cases/CancelOrderByCustomer.use-case'
+import {
+  ORDER_DECISION,
+  type OrderDecision,
+} from '@/modules/conversation/shared/orderDecisionButton'
+import type { ResolveCustomerDecisionUseCase } from '@/modules/order/application/use-cases/ResolveCustomerDecision.use-case'
+import type { ResolveItemSubstitutionUseCase } from '@/modules/order/application/use-cases/ResolveItemSubstitution.use-case'
+import {
+  ORDER_CHANGE_REASON,
+  type OrderRealtimeNotifierInterface,
+} from '@/modules/order/domain/OrderRealtimeNotifier.interface'
+import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInCents'
+import { amountDueInCents } from '@/modules/order/shared/amountDue'
 import { CHANNEL } from '@/modules/shared/shared.constant'
+import { isOrderBeforePicking } from '@/modules/order/domain/orderStatusFlow'
+import type { OrderRepositoryInterface } from '@/modules/order/domain/OrderRepository.interface'
 import { OrderNoPreviousOrderError } from '@/shared/errors/OrderErrors'
 
 /**
@@ -54,9 +84,22 @@ const SHOPPING_LIST_INTENT_STATES: ReadonlySet<string> = new Set([
 export type GlobalHandlerDependencies = {
   readonly conversationSessionRepository: ConversationSessionRepositoryInterface
   readonly whatsAppSender: WhatsAppSender
+  /** Cooldown do pedido de atendente. */
+  readonly cacheProvider: CacheProvider
   readonly cartRepository: CartRepositoryInterface
   readonly productRepository: ProductRepositoryInterface
   readonly repeatLastOrderUseCase: RepeatLastOrderUseCase
+  /** Quem aplica o toque no botão da pergunta de item em falta. */
+  readonly resolveCustomerDecisionUseCase: ResolveCustomerDecisionUseCase
+  /** Quem aplica o toque nos botões da oferta de troca — trocar ou seguir sem aquele item (ADR 0003). */
+  readonly resolveItemSubstitutionUseCase: ResolveItemSubstitutionUseCase
+  /**
+   * A resposta do cliente é a única mudança de pedido que não nasce de um toque na tela da loja.
+   *
+   * Sem este aviso, quem está com a sacola na mão continuaria vendo "acabou · cliente avisado" e o
+   * total antigo até trocar de aba — e fecharia a separação sem o substituto que o cliente escolheu.
+   */
+  readonly orderRealtimeNotifier: OrderRealtimeNotifierInterface
   /**
    * Quem monta carrinho a partir de texto. É o MESMO handler do estado `awaiting_list`.
    *
@@ -65,7 +108,13 @@ export type GlobalHandlerDependencies = {
    * pedido a lista ou de ele ter ditado por conta própria.
    */
   readonly listHandler: ConversationHandlerInterface
+  /** Desistência da compra pedida por escrito, fora do desvio de item em falta. */
+  readonly cancelOrderByCustomerUseCase: Pick<CancelOrderByCustomerUseCase, 'execute'>
+  /** Só para a despedida saber se ainda cabe lembrar o cliente da palavra que cancela. */
+  readonly orderRepository: Pick<OrderRepositoryInterface, 'findLastByCustomer'>
 }
+
+const globalLog = logger.child('GlobalHandler')
 
 export class GlobalHandler implements GlobalConversationHandlerInterface {
   constructor(private readonly dependencies: GlobalHandlerDependencies) {}
@@ -73,18 +122,98 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
   async tryHandle(context: ConversationHandlerContext): Promise<boolean> {
     const { session, customer, message } = context
 
-    if (message.kind === 'text' && this.isExitWord(message.body)) {
-      await this.dependencies.conversationSessionRepository.updateStateByPhone({
+    if (this.isExitRequest(message)) {
+      await this.handleExit({
         customerPhone: session.customerPhone,
-        currentState: CONVERSATION_STATE.GREETING,
-        context: {},
+        customerId: customer.id,
+        fromState: session.currentState,
       })
-      await this.dependencies.whatsAppSender.sendText(session.customerPhone, MESSAGES.GOODBYE)
+      return true
+    }
+
+    /**
+     * Pedido de atendente (spec §3.5, T3.1): mesma ideia do "sair" acima — intenção do cliente, não
+     * resposta ao estado —, e por isso checado ANTES do parser de lista de compras logo abaixo. Sem
+     * essa ordem, "atendente" sozinho em `awaiting_list` viraria (sem casar produto nenhum) uma
+     * tentativa de montar carrinho, em vez de chamar a fila de espera.
+     */
+    if (message.kind === 'text' && isHumanHandoffRequest(message.body)) {
+      await requestHumanHandoff(
+        {
+          conversationSessionRepository: this.dependencies.conversationSessionRepository,
+          whatsAppSender: this.dependencies.whatsAppSender,
+          cacheProvider: this.dependencies.cacheProvider,
+        },
+        session.customerPhone,
+      )
+      return true
+    }
+
+    /**
+     * Desistir da compra vale em qualquer estado, e vem ANTES do parser de lista: "quero cancelar o
+     * pedido" sem esta porta cairia no montador de carrinho, que tentaria casar "pedido" com produto.
+     *
+     * Fica depois do `isExitWord` de propósito — "cancelar" sozinho continua sendo sair da conversa,
+     * e só a frase com o objeto ("cancelar o pedido") chega aqui.
+     */
+    if (message.kind === 'text' && isCancelOrderRequest(message.body)) {
+      await this.askCancelConfirmation({ customerPhone: session.customerPhone, customerId: customer.id })
+      return true
+    }
+
+    const cancelReply = this.parseCancelConfirmation(message)
+    if (cancelReply) {
+      await this.handleCancelConfirmation({
+        customerPhone: session.customerPhone,
+        customerId: customer.id,
+        orderId: cancelReply.orderId,
+        confirmed: cancelReply.confirmed,
+      })
+      return true
+    }
+
+    /**
+     * A resposta sobre item em falta vem antes de tudo, e vale em QUALQUER estado.
+     *
+     * Não virou estado de conversa de propósito: a pergunta pode ficar horas sem resposta, e nesse meio-tempo
+     * a pessoa monta outro carrinho, navega no catálogo ou some. Prender a sessão em "aguardando decisão"
+     * bloquearia todo o resto do produto por um pedido; o id dentro do botão resolve sem prender nada.
+     */
+    const decision = parseOrderDecisionReply(message)
+    if (decision) {
+      /*
+       * A resposta sobre UM item não passa pelo `ResolveCustomerDecision`: aquele resolve o pedido inteiro,
+       * e trocar leite não é decidir o pedido — a decisão do pedido vem depois, quando não sobrar item a
+       * perguntar (ADR 0003).
+       */
+      if (decision.decision === ORDER_DECISION.SUBSTITUTE || decision.decision === ORDER_DECISION.SKIP_ITEM) {
+        await this.handleItemSubstitution({
+          customerPhone: session.customerPhone,
+          customerId: customer.id,
+          orderId: decision.orderId,
+          orderItemId: decision.orderItemId,
+          ...(decision.decision === ORDER_DECISION.SUBSTITUTE
+            ? { substituteProductId: decision.substituteProductId }
+            : {}),
+        })
+        return true
+      }
+
+      await this.handleOrderDecision({
+        customerPhone: session.customerPhone,
+        customerId: customer.id,
+        orderId: decision.orderId,
+        decision: decision.decision,
+      })
       return true
     }
 
     if (this.isRepeatOrderTrigger(message)) {
-      await this.handleRepeatOrder(session.customerPhone, customer.id)
+      await this.handleRepeatOrder({
+        customerPhone: session.customerPhone,
+        customerId: customer.id,
+        sessionContext: (session.context ?? {}) as ConversationContext,
+      })
       return true
     }
 
@@ -98,6 +227,55 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
     return false
   }
 
+  /** Digitar "sair"/"cancelar", ou tocar a saída que o desvio de falta de estoque oferece. */
+  private isExitRequest(message: ConversationHandlerContext['message']): boolean {
+    if (message.kind === 'button_reply') return message.buttonId === GLOBAL_BUTTON_ID.EXIT
+    return message.kind === 'text' && isExitWord(message.body)
+  }
+
+  /**
+   * Sair encerra a conversa e solta o carrinho para a pergunta da volta. Não cancela pedido.
+   *
+   * Desfazer a compra continua exigindo "cancelar pedido", com a confirmação que já existe: "sair" é
+   * o que se digita para encerrar o papo, e uma palavra solta não pode fechar um pedido, devolver
+   * estoque e disparar aviso. O que a despedida acrescenta é dizer QUAL é a palavra — e só enquanto a
+   * resposta ainda for sim, porque oferecer o que a esteira já não permite é pior que calar.
+   *
+   * `shouldAskCartResume` é o que faltava para "sair" resetar de verdade: sem ele, o estado voltava a
+   * `greeting` e o carrinho aberto ressurgia intacto na mensagem seguinte.
+   *
+   * O log fecha o trace depois do envio: a engine não loga sucesso e a mensagem enviada é registrada no
+   * banco, não no stdout, então uma reclamação de "digitei sair e nada aconteceu" não tinha como ser
+   * confirmada nem desmentida pelos logs — sobrava o `flow_exited_by_customer` do FlowDriver e silêncio.
+   */
+  private async handleExit(params: {
+    readonly customerPhone: string
+    readonly customerId: string
+    readonly fromState: string
+  }): Promise<void> {
+    await this.dependencies.conversationSessionRepository.updateStateByPhone({
+      customerPhone: params.customerPhone,
+      currentState: CONVERSATION_STATE.GREETING,
+      context: { shouldAskCartResume: true },
+    })
+
+    const lastOrder = await this.dependencies.orderRepository.findLastByCustomer(params.customerId)
+    const cancellableShortCode =
+      lastOrder && isOrderBeforePicking(lastOrder.status) ? lastOrder.shortCode : undefined
+
+    await this.dependencies.whatsAppSender.sendText(
+      params.customerPhone,
+      cancellableShortCode
+        ? `${MESSAGES.GOODBYE}\n\n${MESSAGES.GOODBYE_CANCELLABLE_ORDER_HINT.replace('{codigo}', cancellableShortCode)}`
+        : MESSAGES.GOODBYE,
+    )
+
+    globalLog.info(LOG_EVENTS.CONVERSATION_EXITED, {
+      fromState: params.fromState,
+      hasCancellableOrder: cancellableShortCode !== undefined,
+    })
+  }
+
   /**
    * Nota de voz chega aqui já como texto (ver `resolveInboundAudio`), então ditar a compra e digitá-la
    * seguem o mesmo caminho — o cliente de supermercado que dita uma lista longa era exatamente quem
@@ -108,7 +286,140 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
     return looksLikeShoppingList(body)
   }
 
-  private async handleRepeatOrder(customerPhone: string, customerId: string): Promise<void> {
+  /**
+   * Aplica a decisão e responde. Cada saída tem um texto, inclusive as que não mudam nada.
+   *
+   * Silêncio depois de um toque é o pior desfecho possível aqui: o cliente não sabe se a loja recebeu, e
+   * a única coisa que lhe resta é tocar de novo. Por isso até `not_owner` responde — com o texto neutro de
+   * "já resolvido", que não confirma a existência de um pedido alheio.
+   */
+  private async handleOrderDecision(params: {
+    readonly customerPhone: string
+    readonly customerId: string
+    readonly orderId: string
+    readonly decision: OrderDecision
+  }): Promise<void> {
+    const result = await this.dependencies.resolveCustomerDecisionUseCase.execute({
+      orderId: params.orderId,
+      customerId: params.customerId,
+      decision: params.decision,
+    })
+
+    if (result.applied) {
+      this.dependencies.orderRealtimeNotifier.notifyOrderChanged({
+        orderId: params.orderId,
+        reason: ORDER_CHANGE_REASON.CUSTOMER_DECISION,
+      })
+    }
+
+    if (!result.applied) {
+      await this.dependencies.whatsAppSender.sendText(
+        params.customerPhone,
+        MESSAGES.ORDER_DECISION_ALREADY_RESOLVED,
+      )
+      return
+    }
+
+    const shortCode = result.order.shortCode
+
+    if (params.decision === ORDER_DECISION.CONTINUE) {
+      await this.dependencies.whatsAppSender.sendText(
+        params.customerPhone,
+        MESSAGES.ORDER_DECISION_CONTINUE_ACK.replace('{codigo}', shortCode),
+      )
+      return
+    }
+
+    if (params.decision === ORDER_DECISION.NEW_LIST) {
+      /**
+       * Cancelou E abriu a conversa para a lista nova, num passo só.
+       *
+       * Sem mover o estado, o cliente responderia à pergunta com a lista e cairia no handler do estado
+       * antigo — que não espera lista nenhuma. `awaiting_list` é onde "arroz, feijão, 2 leites" vira carrinho.
+       */
+      await this.dependencies.conversationSessionRepository.updateStateByPhone({
+        customerPhone: params.customerPhone,
+        currentState: CONVERSATION_STATE.AWAITING_LIST,
+        context: {},
+      })
+      await this.dependencies.whatsAppSender.sendText(
+        params.customerPhone,
+        MESSAGES.ORDER_DECISION_NEW_LIST_ACK.replace('{codigo}', shortCode),
+      )
+      return
+    }
+
+    await this.dependencies.whatsAppSender.sendText(
+      params.customerPhone,
+      MESSAGES.ORDER_DECISION_CANCELLED_ACK.replace('{codigo}', shortCode),
+    )
+  }
+
+  /**
+   * Responde ao toque na oferta de troca. Sempre com uma frase, mesmo quando nada mudou.
+   *
+   * A próxima pergunta (o item seguinte, ou a do pedido inteiro) sai de dentro do use case, DEPOIS desta
+   * confirmação: a ordem das duas mensagens é a ordem em que a conversa faz sentido — primeiro o que
+   * aconteceu com o que ele acabou de responder, só então a pergunta nova.
+   */
+  private async handleItemSubstitution(params: {
+    readonly customerPhone: string
+    readonly customerId: string
+    readonly orderId: string
+    readonly orderItemId: string
+    readonly substituteProductId?: string | undefined
+  }): Promise<void> {
+    const result = await this.dependencies.resolveItemSubstitutionUseCase.execute({
+      orderId: params.orderId,
+      customerId: params.customerId,
+      orderItemId: params.orderItemId,
+      ...(params.substituteProductId ? { substituteProductId: params.substituteProductId } : {}),
+    })
+
+    if (result.applied) {
+      this.dependencies.orderRealtimeNotifier.notifyOrderChanged({
+        orderId: params.orderId,
+        reason: ORDER_CHANGE_REASON.CUSTOMER_DECISION,
+      })
+    }
+
+    if (!result.applied) {
+      await this.dependencies.whatsAppSender.sendText(
+        params.customerPhone,
+        MESSAGES.ORDER_DECISION_ALREADY_RESOLVED,
+      )
+      return
+    }
+
+    const askedItem = result.detail.items.find((item) => item.id === params.orderItemId)
+    const itemName = askedItem?.productName ?? ''
+
+    if (result.outcome === 'substituted') {
+      await this.dependencies.whatsAppSender.sendText(
+        params.customerPhone,
+        MESSAGES.ORDER_ITEM_SUBSTITUTED_ACK.replace('{substituto}', result.substituteName)
+          .replace('{codigo}', result.detail.order.shortCode)
+          .replace('{total}', formatPriceInCents(amountDueInCents(result.detail.order))),
+      )
+      return
+    }
+
+    if (result.outcome === 'substitute_gone') {
+      await this.dependencies.whatsAppSender.sendText(
+        params.customerPhone,
+        MESSAGES.ORDER_ITEM_SUBSTITUTE_GONE.replace('{item}', itemName),
+      )
+      return
+    }
+
+    await this.dependencies.whatsAppSender.sendText(
+      params.customerPhone,
+      MESSAGES.ORDER_ITEM_SKIPPED_ACK.replace('{item}', itemName),
+    )
+  }
+
+  private async handleRepeatOrder(params: HandleRepeatOrderParams): Promise<void> {
+    const { customerPhone, customerId, sessionContext } = params
     try {
       const result = await this.dependencies.repeatLastOrderUseCase.execute({ customerId, channel: CHANNEL.WHATSAPP })
 
@@ -120,7 +431,8 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
       await this.dependencies.conversationSessionRepository.updateStateByPhone({
         customerPhone,
         currentState: CONVERSATION_STATE.CART_REVIEW,
-        context: {},
+        // Mesma regra do CartHandler: repetir o pedido não pode apagar a memória do "Alterar".
+        context: carryRememberedCheckout(sessionContext),
       })
       await this.dependencies.whatsAppSender.sendText(customerPhone, MESSAGES.REPEAT_ORDER_ADDED)
       await sendCartSummary({
@@ -140,9 +452,104 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
     }
   }
 
-  private isExitWord(body: string): boolean {
-    const normalized = body.trim().toLowerCase()
-    return (GLOBAL_TRIGGER.EXIT_WORDS as readonly string[]).includes(normalized)
+  /**
+   * Pergunta antes de cancelar, com o código à vista.
+   *
+   * Confirmação e não cancelamento direto: é irreversível, devolve estoque e o cliente pode ter mais
+   * de uma compra em andamento. O botão do desvio (`order_cancel:`) cancela na hora porque ali a
+   * pergunta já era sobre aquele pedido — aqui a frase não diz qual, e quem escolhe é ele.
+   */
+  private async askCancelConfirmation(params: {
+    readonly customerPhone: string
+    readonly customerId: string
+  }): Promise<void> {
+    const result = await this.dependencies.cancelOrderByCustomerUseCase.execute({
+      customerId: params.customerId,
+      dryRun: true,
+    })
+
+    if (!result.cancelled && result.reason === CUSTOMER_CANCEL_SKIP_REASON.NOTHING_TO_CANCEL) {
+      await this.dependencies.whatsAppSender.sendText(params.customerPhone, MESSAGES.CUSTOMER_CANCEL_NOTHING)
+      return
+    }
+
+    const shortCode = result.order?.shortCode ?? ''
+
+    if (!result.cancelled && result.reason === CUSTOMER_CANCEL_SKIP_REASON.TOO_LATE) {
+      await this.dependencies.whatsAppSender.sendText(
+        params.customerPhone,
+        MESSAGES.CUSTOMER_CANCEL_TOO_LATE.replace('{codigo}', shortCode),
+      )
+      return
+    }
+
+    const orderId = result.order?.id ?? ''
+    await this.dependencies.whatsAppSender.sendInteractiveButtons(
+      params.customerPhone,
+      MESSAGES.CUSTOMER_CANCEL_CONFIRM_ASK.replace('{codigo}', shortCode),
+      [
+        { id: `${CUSTOMER_CANCEL_BUTTON_PREFIX.CONFIRM}${orderId}`, title: MESSAGES.CUSTOMER_CANCEL_CONFIRM_BUTTON },
+        { id: `${CUSTOMER_CANCEL_BUTTON_PREFIX.KEEP}${orderId}`, title: MESSAGES.CUSTOMER_CANCEL_KEEP_BUTTON },
+      ],
+    )
+  }
+
+  private parseCancelConfirmation(
+    message: ConversationHandlerContext['message'],
+  ): { readonly orderId: string; readonly confirmed: boolean } | undefined {
+    const id = message.kind === 'button_reply' ? message.buttonId : undefined
+    if (!id) return undefined
+
+    if (id.startsWith(CUSTOMER_CANCEL_BUTTON_PREFIX.CONFIRM)) {
+      return { orderId: id.slice(CUSTOMER_CANCEL_BUTTON_PREFIX.CONFIRM.length), confirmed: true }
+    }
+    if (id.startsWith(CUSTOMER_CANCEL_BUTTON_PREFIX.KEEP)) {
+      return { orderId: id.slice(CUSTOMER_CANCEL_BUTTON_PREFIX.KEEP.length), confirmed: false }
+    }
+
+    return undefined
+  }
+
+  private async handleCancelConfirmation(params: {
+    readonly customerPhone: string
+    readonly customerId: string
+    readonly orderId: string
+    readonly confirmed: boolean
+  }): Promise<void> {
+    const result = await this.dependencies.cancelOrderByCustomerUseCase.execute({
+      customerId: params.customerId,
+      orderId: params.orderId,
+      ...(params.confirmed ? {} : { dryRun: true }),
+    })
+
+    const shortCode = result.order?.shortCode ?? ''
+
+    if (!params.confirmed) {
+      await this.dependencies.whatsAppSender.sendText(
+        params.customerPhone,
+        MESSAGES.CUSTOMER_CANCEL_KEPT.replace('{codigo}', shortCode),
+      )
+      return
+    }
+
+    if (result.cancelled) {
+      await this.dependencies.whatsAppSender.sendText(
+        params.customerPhone,
+        MESSAGES.CUSTOMER_CANCEL_DONE.replace('{codigo}', shortCode),
+      )
+      return
+    }
+
+    /*
+     * A loja separou a sacola entre a pergunta e o toque. Dizer "cancelado" aqui seria mentir sobre
+     * uma sacola que está saindo para entrega.
+     */
+    await this.dependencies.whatsAppSender.sendText(
+      params.customerPhone,
+      result.reason === CUSTOMER_CANCEL_SKIP_REASON.TOO_LATE
+        ? MESSAGES.CUSTOMER_CANCEL_TOO_LATE.replace('{codigo}', shortCode)
+        : MESSAGES.CUSTOMER_CANCEL_NOTHING,
+    )
   }
 
   private isRepeatOrderTrigger(message: ConversationHandlerContext['message']): boolean {

@@ -41,6 +41,11 @@ export const createWebOrderBodySchema = z
     paymentMethod: z.enum(PAYMENT_METHOD_VALUES),
     receiptPreference: z.enum(RECEIPT_PREFERENCE_VALUES),
     notes: z.string().optional(),
+    /**
+     * A taxa que a tela mostrou na cotação pública (spec §3.5, T4.1). Ausente = o use case não
+     * compara; presente e divergente da recotação → 409 `DELIVERY_FEE_CHANGED`.
+     */
+    expectedDeliveryFeeInCents: z.coerce.number().int().nonnegative().optional(),
   })
   /*
    * O tipo de entrega decide se o endereço é obrigatório ou proibido, não opcional dos dois lados.

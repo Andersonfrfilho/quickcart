@@ -39,8 +39,8 @@ import type {
   OrderItemRecord,
   OrderRecord,
   OrderRepositoryInterface,
+  SubstituteItemResult,
 } from '@/modules/order/domain/OrderRepository.interface'
-import type { JobQueue } from '@/modules/order/domain/JobQueue.interface'
 import type { Product } from '@/infra/database/schema'
 import { CreateOrderFromCartUseCase } from './CreateOrderFromCart.use-case'
 
@@ -54,6 +54,15 @@ class FakeProductRepository implements ProductRepositoryInterface {
   async update(_id: string, _params: UpdateProductRecordParams): Promise<Product> {
     throw new Error('not implemented')
   }
+
+  async findByIds(ids: readonly string[]): Promise<Product[]> {
+
+    const found = await Promise.all(ids.map((id) => this.findById(id)))
+
+    return found.filter((product): product is Product => product !== undefined)
+
+  }
+
 
   async findById(id: string): Promise<Product | undefined> {
     return this.products.get(id)
@@ -71,7 +80,15 @@ class FakeProductRepository implements ProductRepositoryInterface {
     return { items: [], total: 0 }
   }
 
+  async findSubstituteCandidates(): Promise<ProductSearchResult[]> {
+    return []
+  }
+
   async searchByTerm(_term: string, _limit: number): Promise<ProductSearchResult[]> {
+    return []
+  }
+
+  async listDistinctBrands(): Promise<string[]> {
     return []
   }
 }
@@ -88,6 +105,7 @@ class FakeCartRepository implements CartRepositoryInterface {
 
   async create(params: CreateCartRecordParams): Promise<CartRecord> {
     const cart: CartRecord = {
+      shortCode: 'LC-1000',
       id: params.id,
       customerId: params.customerId,
       channel: params.channel,
@@ -179,13 +197,22 @@ class FakeOrderRepository implements OrderRepositoryInterface {
       channel: params.channel,
       status: 'pending_confirmation',
       totalInCents: params.items.reduce((sum, item) => sum + item.totalInCents, 0),
+      deliveryFeeInCents: params.deliveryFeeInCents,
       deliveryType: params.deliveryType,
       address: params.address ?? null,
       legacyAddressText: null,
+      deliveryDistanceKm: params.deliveryDistanceKm ?? null,
+      deliveryTierMaxKm: params.deliveryTierMaxKm ?? null,
+      deliveryTierFeeInCents: params.deliveryTierFeeInCents ?? null,
+      deliveryLocationSource: params.deliveryLocationSource ?? null,
       paymentMethod: params.paymentMethod,
       receiptPreference: params.receiptPreference,
       fiscalDocumentId: null,
       notes: params.notes ?? null,
+      deliveryFailureReason: null,
+      customerDecisionAskedAt: null,
+      customerDecisionRemindedAt: null,
+      cashChangeForInCents: params.cashChangeForInCents ?? null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -202,6 +229,7 @@ class FakeOrderRepository implements OrderRepositoryInterface {
       unavailableAt: null,
       unavailableNotifiedAt: null,
         pickedAt: null,
+        substitutesOrderItemId: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }))
@@ -231,7 +259,7 @@ class FakeOrderRepository implements OrderRepositoryInterface {
   async findDetailById(id: string) {
     const order = this.orders.get(id)
     // O fake não guarda cliente: os testes deste caso de uso não passam pelo detalhe.
-    return order ? { order: { ...order, customerName: null, customerPhone: '' }, items: [] } : undefined
+    return order ? { order: { ...order, customerName: null, customerPhone: '' }, items: [], deliveryAttempts: [] } : undefined
   }
 
   async setItemUnavailable(params: { orderId: string; itemId: string; unavailable: boolean }) {
@@ -247,6 +275,18 @@ class FakeOrderRepository implements OrderRepositoryInterface {
     throw new Error('not implemented')
   }
 
+  async markItemUnavailableNotified(_params: {
+    readonly orderId: string
+    readonly itemId: string
+  }): Promise<OrderItemRecord | undefined> {
+    // O fake não guarda item: os testes deste caso de uso não passam por troca de item em falta.
+    return undefined
+  }
+
+  async substituteItem(): Promise<SubstituteItemResult> {
+    return { ok: false, reason: 'not_substitutable' } as const
+  }
+
   async markUnavailableItemsNotified(_orderId: string) {
     // O fake não guarda item: os testes deste caso de uso não passam por aviso de falta.
     return []
@@ -260,38 +300,40 @@ class FakeOrderRepository implements OrderRepositoryInterface {
     return { items: [], total: 0 }
   }
 
-  async updateStatus(id: string, status: string): Promise<OrderRecord | undefined> {
-    const order = this.orders.get(id)
+  async updateStatus(params: { orderId: string; status: string }): Promise<OrderRecord | undefined> {
+    const order = this.orders.get(params.orderId)
     if (!order) return undefined
-    const updated = { ...order, status, updatedAt: new Date() }
-    this.orders.set(id, updated)
+    const updated = { ...order, status: params.status, updatedAt: new Date() }
+    this.orders.set(params.orderId, updated)
     return updated
   }
 
-  async cancelAndRestoreStock(id: string): Promise<OrderRecord | undefined> {
-    const order = this.orders.get(id)
+  async startCustomerDecision(): Promise<undefined> {
+    throw new Error('not implemented')
+  }
+
+  async markCustomerDecisionReminded(): Promise<undefined> {
+    throw new Error('not implemented')
+  }
+
+  async cancel(params: { orderId: string; restoreStock: boolean }): Promise<OrderRecord | undefined> {
+    const order = this.orders.get(params.orderId)
     if (!order) return undefined
     if (order.status === 'cancelled') return order
 
-    for (const item of this.itemsByOrder.get(id) ?? []) {
-      const product = this.products.get(item.productId)
-      if (product) product.stockQuantity += item.quantity
+    if (params.restoreStock) {
+      for (const item of this.itemsByOrder.get(params.orderId) ?? []) {
+        const product = this.products.get(item.productId)
+        if (product) product.stockQuantity += item.quantity
+      }
     }
 
     const updated = { ...order, status: 'cancelled', updatedAt: new Date() }
-    this.orders.set(id, updated)
+    this.orders.set(params.orderId, updated)
     return updated
   }
 }
 
-class FakeJobQueue implements JobQueue {
-  readonly jobs: { name: string; data: Record<string, unknown> }[] = []
-
-  async add(name: string, data: Record<string, unknown>): Promise<unknown> {
-    this.jobs.push({ name, data })
-    return undefined
-  }
-}
 
 function buildProduct(overrides: Partial<Product> = {}): Product {
   return {
@@ -306,6 +348,7 @@ function buildProduct(overrides: Partial<Product> = {}): Product {
     stockQuantity: 10,
     isAvailable: true,
     imageUrl: null,
+    aisle: null,
     aliases: [],
     barcode: null,
     createdAt: new Date(),
@@ -315,13 +358,12 @@ function buildProduct(overrides: Partial<Product> = {}): Product {
 }
 
 describe('CreateOrderFromCartUseCase', () => {
-  test('cria pedido a partir do carrinho, decrementa estoque e enfileira recibo', async () => {
+  test('cria pedido a partir do carrinho, decrementa estoque e NÃO enfileira recibo (o total ainda pode mudar)', async () => {
     const products = new Map([['product-1', buildProduct()]])
     const productRepository = new FakeProductRepository(products)
     const cartRepository = new FakeCartRepository()
     const orderRepository = new FakeOrderRepository(products)
-    const receiptQueue = new FakeJobQueue()
-    const useCase = new CreateOrderFromCartUseCase({ orderRepository, cartRepository, productRepository, receiptQueue })
+    const useCase = new CreateOrderFromCartUseCase({ orderRepository, cartRepository, productRepository })
 
     const cart = await cartRepository.create({ id: 'cart-1', customerId: 'customer-1', channel: 'whatsapp' })
     await cartRepository.addItem({ id: 'item-1', cartId: cart.id, productId: 'product-1', quantity: 3, matchType: 'auto' })
@@ -333,13 +375,13 @@ describe('CreateOrderFromCartUseCase', () => {
       deliveryType: 'delivery',
       paymentMethod: 'pix',
       receiptPreference: 'whatsapp',
+      quotedDeliveryFeeInCents: 0,
     })
 
     expect(result.order.totalInCents).toBe(7500)
     expect(result.items).toHaveLength(1)
     expect(products.get('product-1')?.stockQuantity).toBe(7)
     expect((await cartRepository.findById(cart.id))?.status).toBe(CART_STATUS.ORDERED)
-    expect(receiptQueue.jobs).toEqual([{ name: 'issue-receipt', data: { orderId: result.order.id } }])
   })
 
   test('lança OrderEmptyCartError quando o carrinho está vazio', async () => {
@@ -347,8 +389,7 @@ describe('CreateOrderFromCartUseCase', () => {
     const productRepository = new FakeProductRepository(products)
     const cartRepository = new FakeCartRepository()
     const orderRepository = new FakeOrderRepository(products)
-    const receiptQueue = new FakeJobQueue()
-    const useCase = new CreateOrderFromCartUseCase({ orderRepository, cartRepository, productRepository, receiptQueue })
+    const useCase = new CreateOrderFromCartUseCase({ orderRepository, cartRepository, productRepository })
 
     const cart = await cartRepository.create({ id: 'cart-1', customerId: 'customer-1', channel: 'whatsapp' })
 
@@ -360,6 +401,7 @@ describe('CreateOrderFromCartUseCase', () => {
         deliveryType: 'delivery',
         paymentMethod: 'pix',
         receiptPreference: 'whatsapp',
+        quotedDeliveryFeeInCents: 0,
       }),
     ).rejects.toBeInstanceOf(OrderEmptyCartError)
   })
@@ -369,8 +411,7 @@ describe('CreateOrderFromCartUseCase', () => {
     const productRepository = new FakeProductRepository(products)
     const cartRepository = new FakeCartRepository()
     const orderRepository = new FakeOrderRepository(products)
-    const receiptQueue = new FakeJobQueue()
-    const useCase = new CreateOrderFromCartUseCase({ orderRepository, cartRepository, productRepository, receiptQueue })
+    const useCase = new CreateOrderFromCartUseCase({ orderRepository, cartRepository, productRepository })
 
     const cart = await cartRepository.create({ id: 'cart-1', customerId: 'customer-1', channel: 'whatsapp' })
     await cartRepository.addItem({ id: 'item-1', cartId: cart.id, productId: 'missing', quantity: 1, matchType: 'auto' })
@@ -383,6 +424,7 @@ describe('CreateOrderFromCartUseCase', () => {
         deliveryType: 'delivery',
         paymentMethod: 'pix',
         receiptPreference: 'whatsapp',
+        quotedDeliveryFeeInCents: 0,
       }),
     ).rejects.toBeInstanceOf(ProductNotFoundError)
   })
@@ -392,8 +434,7 @@ describe('CreateOrderFromCartUseCase', () => {
     const productRepository = new FakeProductRepository(products)
     const cartRepository = new FakeCartRepository()
     const orderRepository = new FakeOrderRepository(products)
-    const receiptQueue = new FakeJobQueue()
-    const useCase = new CreateOrderFromCartUseCase({ orderRepository, cartRepository, productRepository, receiptQueue })
+    const useCase = new CreateOrderFromCartUseCase({ orderRepository, cartRepository, productRepository })
 
     const cart = await cartRepository.create({ id: 'cart-1', customerId: 'customer-1', channel: 'whatsapp' })
     await cartRepository.addItem({ id: 'item-1', cartId: cart.id, productId: 'product-1', quantity: 1, matchType: 'auto' })
@@ -406,6 +447,7 @@ describe('CreateOrderFromCartUseCase', () => {
         deliveryType: 'delivery',
         paymentMethod: 'pix',
         receiptPreference: 'whatsapp',
+        quotedDeliveryFeeInCents: 0,
       }),
     ).rejects.toBeInstanceOf(CartProductUnavailableError)
   })
@@ -415,8 +457,7 @@ describe('CreateOrderFromCartUseCase', () => {
     const productRepository = new FakeProductRepository(products)
     const cartRepository = new FakeCartRepository()
     const orderRepository = new FakeOrderRepository(products)
-    const receiptQueue = new FakeJobQueue()
-    const useCase = new CreateOrderFromCartUseCase({ orderRepository, cartRepository, productRepository, receiptQueue })
+    const useCase = new CreateOrderFromCartUseCase({ orderRepository, cartRepository, productRepository })
 
     const cart = await cartRepository.create({ id: 'cart-1', customerId: 'customer-1', channel: 'whatsapp' })
     await cartRepository.addItem({ id: 'item-1', cartId: cart.id, productId: 'product-1', quantity: 5, matchType: 'auto' })
@@ -429,11 +470,85 @@ describe('CreateOrderFromCartUseCase', () => {
         deliveryType: 'delivery',
         paymentMethod: 'pix',
         receiptPreference: 'whatsapp',
+        quotedDeliveryFeeInCents: 0,
       }),
     ).rejects.toBeInstanceOf(OrderInsufficientStockError)
 
     expect(products.get('product-1')?.stockQuantity).toBe(1)
     expect((await cartRepository.findById(cart.id))?.status).toBe(CART_STATUS.OPEN)
-    expect(receiptQueue.jobs).toHaveLength(0)
+  })
+})
+
+describe('CreateOrderFromCartUseCase — taxa de entrega (T2.1)', () => {
+  async function createOrder(params: {
+    readonly deliveryType: string
+    readonly quotedDeliveryFeeInCents: number
+    readonly quotedDeliveryDistanceKm?: number
+    readonly quotedDeliveryTierMaxKm?: number
+    readonly quotedDeliveryTierFeeInCents?: number
+    readonly quotedDeliveryLocationSource?: string
+  }) {
+    const products = new Map([['product-1', buildProduct()]])
+    const cartRepository = new FakeCartRepository()
+    const useCase = new CreateOrderFromCartUseCase({
+      orderRepository: new FakeOrderRepository(products),
+      cartRepository,
+      productRepository: new FakeProductRepository(products),
+    })
+    const cart = await cartRepository.create({ id: 'cart-1', customerId: 'customer-1', channel: 'whatsapp' })
+    await cartRepository.addItem({ id: 'item-1', cartId: cart.id, productId: 'product-1', quantity: 3, matchType: 'auto' })
+
+    return useCase.execute({
+      cartId: cart.id,
+      customerId: 'customer-1',
+      channel: 'whatsapp',
+      deliveryType: params.deliveryType,
+      paymentMethod: 'pix',
+      receiptPreference: 'whatsapp',
+      quotedDeliveryFeeInCents: params.quotedDeliveryFeeInCents,
+      quotedDeliveryDistanceKm: params.quotedDeliveryDistanceKm,
+      quotedDeliveryTierMaxKm: params.quotedDeliveryTierMaxKm,
+      quotedDeliveryTierFeeInCents: params.quotedDeliveryTierFeeInCents,
+      quotedDeliveryLocationSource: params.quotedDeliveryLocationSource,
+    })
+  }
+
+  test('entrega grava a taxa cotada, fora do total dos itens', async () => {
+    const result = await createOrder({ deliveryType: 'delivery', quotedDeliveryFeeInCents: 800 })
+
+    expect(result.order.deliveryFeeInCents).toBe(800)
+    expect(result.order.totalInCents).toBe(7500)
+    expect(result.items).toHaveLength(1)
+  })
+
+  test('retirada grava 0 mesmo com taxa cotada', async () => {
+    const result = await createOrder({ deliveryType: 'pickup', quotedDeliveryFeeInCents: 800 })
+
+    expect(result.order.deliveryFeeInCents).toBe(0)
+  })
+
+  test('recebendo a cotação (transição §T3.1), grava distância, faixa e fonte no pedido', async () => {
+    const result = await createOrder({
+      deliveryType: 'delivery',
+      quotedDeliveryFeeInCents: 800,
+      quotedDeliveryDistanceKm: 2,
+      quotedDeliveryTierMaxKm: 3,
+      quotedDeliveryTierFeeInCents: 800,
+      quotedDeliveryLocationSource: 'whatsapp_location',
+    })
+
+    expect(result.order.deliveryDistanceKm).toBe(2)
+    expect(result.order.deliveryTierMaxKm).toBe(3)
+    expect(result.order.deliveryTierFeeInCents).toBe(800)
+    expect(result.order.deliveryLocationSource).toBe('whatsapp_location')
+  })
+
+  test('caminho atual do WhatsApp (sem cotação no contexto) grava as quatro colunas como null', async () => {
+    const result = await createOrder({ deliveryType: 'delivery', quotedDeliveryFeeInCents: 800 })
+
+    expect(result.order.deliveryDistanceKm).toBeNull()
+    expect(result.order.deliveryTierMaxKm).toBeNull()
+    expect(result.order.deliveryTierFeeInCents).toBeNull()
+    expect(result.order.deliveryLocationSource).toBeNull()
   })
 })

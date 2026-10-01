@@ -7,55 +7,11 @@
  *
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  *
- * Portas de realtime do SseHub. O relay via Redis pub/sub não é detalhe opcional: com mais de
- * uma instância da API atrás do balanceador, um evento emitido no pod A nunca chegaria ao
- * navegador conectado no pod B — a inbox pareceria funcionar em desenvolvimento e ficaria
- * mostrando dados velhos em produção, sem erro nenhum.
+ * O hub saiu daqui para `infra/realtime` quando a tela de separação passou a precisar do mesmo
+ * mecanismo: manter dois hubs seria manter dois conjuntos de listeners sobre o mesmo Redis, e o
+ * canal `order:<id>` acabaria com um relay próprio sem motivo.
+ *
+ * Os nomes antigos continuam porque é assim que o módulo de conversa chama o que usa.
  */
 
-import { SseHub, type RealtimeRelay, type TicketStoreInterface } from '@adatechnology/meta-whatsapp-module'
-import { redis } from '@/infra/redis/connection'
-import { logger } from '@/shared/logger'
-
-const realtimeLog = logger.child('ConversationRealtime')
-
-// Conexão dedicada: um client ioredis em modo subscribe não aceita mais nenhum outro comando,
-// então não dá para reusar o client de cache.
-function createRelay(): RealtimeRelay {
-  const subscriber = redis.duplicate()
-
-  return {
-    async publish(channel: string, message: string): Promise<void> {
-      await redis.publish(channel, message)
-    },
-    async subscribe(channel: string, onMessage: (message: string) => void): Promise<() => void> {
-      const handler = (incomingChannel: string, message: string): void => {
-        if (incomingChannel === channel) onMessage(message)
-      }
-
-      subscriber.on('message', handler)
-      await subscriber.subscribe(channel)
-      realtimeLog.info('relay_subscribed', { channel })
-
-      return () => {
-        subscriber.off('message', handler)
-        void subscriber.unsubscribe(channel)
-      }
-    },
-  }
-}
-
-export const conversationSseHub = new SseHub(createRelay())
-
-// O TicketStore é o cache normal; só o nome do delete diverge do contrato do módulo.
-export const conversationTicketStore: TicketStoreInterface = {
-  async set(key: string, value: string, ttlSeconds: number): Promise<void> {
-    await redis.set(key, value, 'EX', ttlSeconds)
-  },
-  async get(key: string): Promise<string | null> {
-    return redis.get(key)
-  },
-  async delete(key: string): Promise<void> {
-    await redis.del(key)
-  },
-}
+export { sseHub as conversationSseHub, sseTicketStore as conversationTicketStore } from '@/infra/realtime/sseHub'

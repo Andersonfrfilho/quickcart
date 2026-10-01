@@ -31,4 +31,13 @@ export interface ConversationSessionRepositoryInterface {
   findOrCreateByPhone(customerPhone: string): Promise<ConversationSession>
   touchByPhone(params: TouchConversationSessionByPhoneParams): Promise<ConversationSession>
   updateStateByPhone(params: UpdateConversationSessionStateByPhoneParams): Promise<ConversationSession>
+  /**
+   * Marca a conversa como aguardando atendente (spec §3.5, T3.1).
+   *
+   * Obrigatório: opcional (`requestHuman?`) deixava `requestHumanHandoff` chamar com `?.` e, se um
+   * dublê de teste não implementasse o método, o pedido de atendente silenciosamente não acontecia
+   * — o cliente recebia a mensagem de "chamei o atendente" sem ninguém ter sido chamado. Todo
+   * dublê desta interface precisa fornecer o método.
+   */
+  requestHuman(customerPhone: string): Promise<void>
 }

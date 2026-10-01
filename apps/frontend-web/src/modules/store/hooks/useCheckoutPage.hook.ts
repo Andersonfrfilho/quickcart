@@ -4,6 +4,9 @@ import { useRouter } from '@/app/router'
 import { useCartStore } from '@/modules/store/shared/cartStore'
 import { useCreateOrderMutation } from '@/modules/store/shared/mutations/useCreateOrder.mutation'
 import { lookupAddressByCep } from '@/modules/store/shared/viaCepLookup'
+import { useCheckoutQuoteQuery } from '@/modules/store/shared/queries/useCheckoutQuote.query'
+import { resolveCreateOrderErrorMessage, resolveDeliveryQuoteMessage } from '@/modules/store/shared/checkoutDelivery.constant'
+import { getApiErrorCode } from '@/shared/api/client'
 import type { DeliveryType, PaymentMethod, ReceiptPreference } from '@/shared/api/api.types'
 
 const SIGN_IN_PATH = '/entrar'
@@ -53,6 +56,24 @@ export function useCheckoutPage() {
   const [reference, setReference] = React.useState('')
   const [isLookingUpCep, setIsLookingUpCep] = React.useState(false)
 
+  /*
+   * Subtotal, taxa e total SEMPRE calculados pelo servidor a partir dos preços atuais do banco
+   * (T2.2) — o carrinho web guarda preço no navegador, que pode estar velho, e é o valor do
+   * servidor que será cobrado se divergir do local. Recota a cada mudança de carrinho ou tipo de
+   * entrega (chave da query).
+   */
+  const checkoutQuoteQuery = useCheckoutQuoteQuery({
+    items: items.map((item) => ({ productId: item.productId, quantity: item.quantity })),
+    deliveryType,
+    cep,
+  })
+  const quote = checkoutQuoteQuery.data?.data
+
+  const deliveryQuoteMessage = React.useMemo(
+    () => resolveDeliveryQuoteMessage({ deliveryType, cep, quote }),
+    [deliveryType, cep, quote],
+  )
+
   const [paymentMethod, setPaymentMethod] = React.useState<PaymentMethod>('pix')
   const [receiptPreference, setReceiptPreference] = React.useState<ReceiptPreference>('whatsapp')
   const [error, setError] = React.useState<string | null>(null)
@@ -99,6 +120,7 @@ export function useCheckoutPage() {
             : {}),
           paymentMethod,
           receiptPreference,
+          ...(quote !== undefined ? { expectedDeliveryFeeInCents: quote.deliveryFeeInCents } : {}),
         },
         idempotencyKey: crypto.randomUUID(),
       })
@@ -106,7 +128,12 @@ export function useCheckoutPage() {
       clearCart()
       navigate('/order-confirmed')
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Erro ao criar pedido'
+      const fallbackMessage = err instanceof Error ? err.message : 'Erro ao criar pedido'
+      const { message, shouldRefetchQuote } = resolveCreateOrderErrorMessage({ code: getApiErrorCode(err), fallbackMessage })
+
+      // A taxa mudou desde a cotação que a tela mostrou: recota, em vez de deixar o cliente
+      // reenviar o mesmo valor velho de novo (spec §3.5).
+      if (shouldRefetchQuote) void checkoutQuoteQuery.refetch()
       setError(message)
     }
   }
@@ -114,6 +141,8 @@ export function useCheckoutPage() {
   return {
     items,
     totalInCents,
+    quote,
+    deliveryQuoteMessage,
     name,
     setName,
     email,

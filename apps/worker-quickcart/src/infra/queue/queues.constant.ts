@@ -21,6 +21,8 @@ export const QUEUE_NAMES = {
   NOTIFICATION_DELIVERY: 'notification-delivery',
   // Mídia recebida do cliente aguardando cópia da Meta para o storage do host.
   DOCUMENTS: 'documents',
+  /** A cobrança única da decisão do cliente sobre item em falta. Job atrasado, um por pergunta. */
+  ORDER_DECISION: 'order-decision',
 } as const
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES]

@@ -10,17 +10,26 @@
 
 import type { Router } from '@/infra/http/router'
 import type { OrderController } from './Order.controller'
+import type { DeliveryFeeTiersController } from './DeliveryFeeTiers.controller'
+import type { OrderStreamController } from './OrderStream.controller'
 
 type RegisterOrderRoutesParams = {
   readonly router: Router
   readonly orderController: OrderController
+  readonly deliveryFeeTiersController: DeliveryFeeTiersController
+  readonly orderStreamController: OrderStreamController
 }
 
 export function registerOrderRoutes(params: RegisterOrderRoutesParams): void {
-  const { router, orderController } = params
+  const { router, orderController, deliveryFeeTiersController, orderStreamController } = params
 
   router.post('/v1/orders', orderController.handleCreate)
   router.get('/v1/orders/:shortCode', orderController.handleGetByShortCode)
+
+  // Antes de `/:id` não é estética: o roteador casa na ordem, e `stream-ticket` cairia como id de pedido.
+  router.post('/v1/admin/orders/stream-ticket', orderStreamController.handleIssueTicket)
+  router.get('/v1/admin/orders/stream', orderStreamController.handleOrdersStream)
+  router.get('/v1/admin/orders/:id/stream', orderStreamController.handleOrderStream)
 
   router.get('/v1/admin/orders', orderController.handleListAdmin)
   // Antes do `:id/status` não faz diferença aqui (métodos diferentes), mas mantém os dois juntos para
@@ -39,4 +48,8 @@ export function registerOrderRoutes(params: RegisterOrderRoutesParams): void {
   router.patch('/v1/admin/orders/:id/items/picked', orderController.handleSetItemPicked)
   // Aviso das faltas: uma mensagem com todas, quando quem separa termina de conferir.
   router.post('/v1/admin/orders/:id/unavailable-items/notify', orderController.handleNotifyUnavailableItems)
+
+  // Painel de faixas de entrega (spec §3.6): GET lista ordenada, PUT substitui a lista inteira.
+  router.get('/v1/admin/delivery-fee-tiers', deliveryFeeTiersController.handleList)
+  router.put('/v1/admin/delivery-fee-tiers', deliveryFeeTiersController.handleReplace)
 }

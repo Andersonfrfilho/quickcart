@@ -13,12 +13,14 @@
 
 import type { ConversationContextEntry } from '@adatechnology/conversations-ui'
 
+import { ORDER_IN_PROGRESS_CONTEXT_KEYS } from '@/modules/conversations/shared/orderInProgress.constant'
+
+// `deliveryType`/`address`/`paymentMethod` não entram aqui: o contexto real grava essas escolhas
+// com prefixo `checkout` (`checkoutDeliveryType`, `checkoutAddress`, `checkoutPaymentMethod`), e o
+// bloco "Pedido em andamento" (T3.2) já as mostra — chave sem prefixo nunca é preenchida.
 const CONTEXT_LABELS: ReadonlyArray<{ key: string; label: string; icon: string }> = [
   { key: 'customerName', label: 'Nome', icon: '👤' },
   { key: 'menuChoice', label: 'Escolha no menu', icon: '🗂️' },
-  { key: 'deliveryType', label: 'Entrega', icon: '🛵' },
-  { key: 'address', label: 'Endereço', icon: '📍' },
-  { key: 'paymentMethod', label: 'Pagamento', icon: '💳' },
   { key: 'receiptPreference', label: 'Recibo', icon: '🧾' },
 ]
 
@@ -42,7 +44,7 @@ export function toContextEntries(context: Record<string, unknown> | undefined): 
 
   const knownKeys = new Set(CONTEXT_LABELS.map((entry) => entry.key))
   const extra = Object.keys(source)
-    .filter((key) => !knownKeys.has(key))
+    .filter((key) => !knownKeys.has(key) && !ORDER_IN_PROGRESS_CONTEXT_KEYS.has(key))
     .map((key) => ({ key, label: key, icon: '•', value: asDisplayValue(source[key]) }))
 
   return [...known, ...extra]

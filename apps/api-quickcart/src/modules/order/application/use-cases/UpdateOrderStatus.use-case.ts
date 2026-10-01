@@ -7,14 +7,25 @@
  *
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  *
- * Cancelamento é o único destino que precisa devolver estoque — por isso passa pelo caminho
- * transacional `cancelAndRestoreStock` em vez do `updateStatus` genérico.
+ * Cancelamento é o único destino que precisa mexer em estoque — por isso passa pelo caminho
+ * transacional `cancel` em vez do `updateStatus` genérico.
  */
 
-import { OrderInvalidStatusTransitionError, OrderNotFoundError } from '@/shared/errors/OrderErrors'
+import {
+  OrderInvalidStatusTransitionError,
+  OrderNotFoundError,
+  OrderReceiptEnqueueFailedError,
+} from '@/shared/errors/OrderErrors'
 import { allowedNextStatuses, canTransitionTo } from '@/modules/order/domain/orderStatusFlow'
-import { ORDER_STATUS } from '@/modules/order/shared/Order.constant'
+import {
+  ORDER_STATUS,
+  RECEIPT_ISSUING_STATUSES,
+  RECEIPT_JOB_NAME,
+  buildReceiptJobId,
+  shouldRestoreStockOnCancel,
+} from '@/modules/order/shared/Order.constant'
 import type { OrderRepositoryInterface } from '@/modules/order/domain/OrderRepository.interface'
+import type { JobQueue } from '@/modules/order/domain/JobQueue.interface'
 import type { OrderStatusNotifier } from '@/modules/notification/domain/OrderStatusNotifier.interface'
 import type { UpdateOrderStatusParams, UpdateOrderStatusResult } from '../types/UpdateOrderStatus.types'
 import { logger } from '@/shared/logger'
@@ -23,9 +34,27 @@ import { serializeError } from '@/shared/serializeError'
 type UpdateOrderStatusUseCaseDependencies = {
   readonly orderRepository: OrderRepositoryInterface
   readonly orderStatusNotifier: OrderStatusNotifier
+  readonly receiptQueue: JobQueue
 }
 
 const useCaseLog = logger.child('UpdateOrderStatus')
+
+/**
+ * O que o motivo da ocorrência deve virar nesta gravação.
+ *
+ * `undefined` = não mexe. `null` = apaga, e é o que acontece ao sair da ocorrência: um pedido que
+ * voltou para a rua carregando "cliente ausente" mostraria na tela o motivo de uma viagem que já
+ * acabou. Gravar junto com o status evita o instante em que os dois se contradizem.
+ */
+function deliveryFailureReasonFor(params: {
+  readonly currentStatus: string
+  readonly nextStatus: string
+  readonly reason: string | undefined
+}): string | null | undefined {
+  if (params.nextStatus === ORDER_STATUS.DELIVERY_FAILED) return params.reason ?? null
+  if (params.currentStatus === ORDER_STATUS.DELIVERY_FAILED) return null
+  return undefined
+}
 
 export class UpdateOrderStatusUseCase {
   constructor(private readonly dependencies: UpdateOrderStatusUseCaseDependencies) {}
@@ -35,13 +64,28 @@ export class UpdateOrderStatusUseCase {
     if (!current) throw new OrderNotFoundError(params.orderId)
 
     /**
+     * Repetir o status em que o pedido já está, quando ele é o que emite o recibo, é o caminho de
+     * recuperação da fila fora do ar: só reenfileira. Sem gravar, sem avisar o cliente de novo. O `jobId`
+     * estável e o worker checando a nota já emitida garantem que isso nunca vira segunda NFC-e.
+     */
+    if (params.status === current.status && RECEIPT_ISSUING_STATUSES.has(current.status)) {
+      await this.enqueueReceipt(current.id)
+      return { order: current }
+    }
+
+    /**
      * A esteira é validada AQUI, não na tela.
      *
      * Enquanto a regra vivia só no frontend, a rota aceitava qualquer status do enum: aba velha, `curl` ou
      * duplo clique moviam pedido concluído de volta para "aguardando" — e cada transição manda mensagem ao
      * cliente, então o estrago saía da tela e chegava no WhatsApp de quem comprou.
      */
-    const flow = { status: current.status, deliveryType: current.deliveryType }
+    const flow = {
+      status: current.status,
+      deliveryType: current.deliveryType,
+      deliveryFailureReason: current.deliveryFailureReason,
+      ...(params.actor ? { actor: params.actor } : {}),
+    }
     if (!canTransitionTo({ ...flow, nextStatus: params.status })) {
       throw new OrderInvalidStatusTransitionError({
         currentStatus: current.status,
@@ -52,9 +96,29 @@ export class UpdateOrderStatusUseCase {
 
     const order =
       params.status === ORDER_STATUS.CANCELLED
-        ? await this.dependencies.orderRepository.cancelAndRestoreStock(params.orderId)
+        ? await this.dependencies.orderRepository.cancel({
+            orderId: params.orderId,
+            /**
+             * Extraviado é o caso em que a sacola não voltou para a prateleira. Repor ali criaria
+             * estoque de um produto que ninguém tem para separar, e o próximo cliente compraria o
+             * que não existe.
+             */
+            restoreStock: shouldRestoreStockOnCancel({
+              status: current.status,
+              deliveryFailureReason: current.deliveryFailureReason,
+            }),
+          })
         : // Condicionado ao status que acabou de ser validado: se alguém mudou nesse intervalo, nada casa.
-          await this.dependencies.orderRepository.updateStatus(params.orderId, params.status, current.status)
+          await this.dependencies.orderRepository.updateStatus({
+            orderId: params.orderId,
+            status: params.status,
+            expectedCurrentStatus: current.status,
+            deliveryFailureReason: deliveryFailureReasonFor({
+              currentStatus: current.status,
+              nextStatus: params.status,
+              reason: params.deliveryFailureReason,
+            }),
+          })
 
     if (!order) {
       /**
@@ -68,7 +132,11 @@ export class UpdateOrderStatusUseCase {
       throw new OrderInvalidStatusTransitionError({
         currentStatus: latest.status,
         nextStatus: params.status,
-        allowedNextStatuses: allowedNextStatuses({ status: latest.status, deliveryType: latest.deliveryType }),
+        allowedNextStatuses: allowedNextStatuses({
+          status: latest.status,
+          deliveryType: latest.deliveryType,
+          deliveryFailureReason: latest.deliveryFailureReason,
+        }),
       })
     }
 
@@ -91,13 +159,46 @@ export class UpdateOrderStatusUseCase {
       }
     }
 
-    await this.dependencies.orderStatusNotifier.notifyStatusChanged({
-      orderId: order.id,
-      customerId: order.customerId,
-      shortCode: order.shortCode,
-      status: order.status,
-    })
+    /**
+     * Mesma razão do bloco acima: a transição já foi gravada, então avisar é efeito, não parte dela.
+     *
+     * Sem esta guarda, template faltando na base fazia o `Confirmar pedido` responder 500 num pedido
+     * que JÁ tinha sido confirmado — e o segundo clique do operador vinha com 409 de transição
+     * inválida, dando a impressão de que nada funcionava.
+     */
+    try {
+      await this.dependencies.orderStatusNotifier.notifyStatusChanged({
+        orderId: order.id,
+        customerId: order.customerId,
+        shortCode: order.shortCode,
+        status: order.status,
+      })
+    } catch (error: unknown) {
+      useCaseLog.warn('status_change_not_notified', {
+        orderId: params.orderId,
+        status: order.status,
+        error: serializeError(error),
+      })
+    }
+
+    // Por último: o cliente já foi avisado, então o erro de fila não custa o aviso.
+    if (RECEIPT_ISSUING_STATUSES.has(order.status)) await this.enqueueReceipt(order.id)
 
     return { order }
+  }
+
+  /**
+   * O recibo sai quando a sacola sai da loja, com o total que não muda mais.
+   *
+   * Falhar aqui não desfaz o status, que já foi salvo — mas não pode passar calado, senão o pedido vai
+   * embora sem nota. O erro diz ao painel para marcar de novo, e repetir o mesmo status só reenfileira.
+   */
+  private async enqueueReceipt(orderId: string): Promise<void> {
+    try {
+      await this.dependencies.receiptQueue.add(RECEIPT_JOB_NAME, { orderId }, { jobId: buildReceiptJobId(orderId) })
+    } catch (error: unknown) {
+      useCaseLog.error('receipt_enqueue_failed', { orderId, error: serializeError(error) })
+      throw new OrderReceiptEnqueueFailedError(orderId)
+    }
   }
 }

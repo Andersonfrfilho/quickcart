@@ -35,7 +35,15 @@ primeira é cache global indexado por CEP; a segunda sobrevive ao cliente que or
   (`pendingResolutions: [{ originalTerm, quantity, unit, candidates: [{ productId, score }] }]`),
   paginação de browse, draft de checkout. Nunca crescer sem limpar ao trocar de estado.
 - **Snapshots**: `order_items` copia `product_name` e `unit_price_in_cents` — preço de
-  produto pode mudar sem afetar pedidos passados.
+  produto pode mudar sem afetar pedidos passados. O que **não** é dinheiro segue o caminho
+  oposto: `findDetailById` faz `leftJoin` com `products` e lê foto, marca, embalagem e
+  `aisle` do catálogo **de hoje** (migration 0015), porque servem para achar o produto na
+  prateleira agora — se a loja mudou o café de corredor ontem, quem separa hoje precisa do
+  corredor de hoje. `leftJoin` e não `inner`: a linha sobrevive ao produto sair do catálogo,
+  e um inner faria o item sumir da lista de separação.
+- **`products.aisle`**: texto livre e opcional, a placa que está pendurada no corredor
+  ("Corredor 3", "Hortifruti", "Câmara fria") — não um código de endereçamento. `null` é o
+  normal: nenhuma loja mapeia o catálogo inteiro, e a tela só mostra o que existir.
 - **Endereço estruturado** (migration 0010): `orders.address` e `customers.default_address`
   continuam `jsonb`, mas o que é gravado agora passa por `addressSchema`
   (`modules/shared/address/`) — os dois canais produzem a mesma forma. `legacy_address_text`

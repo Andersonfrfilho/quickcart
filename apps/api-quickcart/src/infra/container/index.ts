@@ -11,6 +11,8 @@
  * controllers uma única vez por processo e expõe tudo como um objeto plano.
  */
 
+import { createBarcodeReader } from '@adatechnology/product-vision-provider/barcode'
+
 import { DatabaseHealthChecker } from '@/infra/database/DatabaseHealthChecker'
 import { RedisHealthChecker } from '@/infra/redis/RedisHealthChecker'
 import { GetHealthStatusUseCase } from '@/modules/health/application/use-cases/GetHealthStatus.use-case'
@@ -29,7 +31,14 @@ import { UpdateProductUseCase } from '@/modules/catalog/application/use-cases/Up
 import { CategoryController } from '@/modules/catalog/infra/http/Category.controller'
 import { ProductController } from '@/modules/catalog/infra/http/Product.controller'
 import { RedisProvider } from '@/infra/redis/RedisProvider'
+import { BrasilApiAddressLookupProvider } from '@/infra/brasilapi/BrasilApiAddressLookupProvider'
+import { BrasilApiGeocodingProvider } from '@/infra/brasilapi/BrasilApiGeocodingProvider'
+import { ChainedAddressLookupProvider } from '@/infra/geocoding/ChainedAddressLookupProvider'
+import { ChainedGeocodingProvider } from '@/infra/geocoding/ChainedGeocodingProvider'
 import { NominatimGeocodingProvider } from '@/infra/nominatim/NominatimGeocodingProvider'
+import { StreetLevelGeocodingProvider } from '@/infra/geocoding/StreetLevelGeocodingProvider'
+import { OsrmRoutingProvider } from '@/infra/osrm/OsrmRoutingProvider'
+import { ResolveRoadRouteUseCase } from '@/modules/shared/address/ResolveRoadRoute.use-case'
 import type { AddressLookupProviderInterface } from '@/modules/shared/address/AddressLookupProvider.interface'
 import { ViaCepAddressLookupProvider } from '@/infra/viacep/ViaCepAddressLookupProvider'
 import type { CacheProvider } from '@/shared/providers/CacheProvider.interface'
@@ -41,7 +50,10 @@ import { DrizzleConversationSessionRepository } from '@/modules/webhook/infra/da
 import { DrizzleMessageRepository } from '@/modules/webhook/infra/database/DrizzleMessageRepository'
 import { createQuickCartWhatsAppModule } from '@/modules/webhook/infra/whatsapp/metaWhatsAppModule'
 import { createQuickCartNotificationModule } from '@/modules/notification/infra/notificationModule'
+import { CancelOrderByCustomerUseCase } from '@/modules/order/application/use-cases/CancelOrderByCustomer.use-case'
 import { createSdkOrderStatusNotifier } from '@/modules/notification/infra/SdkOrderStatusNotifier'
+import { buildOrderStatusTemplates } from '@/modules/notification/shared/orderStatusTemplates.constant'
+import type { OrderRealtimeNotifierInterface } from '@/modules/order/domain/OrderRealtimeNotifier.interface'
 import type { OrderStatusNotifier } from '@/modules/notification/domain/OrderStatusNotifier.interface'
 import type { NotificationModule } from '@adatechnology/notification-module'
 import { createWhatsAppDriverFromChannel } from '@adatechnology/notification-contracts'
@@ -55,12 +67,21 @@ import { createPreviewMediaController } from '@/modules/conversation/infra/http/
 import { createPreviewInboundController } from '@/modules/conversation/infra/http/PreviewInbound.controller'
 import { ConversationStreamController } from '@/modules/conversation/infra/http/ConversationStream.controller'
 import { conversationSseHub, conversationTicketStore } from '@/modules/conversation/infra/realtime/conversationRealtime'
+import { sseHub, sseTicketStore } from '@/infra/realtime/sseHub'
+import { createOrderRealtimeNotifier } from '@/modules/order/infra/realtime/orderRealtime'
+import { OrderStreamController } from '@/modules/order/infra/http/OrderStream.controller'
 import { FlowDriver } from '@/modules/conversation/application/FlowDriver'
 import { registerQuickCartFlowActions } from '@/modules/conversation/application/registerQuickCartFlowActions'
 import {
   createInboundAudioResolver,
   type ResolveInboundAudio,
 } from '@/modules/conversation/application/resolveInboundAudio'
+import {
+  createInboundImageResolver,
+  type ResolveInboundImage,
+} from '@/modules/conversation/application/resolveInboundImage'
+import { decodeImageWithSharp } from '@/modules/catalog/infra/vision/decodeImageWithSharp'
+import { createBarcodeProductIdentifier } from '@/modules/catalog/infra/vision/identifyProductByBarcode'
 import { wrapChannelWithLogging } from '@/modules/conversation/application/wrapChannelWithLogging'
 import { createMenuOptionsFilter } from '@/modules/conversation/application/createMenuOptionsFilter'
 import { MAIN_FLOW_SEED } from '@/modules/conversation/shared/MainFlow.seed'
@@ -73,10 +94,14 @@ import { ConversationEngine } from '@/modules/conversation/application/Conversat
 import { MatchProductsUseCase } from '@/modules/conversation/application/use-cases/MatchProducts.use-case'
 import { ParseShoppingListUseCase } from '@/modules/conversation/application/use-cases/ParseShoppingList.use-case'
 import { GroqListRefinerProvider } from '@/modules/conversation/infra/providers/GroqListRefinerProvider'
+import { CachedKnownBrandsProvider } from '@/modules/conversation/infra/providers/CachedKnownBrandsProvider'
 import { DrizzleListImportRepository } from '@/modules/conversation/infra/database/DrizzleListImportRepository'
 import { DrizzleUnmatchedDemandRepository } from '@/modules/conversation/infra/database/DrizzleUnmatchedDemandRepository'
+import { ConversationCheckoutContextController } from '@/modules/conversation/infra/http/ConversationCheckoutContext.controller'
+import { GetConversationCheckoutContextUseCase } from '@/modules/conversation/application/use-cases/GetConversationCheckoutContext.use-case'
 import { UnmatchedDemandController } from '@/modules/conversation/infra/http/UnmatchedDemand.controller'
 import { ProcessParsedListItems } from '@/modules/conversation/application/handlers/support/ProcessParsedListItems'
+import { CartResumeHandler } from '@/modules/conversation/application/handlers/CartResumeHandler'
 import { GreetingHandler } from '@/modules/conversation/application/handlers/GreetingHandler'
 import { MenuHandler } from '@/modules/conversation/application/handlers/MenuHandler'
 import { ListHandler } from '@/modules/conversation/application/handlers/ListHandler'
@@ -85,6 +110,7 @@ import { BrowseHandler } from '@/modules/conversation/application/handlers/Brows
 import { GlobalHandler } from '@/modules/conversation/application/handlers/GlobalHandler'
 import { CartHandler } from '@/modules/conversation/application/handlers/CartHandler'
 import { CheckoutHandler } from '@/modules/conversation/application/handlers/CheckoutHandler'
+import { CashChangeHandler } from '@/modules/conversation/application/handlers/CashChangeHandler'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import type { CartRepositoryInterface } from '@/modules/cart/domain/CartRepository.interface'
 import { DrizzleCartRepository } from '@/modules/cart/infra/database/DrizzleCartRepository'
@@ -92,6 +118,7 @@ import { AddCartItemUseCase } from '@/modules/cart/application/use-cases/AddCart
 import { RemoveCartItemUseCase } from '@/modules/cart/application/use-cases/RemoveCartItem.use-case'
 import { UpdateCartItemQuantityUseCase } from '@/modules/cart/application/use-cases/UpdateCartItemQuantity.use-case'
 import { GetOpenCartUseCase } from '@/modules/cart/application/use-cases/GetOpenCart.use-case'
+import { StartNewCartUseCase } from '@/modules/cart/application/use-cases/StartNewCart.use-case'
 import type { OrderRepositoryInterface } from '@/modules/order/domain/OrderRepository.interface'
 import { DrizzleOrderRepository } from '@/modules/order/infra/database/DrizzleOrderRepository'
 import { CreateOrderFromCartUseCase } from '@/modules/order/application/use-cases/CreateOrderFromCart.use-case'
@@ -102,15 +129,28 @@ import { GetAdminOrderDetailUseCase } from '@/modules/order/application/use-case
 import { ResolveOrderDeliveryEstimateUseCase } from '@/modules/order/application/use-cases/ResolveOrderDeliveryEstimate.use-case'
 import { ResolveCepCoordinateUseCase } from '@/modules/shared/address/ResolveCepCoordinate.use-case'
 import { DrizzleGeocodedAddressRepository } from '@/modules/shared/address/infra/DrizzleGeocodedAddressRepository'
+import { DrizzleGeocodeFailureRepository } from '@/modules/shared/address/infra/DrizzleGeocodeFailureRepository'
+import { DrizzleDeliveryFeeTierRepository } from '@/modules/order/infra/database/DrizzleDeliveryFeeTierRepository'
+import { EnsureDefaultDeliveryFeeTiersUseCase } from '@/modules/order/application/use-cases/EnsureDefaultDeliveryFeeTiers.use-case'
+import { QuoteDeliveryFeeUseCase } from '@/modules/order/application/use-cases/QuoteDeliveryFee.use-case'
+import { ReplaceDeliveryFeeTiersUseCase } from '@/modules/order/application/use-cases/ReplaceDeliveryFeeTiers.use-case'
+import { DeliveryFeeTiersController } from '@/modules/order/infra/http/DeliveryFeeTiers.controller'
 import { SetOrderItemUnavailableUseCase } from '@/modules/order/application/use-cases/SetOrderItemUnavailable.use-case'
 import { SetOrderItemPickedUseCase } from '@/modules/order/application/use-cases/SetOrderItemPicked.use-case'
+import { AskUnavailableItemsUseCase } from '@/modules/order/application/use-cases/AskUnavailableItems.use-case'
 import { NotifyUnavailableItemsUseCase } from '@/modules/order/application/use-cases/NotifyUnavailableItems.use-case'
+import { ResolveItemSubstitutionUseCase } from '@/modules/order/application/use-cases/ResolveItemSubstitution.use-case'
 import { RepeatLastOrderUseCase } from '@/modules/order/application/use-cases/RepeatLastOrder.use-case'
 import { ListOrdersUseCase } from '@/modules/order/application/use-cases/ListOrders.use-case'
 import { OrderController } from '@/modules/order/infra/http/Order.controller'
 import { ResumeConversationUseCase } from '@/modules/webhook/application/use-cases/ResumeConversation.use-case'
 import { InternalController } from '@/modules/internal/infra/http/Internal.controller'
-import { sttQueue, receiptQueue, notificationQueue } from '@/infra/queue/queues'
+import { sttQueue, receiptQueue, notificationQueue, orderDecisionQueue } from '@/infra/queue/queues'
+import { ORDER_DECISION_REMINDER_JOB } from '@/infra/queue/queues.constant'
+import { RemindCustomerDecisionUseCase } from '@/modules/order/application/use-cases/RemindCustomerDecision.use-case'
+import { ResolveCustomerDecisionUseCase } from '@/modules/order/application/use-cases/ResolveCustomerDecision.use-case'
+import type { AskCustomerDecision } from '@/modules/order/shared/customerDecisionMessage'
+import type { AskCustomerChoice } from '@/modules/order/shared/itemSubstitutionMessage'
 
 type HealthModule = {
   readonly controller: HealthController
@@ -166,6 +206,7 @@ type CartModule = {
   readonly removeCartItemUseCase: RemoveCartItemUseCase
   readonly updateCartItemQuantityUseCase: UpdateCartItemQuantityUseCase
   readonly getOpenCartUseCase: GetOpenCartUseCase
+  readonly startNewCartUseCase: StartNewCartUseCase
 }
 
 function buildCartModule(dependencies: CartModuleDependencies): CartModule {
@@ -175,8 +216,16 @@ function buildCartModule(dependencies: CartModuleDependencies): CartModule {
   const removeCartItemUseCase = new RemoveCartItemUseCase({ cartRepository })
   const updateCartItemQuantityUseCase = new UpdateCartItemQuantityUseCase({ cartRepository })
   const getOpenCartUseCase = new GetOpenCartUseCase({ cartRepository })
+  const startNewCartUseCase = new StartNewCartUseCase({ cartRepository })
 
-  return { cartRepository, addCartItemUseCase, removeCartItemUseCase, updateCartItemQuantityUseCase, getOpenCartUseCase }
+  return {
+    cartRepository,
+    addCartItemUseCase,
+    removeCartItemUseCase,
+    updateCartItemQuantityUseCase,
+    getOpenCartUseCase,
+    startNewCartUseCase,
+  }
 }
 
 type OrderModuleDependencies = {
@@ -184,6 +233,8 @@ type OrderModuleDependencies = {
   readonly productRepository: ProductRepositoryInterface
   readonly customerRepository: CustomerRepositoryInterface
   readonly cacheProvider: CacheProvider
+  /** Rua/bairro/cidade/UF do pedido web saem do CEP, não do navegador. */
+  readonly addressLookupProvider: AddressLookupProviderInterface
   /** Para avisar o cliente quando um item do pedido acabar na separação. */
   readonly whatsAppSender: WhatsAppSender
   /**
@@ -201,8 +252,18 @@ type OrderModule = {
   readonly getOrderByShortCodeUseCase: GetOrderByShortCodeUseCase
   readonly updateOrderStatusUseCase: UpdateOrderStatusUseCase
   readonly repeatLastOrderUseCase: RepeatLastOrderUseCase
+  readonly resolveCustomerDecisionUseCase: ResolveCustomerDecisionUseCase
+  readonly resolveItemSubstitutionUseCase: ResolveItemSubstitutionUseCase
+  readonly remindCustomerDecisionUseCase: RemindCustomerDecisionUseCase
   readonly listOrdersUseCase: ListOrdersUseCase
   readonly orderController: OrderController
+  readonly resolveOrderDeliveryEstimateUseCase: ResolveOrderDeliveryEstimateUseCase
+  readonly quoteDeliveryFeeUseCase: QuoteDeliveryFeeUseCase
+  /** Exposto porque o resumo da confirmação usa a MESMA coordenada que cotou a taxa, já em cache. */
+  readonly resolveCepCoordinateUseCase: ResolveCepCoordinateUseCase
+  readonly deliveryFeeTiersController: DeliveryFeeTiersController
+  readonly orderStreamController: OrderStreamController
+  readonly orderRealtimeNotifier: OrderRealtimeNotifierInterface
 }
 
 function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
@@ -212,14 +273,49 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     orderRepository,
     cartRepository: dependencies.cartRepository,
     productRepository: dependencies.productRepository,
-    receiptQueue,
+  })
+  /*
+   * Coordenada por CEP, cacheada em Postgres. Ordem da cadeia: nível de rua primeiro (CEP → rua pelo
+   * `addressLookupProvider` já encadeado, rua → coordenada pela busca estruturada do Nominatim —
+   * precisão `street`), depois BrasilAPI (centroide da cidade, cobre CEP que o Nominatim não indexa,
+   * ex: Franca-SP) e por fim o Nominatim por CEP puro. Uma instância só do NominatimGeocodingProvider
+   * por processo — o nível de rua e a busca por CEP compartilham a mesma fila de 1 req/s — porque é
+   * ela que guarda o instante da última chamada para respeitar o limite do provedor.
+   */
+  const nominatimGeocodingProvider = new NominatimGeocodingProvider()
+  const resolveCepCoordinateUseCase = new ResolveCepCoordinateUseCase({
+    geocodedAddressRepository: new DrizzleGeocodedAddressRepository(),
+    geocodingProvider: new ChainedGeocodingProvider([
+      new StreetLevelGeocodingProvider({
+        addressLookupProvider: dependencies.addressLookupProvider,
+        nominatimGeocodingProvider,
+      }),
+      new BrasilApiGeocodingProvider(),
+      nominatimGeocodingProvider,
+    ]),
+    geocodeFailureRepository: new DrizzleGeocodeFailureRepository(),
+    storeCep: environment.STORE_CEP,
+  })
+  // OSRM demo público sem SLA: primária quando responde, cai para linha reta × fator quando falha.
+  const resolveRoadRouteUseCase = new ResolveRoadRouteUseCase({
+    routingProvider: new OsrmRoutingProvider(),
+    detourFactor: environment.DISTANCE_DETOUR_FACTOR,
+  })
+  const deliveryFeeTierRepository = new DrizzleDeliveryFeeTierRepository()
+  const quoteDeliveryFeeUseCase = new QuoteDeliveryFeeUseCase({
+    deliveryFeeTierRepository,
+    resolveCepCoordinateUseCase,
+    storeCep: environment.STORE_CEP,
+    detourFactor: environment.DISTANCE_DETOUR_FACTOR,
+    resolveRoadRouteUseCase,
   })
   const createWebOrderUseCase = new CreateWebOrderUseCase({
     orderRepository,
     productRepository: dependencies.productRepository,
     customerRepository: dependencies.customerRepository,
     cacheProvider: dependencies.cacheProvider,
-    receiptQueue,
+    quoteDeliveryFeeUseCase,
+    addressLookupProvider: dependencies.addressLookupProvider,
   })
   const getOrderByShortCodeUseCase = new GetOrderByShortCodeUseCase({
     orderRepository,
@@ -230,22 +326,15 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
   const orderStatusNotifier: OrderStatusNotifier = {
     notifyStatusChanged: (params) => dependencies.resolveOrderStatusNotifier().notifyStatusChanged(params),
   }
-  const updateOrderStatusUseCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier })
-  /*
-   * Coordenada por CEP, cacheada em Postgres. Uma instância só do provider por processo, porque é ela
-   * que guarda o instante da última chamada para respeitar o 1 req/s do Nominatim.
-   */
-  const resolveCepCoordinateUseCase = new ResolveCepCoordinateUseCase({
-    geocodedAddressRepository: new DrizzleGeocodedAddressRepository(),
-    geocodingProvider: new NominatimGeocodingProvider(),
-  })
+  const updateOrderStatusUseCase = new UpdateOrderStatusUseCase({ orderRepository, orderStatusNotifier, receiptQueue })
   const resolveOrderDeliveryEstimateUseCase = new ResolveOrderDeliveryEstimateUseCase({
     resolveCepCoordinateUseCase,
+    deliveryFeeTierRepository,
     storeCep: environment.STORE_CEP,
     detourFactor: environment.DISTANCE_DETOUR_FACTOR,
     averageSpeedKmh: environment.DELIVERY_AVERAGE_SPEED_KMH,
     preparationMinutes: environment.STORE_PREPARATION_MINUTES,
-    deliveryRadiusKm: environment.STORE_DELIVERY_RADIUS_KM,
+    resolveRoadRouteUseCase,
   })
   const getAdminOrderDetailUseCase = new GetAdminOrderDetailUseCase({
     orderRepository,
@@ -256,11 +345,56 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     orderRepository,
     unmatchedDemandRepository: new DrizzleUnmatchedDemandRepository(),
   })
+  // Mesmo remetente do resto do produto: o recado entra no transcript da conversa, então o atendente vê
+  // o que o cliente já ouviu e não repete.
+  const askCustomerDecision: AskCustomerDecision = ({ whatsappNumber, body, buttons }) =>
+    dependencies.whatsAppSender.sendInteractiveButtons(whatsappNumber, body, buttons)
+
+  const askCustomerChoice: AskCustomerChoice = ({ whatsappNumber, body, listButtonText, sectionTitle, rows }) =>
+    dependencies.whatsAppSender.sendInteractiveList(whatsappNumber, body, listButtonText, [
+      { title: sectionTitle, rows: rows.map((row) => ({ id: row.id, title: row.title, ...(row.description ? { description: row.description } : {}) })) },
+    ])
+
+  const askUnavailableItemsUseCase = new AskUnavailableItemsUseCase({
+    orderRepository,
+    productRepository: dependencies.productRepository,
+    askCustomer: askCustomerDecision,
+    askCustomerChoice,
+  })
+
   const notifyUnavailableItemsUseCase = new NotifyUnavailableItemsUseCase({
     orderRepository,
-    // Mesmo remetente do resto do produto: o recado entra no transcript da conversa, então o atendente vê
-    // o que o cliente já ouviu e não repete.
+    askUnavailableItemsUseCase,
     notifyCustomer: ({ whatsappNumber, body }) => dependencies.whatsAppSender.sendText(whatsappNumber, body),
+    /**
+     * A cobrança única vira job atrasado. `jobId` pelo pedido para o BullMQ recusar a segunda cópia:
+     * dois avisos no mesmo pedido não podem virar duas cobranças.
+     *
+     * `-` e não `:` no separador — o BullMQ recusa `:` em jobId (o mesmo tropeço do notification-module).
+     * Falhar aqui não desfaz o aviso, que já saiu: fica logado e a loja continua vendo o pedido parado.
+     */
+    scheduleDecisionReminder: async ({ orderId }) => {
+      await orderDecisionQueue.add(
+        ORDER_DECISION_REMINDER_JOB,
+        { orderId },
+        {
+          jobId: `${ORDER_DECISION_REMINDER_JOB}-${orderId}`,
+          delay: environment.CUSTOMER_DECISION_REMINDER_HOURS * 60 * 60 * 1000,
+        },
+      )
+    },
+  })
+  const remindCustomerDecisionUseCase = new RemindCustomerDecisionUseCase({
+    orderRepository,
+    askCustomer: askCustomerDecision,
+  })
+  const resolveCustomerDecisionUseCase = new ResolveCustomerDecisionUseCase({
+    orderRepository,
+    updateOrderStatusUseCase,
+  })
+  const resolveItemSubstitutionUseCase = new ResolveItemSubstitutionUseCase({
+    orderRepository,
+    askUnavailableItemsUseCase,
   })
   const repeatLastOrderUseCase = new RepeatLastOrderUseCase({
     orderRepository,
@@ -269,6 +403,7 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
   })
   const listOrdersUseCase = new ListOrdersUseCase({ orderRepository })
 
+  const orderRealtimeNotifier = createOrderRealtimeNotifier(sseHub)
   const orderController = new OrderController({
     createWebOrderUseCase,
     getOrderByShortCodeUseCase,
@@ -279,6 +414,13 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     setOrderItemPickedUseCase,
     notifyUnavailableItemsUseCase,
     customerRepository: dependencies.customerRepository,
+    orderRealtimeNotifier,
+  })
+
+  const replaceDeliveryFeeTiersUseCase = new ReplaceDeliveryFeeTiersUseCase({ deliveryFeeTierRepository })
+  const deliveryFeeTiersController = new DeliveryFeeTiersController({
+    deliveryFeeTierRepository,
+    replaceDeliveryFeeTiersUseCase,
   })
 
   return {
@@ -288,8 +430,17 @@ function buildOrderModule(dependencies: OrderModuleDependencies): OrderModule {
     getOrderByShortCodeUseCase,
     updateOrderStatusUseCase,
     repeatLastOrderUseCase,
+    resolveCustomerDecisionUseCase,
+    resolveItemSubstitutionUseCase,
+    remindCustomerDecisionUseCase,
     listOrdersUseCase,
     orderController,
+    resolveOrderDeliveryEstimateUseCase,
+    quoteDeliveryFeeUseCase,
+    resolveCepCoordinateUseCase,
+    deliveryFeeTiersController,
+    orderStreamController: new OrderStreamController({ sseHub, ticketStore: sseTicketStore }),
+    orderRealtimeNotifier,
   }
 }
 
@@ -304,8 +455,15 @@ type WebhookRepositories = {
 
 function buildWebhookRepositories(): WebhookRepositories {
   const cacheProvider = new RedisProvider()
-  // CEP → rua/bairro/cidade/UF, para o checkout do WhatsApp não pedir o endereço inteiro por texto livre.
-  const addressLookupProvider = new ViaCepAddressLookupProvider()
+  /*
+   * CEP → rua/bairro/cidade/UF, para o checkout do WhatsApp não pedir o endereço inteiro por texto
+   * livre. BrasilAPI primeiro — o Railway não alcança o ViaCEP em staging ("Unable to connect") —,
+   * ViaCEP como fallback para quando a rede permitir.
+   */
+  const addressLookupProvider = new ChainedAddressLookupProvider([
+    new BrasilApiAddressLookupProvider(),
+    new ViaCepAddressLookupProvider(),
+  ])
   const customerRepository = new DrizzleCustomerRepository()
   const conversationSessionRepository = new DrizzleConversationSessionRepository()
   const messageRepository = new DrizzleMessageRepository()
@@ -322,6 +480,7 @@ function buildWebhookRepositories(): WebhookRepositories {
 }
 
 type ConversationModuleDependencies = {
+  readonly cacheProvider: CacheProvider
   readonly productRepository: ProductRepositoryInterface
   readonly addressLookupProvider: AddressLookupProviderInterface
   readonly categoryRepository: CategoryRepositoryInterface
@@ -332,8 +491,16 @@ type ConversationModuleDependencies = {
   readonly addCartItemUseCase: AddCartItemUseCase
   readonly removeCartItemUseCase: RemoveCartItemUseCase
   readonly updateCartItemQuantityUseCase: UpdateCartItemQuantityUseCase
+  readonly startNewCartUseCase: StartNewCartUseCase
   readonly createOrderFromCartUseCase: CreateOrderFromCartUseCase
+  readonly resolveOrderDeliveryEstimateUseCase: ResolveOrderDeliveryEstimateUseCase
+  readonly quoteDeliveryFeeUseCase: QuoteDeliveryFeeUseCase
+  readonly resolveCepCoordinateUseCase: ResolveCepCoordinateUseCase
+  readonly updateOrderStatusUseCase: UpdateOrderStatusUseCase
   readonly repeatLastOrderUseCase: RepeatLastOrderUseCase
+  readonly resolveCustomerDecisionUseCase: ResolveCustomerDecisionUseCase
+  readonly resolveItemSubstitutionUseCase: ResolveItemSubstitutionUseCase
+  readonly orderRealtimeNotifier: OrderRealtimeNotifierInterface
   readonly orderRepository: OrderRepositoryInterface
 }
 
@@ -343,6 +510,7 @@ type ConversationModule = {
 
 function buildConversationModule(dependencies: ConversationModuleDependencies): ConversationModule {
   const {
+    cacheProvider,
     productRepository,
     addressLookupProvider,
     categoryRepository,
@@ -353,13 +521,22 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     addCartItemUseCase,
     removeCartItemUseCase,
     updateCartItemQuantityUseCase,
+    startNewCartUseCase,
     createOrderFromCartUseCase,
+    resolveOrderDeliveryEstimateUseCase,
+    quoteDeliveryFeeUseCase,
     repeatLastOrderUseCase,
+    resolveCustomerDecisionUseCase,
+    resolveItemSubstitutionUseCase,
+    orderRealtimeNotifier,
     orderRepository,
   } = dependencies
 
   const matchProductsUseCase = new MatchProductsUseCase(productRepository)
-  const parseShoppingListUseCase = new ParseShoppingListUseCase(new GroqListRefinerProvider())
+  const parseShoppingListUseCase = new ParseShoppingListUseCase(
+    new GroqListRefinerProvider(),
+    new CachedKnownBrandsProvider(productRepository),
+  )
   const listImportRepository = new DrizzleListImportRepository()
   // Demanda que a loja está perdendo: gravada onde o motivo é conhecido, lida pelo relatório do admin.
   const unmatchedDemandRepository = new DrizzleUnmatchedDemandRepository()
@@ -375,7 +552,14 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     addCartItemUseCase,
   })
 
-  const greetingHandler = new GreetingHandler({ conversationSessionRepository, whatsAppSender })
+  const greetingHandler = new GreetingHandler({ conversationSessionRepository, whatsAppSender, cartRepository })
+  const cartResumeHandler = new CartResumeHandler({
+    conversationSessionRepository,
+    whatsAppSender,
+    cartRepository,
+    productRepository,
+    startNewCartUseCase,
+  })
   const menuHandler = new MenuHandler({
     conversationSessionRepository,
     whatsAppSender,
@@ -398,6 +582,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     productRepository,
     cartRepository,
     addCartItemUseCase,
+    categoryRepository,
     unmatchedDemandRepository,
   })
   const cartHandler = new CartHandler({
@@ -413,18 +598,49 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
   const checkoutHandler = new CheckoutHandler({
     conversationSessionRepository,
     whatsAppSender,
+    orderRealtimeNotifier: dependencies.orderRealtimeNotifier,
     cartRepository,
     productRepository,
     customerRepository,
     createOrderFromCartUseCase,
+    resolveOrderDeliveryEstimateUseCase,
     addressLookupProvider,
+    storePreparationMinutes: environment.STORE_PREPARATION_MINUTES,
+    quoteDeliveryFeeUseCase,
+    /*
+     * A MESMA coordenada que cotou a taxa, e por isso já em cache: o pino aproximado não paga uma
+     * segunda ida ao geocodificador nem depende de o endereço ter vindo com latitude.
+     */
+    resolveAddressCoordinates: async (address) => {
+      const cep = (address as { readonly cep?: unknown } | null)?.cep
+      if (typeof cep !== 'string' || !cep) return undefined
+
+      return await dependencies.resolveCepCoordinateUseCase.execute({ cep })
+    },
   })
-  const globalHandler = new GlobalHandler({
+  const cashChangeHandler = new CashChangeHandler({
     conversationSessionRepository,
     whatsAppSender,
     cartRepository,
     productRepository,
+  })
+  const cancelOrderByCustomerUseCase = new CancelOrderByCustomerUseCase({
+    orderRepository: dependencies.orderRepository,
+    updateOrderStatusUseCase: dependencies.updateOrderStatusUseCase,
+  })
+  const globalHandler = new GlobalHandler({
+    conversationSessionRepository,
+    whatsAppSender,
+    cacheProvider,
+    cartRepository,
+    productRepository,
     repeatLastOrderUseCase,
+    resolveCustomerDecisionUseCase,
+    resolveItemSubstitutionUseCase,
+    orderRealtimeNotifier,
+    cancelOrderByCustomerUseCase,
+    // A despedida só oferece "cancelar pedido" enquanto a esteira ainda aceita.
+    orderRepository,
     // O mesmo handler do estado `awaiting_list`: lista ditada fora de hora precisa dar no mesmo lugar.
     listHandler,
   })
@@ -436,6 +652,7 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     globalHandler,
     handlers: {
       [CONVERSATION_STATE.GREETING]: greetingHandler,
+      [CONVERSATION_STATE.AWAITING_CART_RESUME_DECISION]: cartResumeHandler,
       [CONVERSATION_STATE.MAIN_MENU]: menuHandler,
       [CONVERSATION_STATE.AWAITING_LIST]: listHandler,
       [CONVERSATION_STATE.RESOLVING_ITEMS]: resolveHandler,
@@ -445,10 +662,23 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
       [CONVERSATION_STATE.EDITING_CART]: cartHandler,
       [CONVERSATION_STATE.AWAITING_DELIVERY_TYPE]: checkoutHandler,
       [CONVERSATION_STATE.AWAITING_ADDRESS]: checkoutHandler,
+      [CONVERSATION_STATE.AWAITING_ADDRESS_NUMBER]: checkoutHandler,
+      [CONVERSATION_STATE.AWAITING_OUT_OF_RANGE_DECISION]: checkoutHandler,
+      [CONVERSATION_STATE.AWAITING_APPROXIMATE_ADDRESS_DECISION]: checkoutHandler,
       [CONVERSATION_STATE.AWAITING_PAYMENT]: checkoutHandler,
+      [CONVERSATION_STATE.AWAITING_CASH_CHANGE]: cashChangeHandler,
+      [CONVERSATION_STATE.AWAITING_CASH_CHANGE_AMOUNT]: cashChangeHandler,
       [CONVERSATION_STATE.AWAITING_RECEIPT_PREFERENCE]: checkoutHandler,
       [CONVERSATION_STATE.AWAITING_EMAIL]: checkoutHandler,
+      [CONVERSATION_STATE.AWAITING_EMAIL_CONFIRMATION]: checkoutHandler,
+      [CONVERSATION_STATE.AWAITING_CHECKOUT_CHANGE_CHOICE]: checkoutHandler,
+      [CONVERSATION_STATE.AWAITING_CHECKOUT_CHANGE_PAYMENT]: checkoutHandler,
+      [CONVERSATION_STATE.AWAITING_CHECKOUT_CHANGE_RECEIPT]: checkoutHandler,
+      [CONVERSATION_STATE.AWAITING_CHECKOUT_CHANGE_EMAIL]: checkoutHandler,
       [CONVERSATION_STATE.CONFIRMING]: checkoutHandler,
+      // Nenhum caminho grava mais `completed`, mas sessão antiga pode ter esse valor no banco:
+      // recomeçar pela saudação é o certo, e sem esta linha ela cairia no fallback.
+      [CONVERSATION_STATE.COMPLETED]: greetingHandler,
     },
   })
 
@@ -476,13 +706,21 @@ function buildWebhookModule(
       readonly orderRepository: OrderRepositoryInterface
     },
 ): WebhookModule {
-  const { cacheProvider, customerRepository, whatsAppSender, conversationEngine, repeatLastOrderUseCase } = params
+  const {
+    cacheProvider,
+    customerRepository,
+    conversationSessionRepository,
+    whatsAppSender,
+    conversationEngine,
+    repeatLastOrderUseCase,
+  } = params
 
   // Amarração circular resolvida por referência tardia: o driver precisa do interpretador que
   // esta fábrica cria, e a fábrica precisa saber chamar o driver.
   let flowDriver: FlowDriver | undefined
   // Mesma amarração tardia: o resolvedor precisa do canal e do repositório que esta fábrica cria.
   let resolveInboundAudio: ResolveInboundAudio | undefined
+  let resolveInboundImage: ResolveInboundImage | undefined
 
   const metaWhatsApp = createQuickCartWhatsAppModule({
     cacheProvider,
@@ -490,6 +728,7 @@ function buildWebhookModule(
     resolveConversationEngine: () => conversationEngine,
     resolveFlowDriver: () => flowDriver,
     resolveInboundAudio: () => resolveInboundAudio,
+    resolveInboundImage: () => resolveInboundImage,
   })
 
   // O canal de WhatsApp já existe: notificação por WhatsApp reusa o mesmo, em vez de abrir uma
@@ -501,6 +740,17 @@ function buildWebhookModule(
   const orderStatusNotifier = createSdkOrderStatusNotifier({
     module: notification,
     companyId: environment.WHATSAPP_COMPANY_ID,
+    /*
+     * Dentro da janela de 24h o aviso de status sai como texto livre, pelo mesmo caminho do aviso de
+     * item em falta — que é o que de fato chega hoje. O template continua existindo para fora dela,
+     * onde a Graph API não aceita outra coisa.
+     */
+    freeFormWindow: {
+      resolveWhatsAppNumber: async (customerId) => (await customerRepository.findById(customerId))?.phone,
+      hoursSinceLastInbound: (whatsAppNumber) =>
+        metaWhatsApp.conversations.repository.hoursSinceLastInbound(environment.WHATSAPP_COMPANY_ID, whatsAppNumber),
+      sendText: (whatsAppNumber, body) => whatsAppSender.sendText(whatsAppNumber, body),
+    },
   })
 
   /**
@@ -509,6 +759,36 @@ function buildWebhookModule(
    * Ficava dentro do `FlowDriver`, e por isso voz era entendida só dentro do grafo: fora dele o
    * `BrowseHandler` respondia "escolha uma opção da lista acima" a quem ditava a compra.
    */
+  /**
+   * Identifica produto pela foto. Hoje só o degrau do código de barras, que é o único que não
+   * precisa de índice: `products.barcode` é único e `findByBarcode` já existe.
+   *
+   * O engine vem do `@adatechnology/product-vision-provider`, ainda não publicado. Sem ele o
+   * identificador fica `undefined` — e a capacidade ausente devolve exatamente o comportamento de
+   * hoje, que é o que o `resolveInboundImage` já garante em teste.
+   */
+  resolveInboundImage = createInboundImageResolver({
+    // Só o degrau do código de barras: é o único que não precisa de índice, porque
+    // `products.barcode` é único e `findByBarcode` já existe. A busca por similaridade visual
+    // chega quando o catálogo migrar para o `@adatechnology/catalog-module`.
+    identifyProduct: createBarcodeProductIdentifier({
+      // O decoder é do produto: o provider não escolhe entre sharp e jimp por ninguém, e o Bun
+      // no servidor não tem `OffscreenCanvas` para o caminho default funcionar.
+      engine: createBarcodeReader({}, { decodeImage: (input, maxPixels) => decodeImageWithSharp(input, maxPixels) }),
+      productRepository: params.productRepository,
+    }),
+    fetchMediaAsBase64: (mediaId) => metaWhatsApp.channel.fetchMediaAsBase64(mediaId),
+    sendNotice: async (whatsappNumber, body) => {
+      await wrapChannelWithLogging({
+        channel: metaWhatsApp.channel,
+        logMessage: metaWhatsApp.conversations.log,
+        companyId: environment.WHATSAPP_COMPANY_ID,
+        whatsappNumber,
+        startState: CONVERSATION_STATE.GREETING,
+      }).sendText(whatsappNumber, body)
+    },
+  })
+
   resolveInboundAudio = createInboundAudioResolver({
     // Mesmo transcritor da inbox. Ausente, áudio segue cru para quem sabe lidar com ele.
     transcriber: audioTranscriber,
@@ -549,6 +829,8 @@ function buildWebhookModule(
       sessionRepository: metaWhatsApp.conversations.repository,
       whatsAppSender,
       customerRepository,
+      conversationSessionRepository,
+      cacheProvider,
       repeatLastOrderUseCase,
       categoryRepository: params.categoryRepository,
       cartRepository: params.cartRepository,
@@ -570,11 +852,13 @@ type ConversationHttpModule = {
   readonly previewMediaController: ReturnType<typeof createPreviewMediaController>
   readonly previewInboundController: ReturnType<typeof createPreviewInboundController>
   readonly unmatchedDemandController: UnmatchedDemandController
+  readonly checkoutContextController: ConversationCheckoutContextController
 }
 
 function buildConversationHttpModule(params: {
   readonly metaWhatsApp: MetaWhatsAppModule
   readonly objectStorage?: ObjectStorageInterface
+  readonly getConversationCheckoutContextUseCase: GetConversationCheckoutContextUseCase
 }): ConversationHttpModule {
   return {
     conversationController: new ConversationController({
@@ -602,6 +886,9 @@ function buildConversationHttpModule(params: {
     unmatchedDemandController: new UnmatchedDemandController({
       unmatchedDemandRepository: new DrizzleUnmatchedDemandRepository(),
     }),
+    checkoutContextController: new ConversationCheckoutContextController({
+      getConversationCheckoutContextUseCase: params.getConversationCheckoutContextUseCase,
+    }),
   }
 }
 
@@ -610,6 +897,7 @@ type InternalModuleDependencies = {
   readonly messageRepository: MessageRepositoryInterface
   readonly whatsAppSender: WhatsAppSender
   readonly conversationEngine: ConversationEngine
+  readonly remindCustomerDecisionUseCase: RemindCustomerDecisionUseCase
 }
 
 type InternalModule = {
@@ -617,7 +905,13 @@ type InternalModule = {
 }
 
 function buildInternalModule(dependencies: InternalModuleDependencies): InternalModule {
-  const { conversationSessionRepository, messageRepository, whatsAppSender, conversationEngine } = dependencies
+  const {
+    conversationSessionRepository,
+    messageRepository,
+    whatsAppSender,
+    conversationEngine,
+    remindCustomerDecisionUseCase,
+  } = dependencies
 
   const resumeConversationUseCase = new ResumeConversationUseCase({
     conversationSessionRepository,
@@ -626,7 +920,7 @@ function buildInternalModule(dependencies: InternalModuleDependencies): Internal
     conversationEngine,
   })
 
-  const controller = new InternalController({ resumeConversationUseCase })
+  const controller = new InternalController({ resumeConversationUseCase, remindCustomerDecisionUseCase })
 
   return { controller }
 }
@@ -639,10 +933,12 @@ const orderModule = buildOrderModule({
   productRepository: catalogModule.productRepository,
   customerRepository: webhookRepositories.customerRepository,
   cacheProvider: webhookRepositories.cacheProvider,
+  addressLookupProvider: webhookRepositories.addressLookupProvider,
   whatsAppSender: webhookRepositories.whatsAppSender,
   resolveOrderStatusNotifier: () => webhookModule.orderStatusNotifier,
 })
 const conversationModule = buildConversationModule({
+  cacheProvider: webhookRepositories.cacheProvider,
   productRepository: catalogModule.productRepository,
   addressLookupProvider: webhookRepositories.addressLookupProvider,
   categoryRepository: catalogModule.categoryRepository,
@@ -653,8 +949,16 @@ const conversationModule = buildConversationModule({
   addCartItemUseCase: cartModule.addCartItemUseCase,
   removeCartItemUseCase: cartModule.removeCartItemUseCase,
   updateCartItemQuantityUseCase: cartModule.updateCartItemQuantityUseCase,
+  startNewCartUseCase: cartModule.startNewCartUseCase,
   createOrderFromCartUseCase: orderModule.createOrderFromCartUseCase,
+  resolveOrderDeliveryEstimateUseCase: orderModule.resolveOrderDeliveryEstimateUseCase,
+  quoteDeliveryFeeUseCase: orderModule.quoteDeliveryFeeUseCase,
+  resolveCepCoordinateUseCase: orderModule.resolveCepCoordinateUseCase,
+  updateOrderStatusUseCase: orderModule.updateOrderStatusUseCase,
   repeatLastOrderUseCase: orderModule.repeatLastOrderUseCase,
+  resolveCustomerDecisionUseCase: orderModule.resolveCustomerDecisionUseCase,
+  resolveItemSubstitutionUseCase: orderModule.resolveItemSubstitutionUseCase,
+  orderRealtimeNotifier: orderModule.orderRealtimeNotifier,
   orderRepository: orderModule.orderRepository,
 })
 
@@ -689,6 +993,41 @@ export async function seedMainFlow(): Promise<void> {
   logger.child('FlowSeed').info('main_flow_seeded', { key: MAIN_FLOW_SEED.key })
 }
 
+/**
+ * Também chamada pelo boot depois das migrations, e pela mesma razão do `seedMainFlow`.
+ *
+ * `buildOrderStatusTemplates()` existia sem nenhum chamador em produção — só o E2E semeava. Com a
+ * tabela vazia, o `sendNotification` estourava `Template não encontrado` e o operador via 500 ao
+ * confirmar um pedido que JÁ tinha mudado de status.
+ *
+ * Só semeia o que falta: `seedDefaultTemplates` é upsert e apagaria o texto que o lojista editou
+ * pela rota de templates. A comparação é por (chave, canal, locale), que é a identidade do template
+ * — assim um status novo no código nasce semeado sem tocar nos que já existem.
+ */
+export async function seedOrderStatusTemplates(): Promise<void> {
+  const companyId = environment.WHATSAPP_COMPANY_ID
+  const existing = await webhookModule.notification.useCases.listTemplates.execute({ companyId })
+  const existingIdentities = new Set(existing.map((template) => `${template.key}|${template.channel}|${template.locale}`))
+
+  const missing = buildOrderStatusTemplates().filter(
+    (template) => !existingIdentities.has(`${template.key}|${template.channel}|${template.locale}`),
+  )
+  if (missing.length === 0) return
+
+  await webhookModule.notification.useCases.seedDefaultTemplates.execute({ companyId, templates: missing })
+  logger.child('TemplateSeed').info('order_status_templates_seeded', { count: missing.length })
+}
+
+const deliveryFeeTierRepository = new DrizzleDeliveryFeeTierRepository()
+
+/**
+ * Chamada pelo boot DEPOIS das migrations (T1.3, spec §3.1, D4). Idempotente: só grava quando a
+ * tabela nasce vazia — uma faixa que o painel já editou nunca é sobrescrita.
+ */
+export async function seedDefaultDeliveryFeeTiers(): Promise<void> {
+  await new EnsureDefaultDeliveryFeeTiersUseCase({ deliveryFeeTierRepository }).execute()
+}
+
 export const container = {
   health: buildHealthModule(),
   notification: webhookModule.notification,
@@ -707,6 +1046,10 @@ export const container = {
     repeatLastOrderUseCase: orderModule.repeatLastOrderUseCase,
     listOrdersUseCase: orderModule.listOrdersUseCase,
     orderController: orderModule.orderController,
+    orderStreamController: orderModule.orderStreamController,
+    /** Único cálculo de taxa (spec §3.3) — a cotação pública do `StoreController` recota por aqui. */
+    quoteDeliveryFeeUseCase: orderModule.quoteDeliveryFeeUseCase,
+    deliveryFeeTiersController: orderModule.deliveryFeeTiersController,
   },
   webhook: webhookModule,
   /*
@@ -716,15 +1059,23 @@ export const container = {
   storeRepositories: {
     orderRepository: orderModule.orderRepository,
     customerRepository: webhookRepositories.customerRepository,
+    productRepository: catalogModule.productRepository,
   },
   conversationHttp: buildConversationHttpModule({
     metaWhatsApp: webhookModule.metaWhatsApp,
     ...(quickCartObjectStorage ? { objectStorage: quickCartObjectStorage.forModule } : {}),
+    getConversationCheckoutContextUseCase: new GetConversationCheckoutContextUseCase({
+      conversationSessionRepository: webhookRepositories.conversationSessionRepository,
+      customerRepository: webhookRepositories.customerRepository,
+      cartRepository: cartModule.cartRepository,
+      productRepository: catalogModule.productRepository,
+    }),
   }),
   internal: buildInternalModule({
     conversationSessionRepository: webhookRepositories.conversationSessionRepository,
     messageRepository: webhookRepositories.messageRepository,
     whatsAppSender: webhookRepositories.whatsAppSender,
     conversationEngine: conversationModule.conversationEngine,
+    remindCustomerDecisionUseCase: orderModule.remindCustomerDecisionUseCase,
   }),
 }

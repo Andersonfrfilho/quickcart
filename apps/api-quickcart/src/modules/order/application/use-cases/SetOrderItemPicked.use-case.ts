@@ -33,7 +33,19 @@ import type { OrderDetail, OrderRepositoryInterface } from '@/modules/order/doma
  * A regra estava só no frontend (`resolvePickingState`), onde uma aba velha a contornava. Agora o
  * servidor recusa, e a tela continua desenhando a partir do que ele permite.
  */
-const PICKING_ALLOWED_STATUSES: ReadonlySet<string> = new Set([ORDER_STATUS.PREPARING, ORDER_STATUS.SEPARATED])
+const PICKING_ALLOWED_STATUSES: ReadonlySet<string> = new Set([
+  ORDER_STATUS.PREPARING,
+  ORDER_STATUS.SEPARATED,
+  /*
+   * Esperando o cliente decidir sobre item em falta, a sacola continua na mão de alguém.
+   *
+   * Travar a lista aqui trava o trabalho: enquanto a resposta não chega, quem separa segue pegando o
+   * resto do pedido — e pode achar mais um item em falta, que também precisa ser marcado. O frontend
+   * (`resolvePickingState`) já liberava este estado; o servidor recusava, e o checkbox voltava sozinho
+   * depois do toque, sem explicar por quê.
+   */
+  ORDER_STATUS.AWAITING_CUSTOMER_DECISION,
+])
 
 type SetOrderItemPickedDependencies = {
   readonly orderRepository: OrderRepositoryInterface

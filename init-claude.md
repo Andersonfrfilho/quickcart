@@ -9,7 +9,8 @@ Produto Ada Technology para supermercados: o cliente envia sua **lista de compra
 áudio no WhatsApp** e o bot monta o carrinho automaticamente. Itens com match único são
 adicionados direto; itens ambíguos geram uma **lista interativa Meta** para o cliente escolher.
 O pedido fecha com entrega/retirada, forma de pagamento e **recibo/nota fiscal por WhatsApp
-e/ou e-mail**. Há também uma **loja Web/PWA** (busca com autocomplete, carrinho, checkout) que
+e/ou e-mail**, emitido quando o pedido sai da loja (`out_for_delivery` ou `ready_for_pickup`),
+com o total já final. Há também uma **loja Web/PWA** (busca com autocomplete, carrinho, checkout) que
 grava no mesmo banco.
 
 Requisito nº 1 do produto: **velocidade de atendimento**.
@@ -62,6 +63,54 @@ Diferença: lá o fluxo conversacional fica no n8n; **aqui o motor de conversa v
   entrega, dinheiro); `receiptPreference` = `whatsapp` | `email` | `both`.
 - **Estados da conversa** em varchar (nunca enum de banco); handlers por estado em
   `modules/conversation/application/handlers/`.
+- **Sair** (`sair`/`cancelar`, ou o botão `global_exit`) encerra a conversa e marca
+  `shouldAskCartResume`: a volta cai na pergunta "continuar ou começar outro" em vez de reabrir o
+  carrinho em silêncio. **Sair não cancela pedido** — isso continua exigindo "cancelar pedido", com
+  confirmação. A despedida só menciona essa palavra enquanto o pedido está antes da separação
+  (`isOrderBeforePicking`: `pending_confirmation` ou `confirmed`).
+- **Falta de estoque no fechamento**: a mensagem nomeia cada item faltante (esgotado ou quanto
+  sobrou) e o carrinho volta com `OUT_OF_STOCK_REVIEW_BUTTONS` — sem "Fechar pedido", que repetiria
+  o mesmo erro, e com a saída no lugar dele.
+
+### Roteiro de atendimento (`.specs/features/roteiro-atendimento/`)
+
+- **Estados novos**: `AWAITING_CASH_CHANGE` e `AWAITING_CASH_CHANGE_AMOUNT` (troco no dinheiro),
+  em `CashChangeHandler.ts`, fora do `CheckoutHandler`.
+- **Colunas novas em `orders`**: `cash_change_for_in_cents` (nulável; `null` = "não precisa" —
+  diferente de ausente = "ainda não perguntado", só existe em `ConversationContext`) e
+  `delivery_fee_in_cents` (`not null default 0`; retirada sempre grava `0`).
+- **Taxa de entrega**: **Substituída por taxa por faixa de distância** (spec `taxa-por-faixa`).
+  A taxa **fica FORA de `orders.total_in_cents`** — a NFC-e usa `total_in_cents` como valor pago e
+  não admite frete (`modFrete = 9`); somar a taxa quebraria a nota. O valor cobrado do cliente é
+  sempre `amountDueInCents(order)` (`modules/order/shared/amountDue.ts`, espelhada em
+  `worker-quickcart/src/shared/amountDue.ts`) — **nenhum outro lugar soma itens + taxa**.
+- **`requiresCardMachine(order)`** (`modules/order/shared/requiresCardMachine.ts`): única função
+  que decide se o pedido exige levar a maquininha (`payment_method = card_on_delivery` **e**
+  `delivery_type = delivery`); consumida pelo DTO do painel (`Order.controller.ts`) e pelo bot.
+  Nunca reimplementar a comparação em outro lugar.
+- **Rotas novas**: `GET /v1/admin/conversations/:number/checkout-context` (painel — bloco "Pedido
+  em andamento", uma consulta por tabela: sessão, cliente, carrinho aberto, produtos em
+  `findByIds`) e `POST /v1/store/checkout-quote` (loja web — preço sempre do banco via
+  `buildPricedOrderItems`, nunca do carrinho salvo no navegador; substituiu o antigo
+  `GET /v1/store/checkout-config`).
+- **Palavra-chave global de atendente** (`isHumanHandoffRequest.ts`): "atendente"/"humano"/
+  "pessoa"/frases curtas equivalentes, em qualquer estado, via `GlobalHandler`, casamento por
+  mensagem inteira (não substring). Não cala o bot — só marca a fila de espera.
+
+### Taxa de entrega por faixa de distância (`.specs/features/taxa-por-faixa/`)
+
+- **Tabela `delivery_fee_tiers`**: máximo de distância (km) e taxa (centavos) por faixa.
+  O painel substitui a **lista inteira** em `PUT /v1/admin/delivery-fee-tiers`.
+- **Cotação única** (`QuoteDeliveryFeeUseCase`): consumida pelo bot (após endereço), cotação web
+  pública (`POST /v1/store/checkout-quote`), `CreateWebOrder` (recotação) e seed.
+  Localização do cliente vem de: WhatsApp (coordenada exata) > CEP digitado (exato ou centroide
+  de município) > indisponível (sem entrega).
+- **`ResolveOrderDeliveryEstimate`**: usa fim da última faixa como raio máximo (substitui env).
+- **Colunas novas em `orders`**: `delivery_distance_km`, `delivery_tier_max_km`,
+  `delivery_tier_fee_in_cents`, `delivery_location_source` (snapshot — retirada/pedidos antigos
+  ficam nulos).
+- **Painel** (`/admin/delivery-fees`): edita as faixas (só admin) com validação da lista inteira.
+  Trilha de auditoria: ator, lista antiga e nova. Detalhe do pedido mostra faixa e distância.
 
 ## Comandos
 

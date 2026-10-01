@@ -24,10 +24,18 @@ export type SendCartSummaryParams = {
   readonly cartRepository: CartRepositoryInterface
   readonly productRepository: ProductRepositoryInterface
   readonly whatsAppSender: WhatsAppSender
+  /**
+   * Conjunto alternativo de botões; ausente usa o de `cart_review`.
+   *
+   * Existe porque o mesmo resumo é reenviado em situações com saídas diferentes — depois da falta de
+   * estoque, "Fechar pedido" repetiria o erro e a vaga vale mais como saída.
+   */
+  readonly buttons?: ReadonlyArray<{ readonly id: string; readonly title: string }>
 }
 
 export async function sendCartSummary(params: SendCartSummaryParams): Promise<void> {
   const { customerPhone, cartId, cartRepository, productRepository, whatsAppSender } = params
+  const buttons = params.buttons ?? CART_REVIEW_BUTTONS
   const cartItems = await cartRepository.listItems(cartId)
 
   if (cartItems.length === 0) {
@@ -53,5 +61,5 @@ export async function sendCartSummary(params: SendCartSummaryParams): Promise<vo
     `${MESSAGES.CART_SUMMARY_TOTAL_PREFIX} ${formatPriceInCents(totalInCents)}`,
   ].join('\n')
 
-  await whatsAppSender.sendInteractiveButtons(customerPhone, bodyText, CART_REVIEW_BUTTONS)
+  await whatsAppSender.sendInteractiveButtons(customerPhone, bodyText, buttons)
 }

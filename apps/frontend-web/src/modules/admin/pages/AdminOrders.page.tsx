@@ -6,6 +6,7 @@ import { OrdersTableView } from '@/modules/admin/components/OrdersTableView'
 import { DELIVERY_LABELS, PAYMENT_LABELS } from '@/modules/admin/shared/orderLabels'
 import { ORDER_STATUS_LABELS, orderStatusLabel } from '@/modules/admin/shared/orderStatusStyle'
 import { AppliedFilterPills, type AppliedFilter } from '@/modules/admin/components/AppliedFilterPills'
+import { ReceiptRetryAlert } from '@/modules/admin/components/ReceiptRetryAlert'
 
 /** Nome da coluna na pill de ordenação: "Ordem: Recebido ↑" lê melhor que "Ordem: createdAt ↑". */
 const SORT_LABELS: Record<string, string> = {
@@ -46,6 +47,9 @@ export function AdminOrdersPage() {
     toggleSelectAllOnPage,
     confirmSelected,
     isBulkRunning,
+    receiptRetryMessage,
+    retryReceipt,
+    isRetryingReceipt,
   } = useAdminOrdersPage()
 
   // Campo local para digitar sem refazer a consulta a cada letra; a URL recebe no enter ou ao sair.
@@ -94,6 +98,10 @@ export function AdminOrdersPage() {
           Do mais antigo para o mais novo — quem pediu primeiro é quem está esperando há mais tempo.
         </p>
       </div>
+
+      {receiptRetryMessage ? (
+        <ReceiptRetryAlert message={receiptRetryMessage} isRetrying={isRetryingReceipt} onRetry={retryReceipt} />
+      ) : null}
 
       <form
         className="flex flex-wrap items-center gap-2"

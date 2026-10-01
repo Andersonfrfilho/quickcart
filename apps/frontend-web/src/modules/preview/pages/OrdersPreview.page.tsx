@@ -26,7 +26,10 @@ const ORDER_SAMPLES: readonly {
   readonly status: string
   readonly deliveryType: string
   readonly totalInCents: number
+  readonly deliveryFeeInCents: number
+  readonly amountDueInCents: number
   readonly allowedNextStatuses: readonly string[]
+  readonly deliveryFailureReason?: string
 }[] = [
   {
     shortCode: 'QC-1001',
@@ -36,6 +39,8 @@ const ORDER_SAMPLES: readonly {
     status: 'pending_confirmation',
     deliveryType: 'delivery',
     totalInCents: 71548,
+    deliveryFeeInCents: 800,
+    amountDueInCents: 72348,
     allowedNextStatuses: ['confirmed', 'cancelled'],
   },
   {
@@ -52,6 +57,8 @@ const ORDER_SAMPLES: readonly {
     status: 'pending_confirmation',
     deliveryType: 'pickup',
     totalInCents: 4990,
+    deliveryFeeInCents: 0,
+    amountDueInCents: 4990,
     allowedNextStatuses: ['confirmed', 'cancelled'],
   },
   {
@@ -63,6 +70,8 @@ const ORDER_SAMPLES: readonly {
     status: 'confirmed',
     deliveryType: 'delivery',
     totalInCents: 128390,
+    deliveryFeeInCents: 800,
+    amountDueInCents: 129190,
     allowedNextStatuses: ['preparing', 'cancelled'],
   },
   {
@@ -73,6 +82,8 @@ const ORDER_SAMPLES: readonly {
     status: 'preparing',
     deliveryType: 'delivery',
     totalInCents: 23480,
+    deliveryFeeInCents: 800,
+    amountDueInCents: 24280,
     allowedNextStatuses: ['separated', 'cancelled'],
   },
   {
@@ -84,6 +95,8 @@ const ORDER_SAMPLES: readonly {
     deliveryType: 'pickup',
     allowedNextStatuses: ['ready_for_pickup', 'cancelled'],
     totalInCents: 8990,
+    deliveryFeeInCents: 0,
+    amountDueInCents: 8990,
   },
   {
     shortCode: 'QC-1006',
@@ -93,6 +106,8 @@ const ORDER_SAMPLES: readonly {
     status: 'out_for_delivery',
     deliveryType: 'delivery',
     totalInCents: 45900,
+    deliveryFeeInCents: 800,
+    amountDueInCents: 46700,
     allowedNextStatuses: ['completed'],
   },
   {
@@ -103,6 +118,8 @@ const ORDER_SAMPLES: readonly {
     status: 'ready_for_pickup',
     deliveryType: 'pickup',
     totalInCents: 15790,
+    deliveryFeeInCents: 0,
+    amountDueInCents: 15790,
     allowedNextStatuses: ['completed'],
   },
   {
@@ -114,7 +131,29 @@ const ORDER_SAMPLES: readonly {
     status: 'completed',
     deliveryType: 'delivery',
     totalInCents: 6250,
+    deliveryFeeInCents: 800,
+    amountDueInCents: 7050,
     allowedNextStatuses: [],
+  },
+  {
+    /*
+     * Ocorrência: a linha que mostra que a coluna de ações NÃO oferece nova tentativa aqui.
+     *
+     * Sair de novo para a rua e cancelar dependem do motivo, e registrar ocorrência exige escolher um —
+     * por isso os dois passos moram na tela do pedido, e esta linha existe para provar que a lista não os
+     * desenha por engano.
+     */
+    shortCode: 'QC-1010',
+    customerName: 'Rita Nogueira',
+    customerPhone: '5511955554444',
+    minutesAgo: 47,
+    status: 'delivery_failed',
+    deliveryType: 'delivery',
+    totalInCents: 9840,
+    deliveryFeeInCents: 800,
+    amountDueInCents: 10640,
+    allowedNextStatuses: ['out_for_delivery', 'cancelled'],
+    deliveryFailureReason: 'customer_absent',
   },
   {
     shortCode: 'QC-1009',
@@ -124,9 +163,12 @@ const ORDER_SAMPLES: readonly {
     status: 'cancelled',
     deliveryType: 'delivery',
     totalInCents: 3190,
+    deliveryFeeInCents: 800,
+    amountDueInCents: 3990,
     allowedNextStatuses: [],
   },
 ]
+
 
 function buildPreviewOrders(now: number): Order[] {
   return ORDER_SAMPLES.map((sample, index) => ({
@@ -139,7 +181,18 @@ function buildPreviewOrders(now: number): Order[] {
     paymentMethod: 'pix' as Order['paymentMethod'],
     createdAt: new Date(now - sample.minutesAgo * MINUTE).toISOString(),
     totalInCents: sample.totalInCents,
+    // Valores prontos na fixture, como o backend entrega: a tela não soma itens + taxa.
+    deliveryFeeInCents: sample.deliveryFeeInCents,
+    amountDueInCents: sample.amountDueInCents,
     allowedNextStatuses: sample.allowedNextStatuses,
+    // Fixture paga sempre no Pix — nunca precisa de maquininha.
+    requiresCardMachine: false,
+    deliveryFailureReason: (sample.deliveryFailureReason ?? null) as Order['deliveryFailureReason'],
+    // A lista não mostra faixa/distância (só o detalhe faz) — a fixture não precisa de valores reais.
+    deliveryDistanceKm: null,
+    deliveryTierMaxKm: null,
+    deliveryTierFeeInCents: null,
+    deliveryLocationSource: null,
   }))
 }
 

@@ -54,6 +54,23 @@ const PRODUCT_SAMPLES: readonly (readonly [name: string, quantity: number, price
   ['Carne Moída Patinho kg', 1, 3990],
 ]
 
+/**
+ * Corredores de mentira, com buraco proposital.
+ *
+ * A loja de verdade não mapeia o catálogo inteiro, então o desenho que precisa ser conferido é o da
+ * lista MISTA — item com corredor ao lado de item sem — e não o da lista toda preenchida, que é
+ * justamente a que nunca acontece.
+ */
+const PREVIEW_AISLES: ReadonlyArray<string | null> = [
+  'Corredor 1',
+  'Corredor 3',
+  null,
+  'Hortifruti',
+  'Corredor 7',
+  null,
+  'Câmara fria',
+]
+
 function buildPreviewItems(): OrderItem[] {
   return PRODUCT_SAMPLES.map(([productName, quantity, unitPriceInCents], index) => ({
     id: `preview-item-${index}`,
@@ -67,6 +84,7 @@ function buildPreviewItems(): OrderItem[] {
     unavailableAt: null,
     unavailableNotifiedAt: null,
     pickedAt: null,
+    productAisle: PREVIEW_AISLES[index % PREVIEW_AISLES.length] ?? null,
   }))
 }
 
@@ -84,8 +102,15 @@ function previewAllowedNextStatuses(status: string, deliveryType: string): reado
     confirmed: ['preparing', 'cancelled'],
     preparing: ['separated', 'cancelled'],
     separated: [deliveryType === 'pickup' ? 'ready_for_pickup' : 'out_for_delivery', 'cancelled'],
-    out_for_delivery: ['completed'],
+    out_for_delivery: ['in_transit', 'arrived_at_customer', 'completed', 'delivery_failed'],
+    in_transit: ['arrived_at_customer', 'completed', 'delivery_failed'],
+    arrived_at_customer: ['completed', 'delivery_failed'],
     ready_for_pickup: ['completed'],
+    /*
+     * Motivo que admite outra viagem. O terminal (recusa, extravio) só ofereceria `cancelled`, e o
+     * espelho não distingue os dois — quem distingue é a API, com o motivo gravado no pedido.
+     */
+    delivery_failed: ['out_for_delivery', 'cancelled'],
   }
   return byStatus[status] ?? []
 }
@@ -131,6 +156,15 @@ function resolvePreviewAddressCase(addressCase: string): PreviewAddressCase {
   }
 }
 
+/**
+ * Valores prontos, como o backend entrega: a tela nunca soma itens + taxa (spec §3.4), e a vitrine
+ * não pode ensinar o contrário. Itens sem o `preview-item-4`, que abre marcado em falta.
+ */
+const PREVIEW_AMOUNTS_BY_DELIVERY_TYPE = {
+  delivery: { totalInCents: 71548, deliveryFeeInCents: 800, amountDueInCents: 72348 },
+  pickup: { totalInCents: 71548, deliveryFeeInCents: 0, amountDueInCents: 71548 },
+} as const
+
 const PREVIEW_ORDER: OrderDetail = {
   id: 'preview-order',
   shortCode: 'QC-1042',
@@ -143,11 +177,26 @@ const PREVIEW_ORDER: OrderDetail = {
   receiptPreference: 'whatsapp',
   ...resolvePreviewAddressCase('structured'),
   notes: 'Se não tiver banana prata, pode trocar por nanica. Interfone quebrado, ligar ao chegar.',
+  // Nenhuma pergunta em aberto: em `preparing`, o painel de espera pelo cliente não faz parte da tela.
+  customerDecisionAskedAt: null,
+  // Preview base paga no Pix — sem troco a mostrar.
+  cashChangeForInCents: null,
   // Uma hora atrás: cai na faixa de atraso, que é o estado em que a tela mais precisa funcionar.
   createdAt: new Date(Date.now() - 62 * 60 * 1000).toISOString(),
-  totalInCents: PREVIEW_ITEMS.reduce((total, item) => total + item.totalInCents, 0),
+  ...PREVIEW_AMOUNTS_BY_DELIVERY_TYPE.delivery,
   items: PREVIEW_ITEMS,
   allowedNextStatuses: [],
+  // Preview base paga no Pix — nunca precisa de maquininha.
+  requiresCardMachine: false,
+  // A esteira só mostra ocorrência com `status = delivery_failed`, e o preview base está separando.
+  deliveryFailureReason: null,
+  // Pedido em separação: a sacola ainda não saiu, então não há viagem nenhuma a mostrar.
+  deliveryAttempts: [],
+  // Snapshot da cotação (spec §3.7): a vitrine mostra a mesma faixa/distância que a tela real leria do pedido.
+  deliveryDistanceKm: 2.1,
+  deliveryTierMaxKm: 3,
+  deliveryTierFeeInCents: 800,
+  deliveryLocationSource: 'cep',
 }
 
 /**
@@ -207,17 +256,23 @@ export function OrderDetailPreviewPage() {
 
   const visibleItems = hidePickedItems ? items.filter((item) => !pickedItemIds.includes(item.id)) : items
 
-  /**
-   * Total recalculado também aqui.
-   *
-   * No produto quem recalcula é o servidor; no preview, deixar o total parado enquanto um item sai da
-   * lista faria a tela ensinar errado — e é justamente o número que eu preciso conferir olhando.
-   */
+  // Total fixo da fixture: marcar falta aqui não recalcula — no produto quem recalcula é o servidor.
+  const amounts = deliveryType === 'pickup' ? PREVIEW_AMOUNTS_BY_DELIVERY_TYPE.pickup : PREVIEW_AMOUNTS_BY_DELIVERY_TYPE.delivery
   const order: OrderDetail = {
     ...PREVIEW_ORDER,
     status: status as OrderDetail['status'],
     deliveryType: deliveryType as OrderDetail['deliveryType'],
     allowedNextStatuses: previewAllowedNextStatuses(status, deliveryType),
+    /*
+     * `?status=delivery_failed&reason=lost` mostra a esteira parada com o motivo escrito.
+     *
+     * Amarrado ao status porque é assim que o servidor grava: motivo sem ocorrência não existe, e a
+     * tela que desenhasse os dois soltos ensinaria um estado que a rota recusa.
+     */
+    deliveryFailureReason:
+      status === 'delivery_failed'
+        ? ((searchParams.get('reason') ?? 'customer_absent') as OrderDetail['deliveryFailureReason'])
+        : null,
     /*
      * Retirada não tem endereço: mostrar um faria a tela ensinar errado. Fora disso, o caso vem de
      * `?address=`, para testar estruturado, legado e cru sem precisar editar a fixture.
@@ -231,9 +286,7 @@ export function OrderDetailPreviewPage() {
           return deliveryEstimate ? { deliveryEstimate } : {}
         })()),
     items,
-    totalInCents: items
-      .filter((item) => item.unavailableAt === null)
-      .reduce((total, item) => total + item.totalInCents, 0),
+    ...amounts,
   }
 
   return (

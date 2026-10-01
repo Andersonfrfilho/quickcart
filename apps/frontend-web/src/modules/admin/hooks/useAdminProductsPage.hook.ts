@@ -5,7 +5,8 @@ import { useUrlQueryState } from '@/shared/hooks/useUrlQueryState.hook'
 import { useAdminProductsQuery } from '@/modules/admin/shared/queries/useAdminProducts.query'
 import { useAdminCategoriesQuery } from '@/modules/admin/shared/queries/useAdminCategories.query'
 import { useAdjustStockMutation } from '@/modules/admin/shared/mutations/useAdjustStock.mutation'
-import type { ProductSortableField, SortDirection } from '@/shared/api/api.types'
+import { useUpdateProductAisleMutation } from '@/modules/admin/shared/mutations/useUpdateProductAisle.mutation'
+import type { Product, ProductSortableField, SortDirection } from '@/shared/api/api.types'
 
 const PRODUCTS_PER_PAGE = 15
 const DEFAULT_SORT_BY: ProductSortableField = 'name'
@@ -16,6 +17,12 @@ export function useAdminProductsPage() {
   const { searchParams, setQueryParams } = useUrlQueryState()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [stockDelta, setStockDelta] = useState('')
+  /**
+   * Estado próprio, e não o mesmo `editingId` do estoque: são duas edições diferentes na mesma linha, e
+   * compartilhar o id faria abrir o corredor fechar o ajuste de estoque pela metade.
+   */
+  const [editingAisleId, setEditingAisleId] = useState<string | null>(null)
+  const [aisleDraft, setAisleDraft] = useState('')
 
   const page = Number(searchParams.get('page') ?? '1')
   const categoryFilter = searchParams.get('categoryId')?.split(',').filter(Boolean) ?? []
@@ -31,6 +38,7 @@ export function useAdminProductsPage() {
   })
   const { data: categoriesData } = useAdminCategoriesQuery()
   const adjustStockMutation = useAdjustStockMutation()
+  const updateAisleMutation = useUpdateProductAisleMutation()
 
   function setPage(nextPage: number) {
     setQueryParams({ page: String(nextPage) })
@@ -68,6 +76,27 @@ export function useAdminProductsPage() {
     setStockDelta('')
   }
 
+  /** Abre já com o valor atual dentro: corrigir "Corredor 3" para "Corredor 4" é o gesto comum, não digitar do zero. */
+  function startEditingAisle(product: Product) {
+    setEditingAisleId((current) => (current === product.id ? null : product.id))
+    setAisleDraft(product.aisle ?? '')
+  }
+
+  function cancelEditingAisle() {
+    setEditingAisleId(null)
+    setAisleDraft('')
+  }
+
+  function confirmAisle(product: Product) {
+    // Nada mudou: não gasta requisição nem histórico de update — inclusive quando os dois lados são vazios.
+    if (aisleDraft.trim() === (product.aisle ?? '')) {
+      cancelEditingAisle()
+      return
+    }
+    updateAisleMutation.mutate({ id: product.id, aisle: aisleDraft })
+    cancelEditingAisle()
+  }
+
   return {
     isReady,
     products: data?.data ?? [],
@@ -88,5 +117,12 @@ export function useAdminProductsPage() {
     setStockDelta,
     startEditingStock,
     confirmStockAdjustment,
+    editingAisleId,
+    aisleDraft,
+    setAisleDraft,
+    startEditingAisle,
+    cancelEditingAisle,
+    confirmAisle,
+    isSavingAisle: updateAisleMutation.isPending,
   }
 }

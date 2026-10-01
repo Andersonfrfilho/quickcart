@@ -86,4 +86,12 @@ describe('createWebOrderBodySchema', () => {
       expect(result.data.address).not.toHaveProperty('longitude')
     }
   })
+
+  it('aceita a taxa esperada da cotação pública, opcional (T4.1)', () => {
+    const withExpectation = createWebOrderBodySchema.safeParse(buildBody({ expectedDeliveryFeeInCents: 800 }))
+    expect(withExpectation.success).toBe(true)
+    if (withExpectation.success) expect(withExpectation.data.expectedDeliveryFeeInCents).toBe(800)
+
+    expect(createWebOrderBodySchema.safeParse(buildBody()).success).toBe(true)
+  })
 })

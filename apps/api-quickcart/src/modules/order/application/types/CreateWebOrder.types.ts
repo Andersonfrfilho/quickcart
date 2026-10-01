@@ -31,6 +31,11 @@ export type CreateWebOrderParams = {
   readonly paymentMethod: string
   readonly receiptPreference: string
   readonly notes?: string | undefined
+  /**
+   * A taxa que a tela mostrou na cotação pública (spec §3.5). Comparada contra a recotação feita
+   * aqui — mudou → 409 `DELIVERY_FEE_CHANGED`. Ausente = não compara (a Fase 4 faz a tela mandar).
+   */
+  readonly expectedDeliveryFeeInCents?: number | undefined
 }
 
 export type CreateWebOrderResult = {

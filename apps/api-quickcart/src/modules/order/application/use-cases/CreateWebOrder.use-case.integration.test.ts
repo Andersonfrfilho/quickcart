@@ -35,29 +35,33 @@ import { DrizzleCategoryRepository } from '@/modules/catalog/infra/database/Driz
 import { DrizzleProductRepository } from '@/modules/catalog/infra/database/DrizzleProductRepository'
 import { DrizzleCustomerRepository } from '@/modules/webhook/infra/database/DrizzleCustomerRepository'
 import { DrizzleOrderRepository } from '@/modules/order/infra/database/DrizzleOrderRepository'
-import type { JobQueue } from '@/modules/order/domain/JobQueue.interface'
 import { CreateWebOrderUseCase } from './CreateWebOrder.use-case'
 import type { CreateWebOrderParams } from '../types/CreateWebOrder.types'
 
-class NoopJobQueue implements JobQueue {
-  async add(): Promise<unknown> {
-    return undefined
-  }
-}
 
 const categoryRepository = new DrizzleCategoryRepository()
 const productRepository = new DrizzleProductRepository()
 const customerRepository = new DrizzleCustomerRepository()
 const orderRepository = new DrizzleOrderRepository()
 const cacheProvider = new RedisProvider()
-const receiptQueue = new NoopJobQueue()
+
+/** Todo pedido deste arquivo é retirada — a cotação nunca é chamada; falhar alto denuncia regressão. */
+const quoteDeliveryFeeUseCase = {
+  execute: async () => {
+    throw new Error('QuoteDeliveryFee não deveria ser chamado por um pedido de retirada')
+  },
+}
 
 const useCase = new CreateWebOrderUseCase({
   orderRepository,
   productRepository,
   customerRepository,
   cacheProvider,
-  receiptQueue,
+  quoteDeliveryFeeUseCase,
+  // O ViaCEP real não entra em teste: devolve o mesmo endereço que o teste manda.
+  addressLookupProvider: {
+    lookupByCep: async () => ({ street: 'Av. Paulista', neighborhood: 'Bela Vista', city: 'São Paulo', state: 'SP' }),
+  },
 })
 
 const TEST_PHONE_PREFIX = '55119'
@@ -169,7 +173,7 @@ describe('CreateWebOrderUseCase — concorrência real (Postgres + Redis)', () =
     const afterOrder = await productRepository.findById(productId)
     expect(afterOrder?.stockQuantity).toBe(6)
 
-    await orderRepository.cancelAndRestoreStock(result.order.id)
+    await orderRepository.cancel({ orderId: result.order.id, restoreStock: true })
 
     const afterCancel = await productRepository.findById(productId)
     expect(afterCancel?.stockQuantity).toBe(10)

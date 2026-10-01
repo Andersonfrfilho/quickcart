@@ -28,32 +28,48 @@ class InternalApiError extends Error {
   }
 }
 
-async function postResume(params: ResumeConversationParams): Promise<Response> {
-  return fetch(`${environment.API_BASE_URL}/v1/internal/conversation/resume`, {
+type PostInternalParams = { readonly path: string; readonly body: unknown; readonly operation: string }
+
+function sendInternal(params: PostInternalParams, accessToken: string): Promise<Response> {
+  return fetch(`${environment.API_BASE_URL}${params.path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${await getServiceAccessToken()}`,
+      Authorization: `Bearer ${accessToken}`,
     },
-    body: JSON.stringify(params),
+    body: JSON.stringify(params.body),
   })
 }
 
-export async function resumeConversation(params: ResumeConversationParams): Promise<void> {
-  let response = await postResume(params)
+/**
+ * Toda chamada do worker à api passa por aqui, com a sessão de serviço.
+ *
+ * Uma única retentativa no 401, e só nele: o access token dura 15 minutos, então um job que ficou
+ * na fila além disso encontra a sessão vencida. Descartar e reautenticar é mais barato — e mais
+ * correto — do que devolver o job ao BullMQ para falhar de novo pelo mesmo motivo.
+ */
+async function postInternal(params: PostInternalParams): Promise<void> {
+  let response = await sendInternal(params, await getServiceAccessToken())
 
-  /*
-   * Uma única retentativa no 401, e só nele: o access token dura 15 minutos, então um job que ficou
-   * na fila além disso encontra a sessão vencida. Descartar e reautenticar é mais barato — e mais
-   * correto — do que devolver o job ao BullMQ para falhar de novo pelo mesmo motivo.
-   */
   if (response.status === UNAUTHORIZED_STATUS) {
     invalidateServiceSession()
-    response = await postResume(params)
+    response = await sendInternal(params, await getServiceAccessToken())
   }
 
   if (!response.ok) {
     const body = await response.text()
-    throw new InternalApiError(`resume_conversation_failed: ${response.status} - ${body}`, response.status)
+    throw new InternalApiError(`${params.operation}_failed: ${response.status} - ${body}`, response.status)
   }
+}
+
+export async function resumeConversation(params: ResumeConversationParams): Promise<void> {
+  await postInternal({ path: '/v1/internal/conversation/resume', body: params, operation: 'resume_conversation' })
+}
+
+export async function remindCustomerDecision(params: { readonly orderId: string }): Promise<void> {
+  await postInternal({
+    path: `/v1/internal/orders/${params.orderId}/decision-reminder`,
+    body: {},
+    operation: 'remind_customer_decision',
+  })
 }

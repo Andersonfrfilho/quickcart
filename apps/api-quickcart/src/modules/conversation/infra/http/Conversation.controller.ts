@@ -15,6 +15,7 @@
  * (companyId + whatsappNumber). Usar o id da sessão obrigaria um lookup extra em toda rota.
  */
 
+import { omitCoordinates, withoutAddressCoordinates } from '@/modules/order/shared/withoutAddressCoordinates'
 import { randomUUID } from 'node:crypto'
 import JSZip from 'jszip'
 import type { MetaWhatsAppModule } from '@adatechnology/meta-whatsapp-module'
@@ -178,6 +179,23 @@ function parseLimit(raw: string | null): number {
   const parsed = Number.parseInt(raw, 10)
   if (Number.isNaN(parsed) || parsed <= 0) return DEFAULT_MESSAGE_LIMIT
   return Math.min(parsed, MAX_MESSAGE_LIMIT)
+}
+
+/**
+ * Coordenada do cliente é dado pessoal (spec §3.2): o painel lê o contexto para acompanhar a conversa,
+ * não para saber onde a pessoa está. O rascunho de localização sai inteiro; endereços saem sem lat/lng.
+ */
+export function withoutContextCoordinates(context: unknown): unknown {
+  if (!context || typeof context !== 'object') return context
+  const { checkoutLocationDraft: _omitted, ...rest } = context as Record<string, unknown>
+  const remembered = rest.rememberedCheckout
+  return {
+    ...rest,
+    ...('checkoutAddress' in rest ? { checkoutAddress: omitCoordinates(rest.checkoutAddress) } : {}),
+    ...(remembered && typeof remembered === 'object'
+      ? { rememberedCheckout: withoutAddressCoordinates(remembered as { readonly address?: unknown }) }
+      : {}),
+  }
 }
 
 export class ConversationController {
@@ -615,7 +633,7 @@ export class ConversationController {
     )
     if (!session) throw new NotFoundError('Conversa não encontrada', CONVERSATION_NOT_FOUND)
 
-    response.json(200, { data: session.context })
+    response.json(200, { data: withoutContextCoordinates(session.context) })
   }
 
   // Transcript completo para download/auditoria. O caso de uso já existia no módulo desde a Fase 3

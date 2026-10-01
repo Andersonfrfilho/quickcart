@@ -13,11 +13,27 @@
 
 import { describe, expect, test } from 'bun:test'
 import { NullListRefinerProvider } from '@/modules/conversation/infra/providers/NullListRefinerProvider'
+import type { KnownBrandsProvider } from '@/modules/conversation/application/providers/KnownBrandsProvider.interface'
 import type { ParsedListItem } from '@/modules/conversation/application/types/ParseShoppingList.types'
+import { normalizeBrand } from '@/modules/conversation/shared/normalizeBrand'
 import { ParseShoppingListUseCase } from './ParseShoppingList.use-case'
 
-function buildUseCase(): ParseShoppingListUseCase {
-  return new ParseShoppingListUseCase(new NullListRefinerProvider())
+class FakeKnownBrandsProvider implements KnownBrandsProvider {
+  constructor(private readonly brands: readonly string[] = []) {}
+
+  async listKnownBrands(): Promise<ReadonlySet<string>> {
+    return new Set(this.brands.map(normalizeBrand))
+  }
+}
+
+class FailingKnownBrandsProvider implements KnownBrandsProvider {
+  async listKnownBrands(): Promise<ReadonlySet<string>> {
+    throw new Error('catálogo indisponível')
+  }
+}
+
+function buildUseCase(brands: readonly string[] = []): ParseShoppingListUseCase {
+  return new ParseShoppingListUseCase(new NullListRefinerProvider(), new FakeKnownBrandsProvider(brands))
 }
 
 describe('ParseShoppingListUseCase', () => {
@@ -92,5 +108,127 @@ describe('ParseShoppingListUseCase', () => {
     const result = await buildUseCase().execute({ rawText: '   ' })
     expect(result.items).toEqual([])
     expect(result.refinedByGroq).toBe(false)
+  })
+
+  describe('marca e quantidade órfãs (transcrição do Whisper separa por vírgula)', () => {
+    test('caso real: marca de catálogo entra no termo, e a quantidade órfã vira do item anterior', async () => {
+      const result = await buildUseCase(['Broto Legal']).execute({
+        rawText: 'Quero arroz, broto legal, 2kg, açúcar e sal.',
+      })
+
+      expect(result.items).toEqual([
+        { term: 'arroz broto legal', quantity: 2, unit: 'kg' },
+        { term: 'acucar', quantity: 1, unit: 'un' },
+        { term: 'sal', quantity: 1, unit: 'un' },
+      ])
+    })
+
+    test('caso real: quantidade escrita depois da lista vira a quantidade do último item', async () => {
+      const result = await buildUseCase().execute({ rawText: 'Eu quero arroz e açúcar, 5 quilos.' })
+
+      expect(result.items).toEqual([
+        { term: 'arroz', quantity: 1, unit: 'un' },
+        { term: 'acucar', quantity: 5, unit: 'quilos' },
+      ])
+    })
+
+    test('quantidade órfã no início da lista é descartada, sem item anterior para receber', async () => {
+      const result = await buildUseCase().execute({ rawText: '2kg, arroz' })
+
+      expect(result.items).toEqual([{ term: 'arroz', quantity: 1, unit: 'un' }])
+    })
+
+    test('marca sozinha, sem item anterior, vira o próprio termo', async () => {
+      const result = await buildUseCase(['Broto Legal']).execute({ rawText: 'broto legal' })
+
+      expect(result.items).toEqual([{ term: 'broto legal', quantity: 1, unit: 'un' }])
+    })
+
+    test('item anterior com quantidade explícita descarta a quantidade órfã seguinte', async () => {
+      const result = await buildUseCase().execute({ rawText: '2kg arroz, 3kg' })
+
+      expect(result.items).toEqual([{ term: 'arroz', quantity: 2, unit: 'kg' }])
+    })
+
+    test('casamento de marca ignora acentuação e caixa', async () => {
+      const result = await buildUseCase(['Broto Legal']).execute({ rawText: 'arroz, BRÓTO LÉGAL' })
+
+      expect(result.items).toEqual([{ term: 'arroz broto legal', quantity: 1, unit: 'un' }])
+    })
+
+    test('quando o provedor de marcas falha, a lista é montada sem o merge de marca', async () => {
+      const useCase = new ParseShoppingListUseCase(new NullListRefinerProvider(), new FailingKnownBrandsProvider())
+
+      const result = await useCase.execute({ rawText: 'arroz, broto legal' })
+
+      expect(result.items).toEqual([
+        { term: 'arroz', quantity: 1, unit: 'un' },
+        { term: 'broto legal', quantity: 1, unit: 'un' },
+      ])
+    })
+  })
+
+  describe('item sem vírgula depois do peso', () => {
+    test('corta a transcrição real do staging em quatro itens', async () => {
+      const result = await buildUseCase(['Broto Legal']).execute({ rawText: 'Quero arroz broto legal de 5kg Feijão e açúcar E sal' })
+
+      expect(result.items).toEqual([
+        { term: 'arroz broto legal', quantity: 5, unit: 'kg' },
+        { term: 'feijao', quantity: 1, unit: 'un' },
+        { term: 'acucar', quantity: 1, unit: 'un' },
+        { term: 'sal', quantity: 1, unit: 'un' },
+      ])
+    })
+
+    test('separa itens com o peso depois do produto', async () => {
+      const result = await buildUseCase().execute({ rawText: 'feijao 1kg arroz 5kg' })
+
+      expect(result.items).toEqual([
+        { term: 'feijao', quantity: 1, unit: 'kg' },
+        { term: 'arroz', quantity: 5, unit: 'kg' },
+      ])
+    })
+
+    test('não corta quando o peso vem antes do produto', async () => {
+      const result = await buildUseCase().execute({ rawText: '5 kg de feijão e 5kg arroz' })
+
+      expect(result.items).toEqual([
+        { term: 'feijao', quantity: 5, unit: 'kg' },
+        { term: 'arroz', quantity: 5, unit: 'kg' },
+      ])
+    })
+  })
+
+  describe('pontuação e conjunção da fala', () => {
+    test('separa itens no ponto final e entende o verbo depois de "também"', async () => {
+      const result = await buildUseCase(['Tio João']).execute({
+        rawText: 'Quero comprar 5 kg de arroz, tio João, e açúcar, feijão de 2 kg. Também quero sal.',
+      })
+
+      expect(result.items).toEqual([
+        { term: 'arroz tio joao', quantity: 5, unit: 'kg' },
+        { term: 'acucar', quantity: 1, unit: 'un' },
+        { term: 'feijao', quantity: 2, unit: 'kg' },
+        { term: 'sal', quantity: 1, unit: 'un' },
+      ])
+    })
+
+    test('não deixa a conjunção no começo do termo', async () => {
+      const result = await buildUseCase().execute({ rawText: 'arroz, e açúcar' })
+
+      expect(result.items).toEqual([
+        { term: 'arroz', quantity: 1, unit: 'un' },
+        { term: 'acucar', quantity: 1, unit: 'un' },
+      ])
+    })
+
+    test('preserva o decimal ditado com ponto ou vírgula', async () => {
+      const result = await buildUseCase().execute({ rawText: '1,5kg de arroz e 2.5 litros de leite' })
+
+      expect(result.items).toEqual([
+        { term: 'arroz', quantity: 1.5, unit: 'kg' },
+        { term: 'leite', quantity: 2.5, unit: 'litros' },
+      ])
+    })
   })
 })

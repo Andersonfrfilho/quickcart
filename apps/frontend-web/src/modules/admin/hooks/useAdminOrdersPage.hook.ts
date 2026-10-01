@@ -4,7 +4,9 @@ import { STAFF_ROLES } from '@/modules/auth/shared/roles.constant'
 import { useUrlQueryState } from '@/shared/hooks/useUrlQueryState.hook'
 import { useRouter } from '@/app/router'
 import { useAdminOrdersQuery } from '@/modules/admin/shared/queries/useAdminOrders.query'
+import { useOrdersRealtime } from '@/modules/admin/hooks/useOrdersRealtime.hook'
 import { useUpdateOrderStatusMutation } from '@/modules/admin/shared/mutations/useUpdateOrderStatus.mutation'
+import { readReceiptEnqueueFailure } from '@/modules/admin/shared/receiptEnqueueFailure'
 import { ORDER_STATUS, type OrderSortableField, type SortDirection } from '@/shared/api/api.types'
 
 const ORDERS_PER_PAGE = 15
@@ -22,10 +24,13 @@ const DEFAULT_SORT_DIRECTION: SortDirection = 'asc'
 /**
  * Releitura periódica: a lista fica aberta no balcão e pedido novo tem de aparecer sem F5.
  *
- * É também o que faz o tempo de espera envelhecer na tela — sem isso "há 2 min" fica congelado
- * enquanto o pedido de verdade passa de trinta.
+ * Deixou de ser o mecanismo e virou rede: o canal `orders` empurra pedido novo e mudança de status na
+ * hora, então perguntar de vinte em vinte segundos era pagar duas vezes pela mesma notícia. Com o stream
+ * caído — 4G do corredor, proxy que mata conexão ociosa — o intervalo volta, agora mais espaçado.
+ *
+ * O relógio da tela NÃO depende disto: "há 2 min" envelhece pelo `CLOCK_TICK_MS`, que é local.
  */
-const REFETCH_INTERVAL_MS = 20_000
+const FALLBACK_REFETCH_INTERVAL_MS = 45_000
 
 /** Quanto tempo entre os ticks do relógio da tela. Meio minuto basta para "há N min" não mentir. */
 const CLOCK_TICK_MS = 30_000
@@ -50,6 +55,8 @@ export function useAdminOrdersPage() {
   const sortBy = (searchParams.get('sortBy') as OrderSortableField | null) ?? DEFAULT_SORT_BY
   const sortDirection = (searchParams.get('sortDirection') as SortDirection | null) ?? DEFAULT_SORT_DIRECTION
 
+  const { isRealtimeConnected } = useOrdersRealtime()
+
   const { data, isLoading } = useAdminOrdersQuery(
     {
       page,
@@ -61,10 +68,18 @@ export function useAdminOrdersPage() {
       sortBy,
       sortDirection,
     },
-    REFETCH_INTERVAL_MS,
+    isRealtimeConnected ? undefined : FALLBACK_REFETCH_INTERVAL_MS,
   )
 
   const updateStatusMutation = useUpdateOrderStatusMutation()
+
+  /** Só existe depois que a fila do recibo falhou; repetir o mesmo status só reenfileira. */
+  const receiptRetryMessage = readReceiptEnqueueFailure(updateStatusMutation.error)
+
+  function retryReceipt() {
+    const failed = updateStatusMutation.variables
+    if (failed) updateStatusMutation.mutate({ id: failed.id, status: failed.status })
+  }
 
   /**
    * Relógio local, para espera e urgência envelhecerem sem recarregar.
@@ -215,5 +230,8 @@ export function useAdminOrdersPage() {
     toggleSelectAllOnPage,
     confirmSelected,
     isBulkRunning: updateStatusMutation.isPending,
+    receiptRetryMessage,
+    retryReceipt,
+    isRetryingReceipt: updateStatusMutation.isPending,
   }
 }
