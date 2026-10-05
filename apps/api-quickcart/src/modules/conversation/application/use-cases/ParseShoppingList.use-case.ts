@@ -18,6 +18,7 @@ import type {
   ParseShoppingListParams,
   ParseShoppingListResult,
 } from '@/modules/conversation/application/types/ParseShoppingList.types'
+import { LIST_NOISE_TERMS } from '@/modules/conversation/shared/ListNoise.constant'
 import { normalizeBrand } from '@/modules/conversation/shared/normalizeBrand'
 import { LOG_EVENTS } from '@/shared/constants/log-events.constant'
 import { logger } from '@/shared/logger'
@@ -322,6 +323,22 @@ function parseWithRegex(params: { rawText: string; knownBrands: ReadonlySet<stri
   return buildItemsFromSegments(segments, knownBrands)
 }
 
+/**
+ * Fala social que veio junto da lista ditada: "bom dia, arroz, feijão..." mandava `bom dia` para o
+ * trigram e o cliente recebia de volta "⚠️ Não encontrei esses itens: bom dia".
+ *
+ * A comparação é pelo termo INTEIRO de propósito. Apagar a saudação de dentro do termo
+ * transformaria "café bom dia" — marca de café que existe na prateleira — em "café", e o cliente
+ * levaria outro produto sem ser avisado. Termo que apenas contém ruído passa intacto.
+ */
+function isNoiseTerm(term: string): boolean {
+  return LIST_NOISE_TERMS.has(cleanTerm(normalizeText(term)))
+}
+
+function withoutNoiseItems(items: readonly ParsedListItem[]): readonly ParsedListItem[] {
+  return items.filter((item) => !isNoiseTerm(item.term))
+}
+
 export class ParseShoppingListUseCase {
   constructor(
     private readonly listRefinerProvider: ListRefinerProvider,
@@ -330,11 +347,14 @@ export class ParseShoppingListUseCase {
 
   async execute(params: ParseShoppingListParams): Promise<ParseShoppingListResult> {
     const knownBrands = await this.resolveKnownBrands()
-    const regexItems = parseWithRegex({ rawText: params.rawText, knownBrands })
+    const regexItems = withoutNoiseItems(parseWithRegex({ rawText: params.rawText, knownBrands }))
     if (regexItems.length === 0) return { items: [], refinedByGroq: false }
 
-    const refinedItems = await this.listRefinerProvider.refine(params.rawText, regexItems)
-    if (refinedItems && refinedItems.length > 0) {
+    // O refinador reparseia o texto cru do zero, então reintroduz a saudação que o regex já largou.
+    const refinedItems = withoutNoiseItems(
+      (await this.listRefinerProvider.refine(params.rawText, regexItems)) ?? [],
+    )
+    if (refinedItems.length > 0) {
       return { items: refinedItems, refinedByGroq: true }
     }
 
