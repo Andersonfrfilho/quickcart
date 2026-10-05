@@ -177,6 +177,10 @@ const CATEGORY_RECIPES: readonly CategoryRecipe[] = [
       { label: 'Abacaxi Pérola', unit: 'un', basePriceInCents: 899, aliases: ['abacaxi'] },
       { label: 'Manga Palmer', unit: 'kg', basePriceInCents: 749, aliases: ['manga'] },
       { label: 'Melancia', unit: 'kg', basePriceInCents: 399, aliases: ['melancia'] },
+      // Ovos moram aqui porque a taxonomia é fechada (ver o teste) e mercado de bairro agrupa ovo com
+      // hortifruti. Faltavam: "ovos" é dos primeiros pedidos de qualquer cliente, e dava "não encontrei".
+      { label: 'Ovos Brancos', unit: 'un', basePriceInCents: 100, aliases: ['ovos', 'ovo', 'ovos brancos'] },
+      { label: 'Ovos Vermelhos', unit: 'un', basePriceInCents: 115, aliases: ['ovos vermelhos', 'ovos caipiras'] },
     ],
   },
   {
