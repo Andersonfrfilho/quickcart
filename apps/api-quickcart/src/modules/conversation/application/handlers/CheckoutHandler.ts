@@ -130,7 +130,6 @@ export type CheckoutHandlerDependencies = {
   /** Chamada quando o endereço fica pronto (CEP, localização ou endereço lembrado); nunca no clique em "Entrega". */
   readonly quoteDeliveryFeeUseCase: Pick<QuoteDeliveryFeeUseCase, 'execute'>
   /** Repassada ao resumo da confirmação, que a usa para o pino aproximado do endereço digitado. */
-  readonly resolveAddressCoordinates?: EnterConfirmingDependencies['resolveAddressCoordinates'] | undefined
 }
 
 

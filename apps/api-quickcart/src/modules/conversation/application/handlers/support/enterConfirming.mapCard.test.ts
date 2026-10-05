@@ -7,11 +7,12 @@
  *
  * Author: Anderson Filho <andersonfrfilho@gmail.com>
  *
- * Qual pino o resumo manda, e com que rótulo.
+ * Qual link o resumo manda, e como.
  *
- * Coordenada de CEP é de rua, não de casa: ela só pode virar pino dizendo isso no rótulo, porque um
- * pino mudo ali PARECE endereço conferido — e conferir é a única função desta tela. O teste do caso
- * que NÃO manda vale tanto quanto o do que manda.
+ * O card do mapa só existe se a mensagem for de texto E pedir `previewUrl`: a Meta não renderiza
+ * preview em mensagem `interactive`, que é como o resumo com botões sai. Por isso o link viaja
+ * sozinho, antes do resumo — e é isso que estes testes travam. O caso que NÃO manda (retirada na
+ * loja) vale tanto quanto o que manda.
  */
 
 import { describe, expect, it } from 'bun:test'
@@ -38,8 +39,10 @@ const CEP_ADDRESS = {
   state: 'SP',
 }
 
+type SentText = { body: string; previewUrl: boolean | undefined }
+
 function buildHarness() {
-  const locations: { latitude: number; longitude: number; name?: string; address?: string }[] = []
+  const texts: SentText[] = []
   const buttonMessages: { body: string }[] = []
 
   const dependencies = {
@@ -62,20 +65,17 @@ function buildHarness() {
       },
     },
     whatsAppSender: {
-      async sendText() {
+      async sendText(_phone: string, body: string, options?: { previewUrl?: boolean }) {
+        texts.push({ body, previewUrl: options?.previewUrl })
         return undefined
       },
       async sendInteractiveButtons(_phone: string, body: string) {
         buttonMessages.push({ body })
       },
-      async sendLocation(params: { latitude: number; longitude: number; name?: string; address?: string }) {
-        locations.push(params)
-        return undefined
-      },
     },
   } as unknown as EnterConfirmingDependencies
 
-  return { dependencies, locations, buttonMessages }
+  return { dependencies, texts, buttonMessages }
 }
 
 function buildContext(overrides: Record<string, unknown>) {
@@ -89,8 +89,23 @@ function buildContext(overrides: Record<string, unknown>) {
   }
 }
 
-describe('enterConfirming — pino do mapa', () => {
-  it('manda o mapa quando o cliente enviou a localização pelo WhatsApp', async () => {
+describe('enterConfirming — card do mapa', () => {
+  it('pede o card ao mandar o link do endereço digitado', async () => {
+    const harness = buildHarness()
+
+    await enterConfirming({
+      dependencies: harness.dependencies,
+      customerPhone: PHONE,
+      customerId: CUSTOMER_ID,
+      checkoutContext: buildContext({ checkoutAddress: CEP_ADDRESS }),
+    })
+
+    expect(harness.texts).toHaveLength(1)
+    expect(harness.texts[0]?.previewUrl).toBe(true)
+    expect(harness.texts[0]?.body).toContain('google.com/maps')
+  })
+
+  it('usa a coordenada quando o cliente mandou a localização pelo WhatsApp', async () => {
     const harness = buildHarness()
 
     await enterConfirming({
@@ -103,68 +118,25 @@ describe('enterConfirming — pino do mapa', () => {
       }),
     })
 
-    expect(harness.locations).toHaveLength(1)
-    expect(harness.locations[0]?.latitude).toBe(WHATSAPP_LOCATION.latitude)
-    expect(harness.locations[0]?.longitude).toBe(WHATSAPP_LOCATION.longitude)
-    expect(harness.locations[0]?.name).toBe(MESSAGES.CONFIRMING_SUMMARY_MAP_PIN_NAME)
+    expect(harness.texts).toHaveLength(1)
+    expect(harness.texts[0]?.body).toContain(`${WHATSAPP_LOCATION.latitude},${WHATSAPP_LOCATION.longitude}`)
   })
 
-  it('o mapa vem ANTES do resumo, que termina na pergunta de confirmar', async () => {
+  /** O card precisa chegar antes: depois do resumo ele vira rodapé de uma decisão já tomada. */
+  it('o card vem ANTES do resumo com os botões', async () => {
     const harness = buildHarness()
+    const order: string[] = []
 
-    await enterConfirming({
-      dependencies: harness.dependencies,
-      customerPhone: PHONE,
-      customerId: CUSTOMER_ID,
-      checkoutContext: buildContext({
-        checkoutAddress: WHATSAPP_LOCATION,
-        checkoutDeliveryLocationSource: DELIVERY_LOCATION_SOURCE.WHATSAPP_LOCATION,
-      }),
-    })
-
-    expect(harness.locations).toHaveLength(1)
-    expect(harness.buttonMessages).toHaveLength(1)
-  })
-
-  it('sem resolvedor de coordenada, endereço de CEP segue só com o link', async () => {
-    const harness = buildHarness()
-
-    await enterConfirming({
-      dependencies: harness.dependencies,
-      customerPhone: PHONE,
-      customerId: CUSTOMER_ID,
-      checkoutContext: buildContext({ checkoutAddress: CEP_ADDRESS }),
-    })
-
-    expect(harness.locations).toEqual([])
-    expect(harness.buttonMessages).toHaveLength(1)
-  })
-
-  it('endereço de CEP vira pino aproximado, e o rótulo diz que é a rua', async () => {
-    const harness = buildHarness()
     const dependencies = {
       ...harness.dependencies,
-      resolveAddressCoordinates: async () => ({ latitude: -20.5386, longitude: -47.4008 }),
-    } as unknown as EnterConfirmingDependencies
-
-    await enterConfirming({
-      dependencies,
-      customerPhone: PHONE,
-      customerId: CUSTOMER_ID,
-      checkoutContext: buildContext({ checkoutAddress: CEP_ADDRESS }),
-    })
-
-    expect(harness.locations).toHaveLength(1)
-    expect(harness.locations[0]?.name).toBe(MESSAGES.CONFIRMING_SUMMARY_MAP_PIN_NAME_APPROXIMATE)
-  })
-
-  /** Geocodificador fora do ar não pode impedir o cliente de fechar a compra. */
-  it('resolvedor que falha não derruba a confirmação', async () => {
-    const harness = buildHarness()
-    const dependencies = {
-      ...harness.dependencies,
-      resolveAddressCoordinates: async () => {
-        throw new Error('nominatim fora do ar')
+      whatsAppSender: {
+        async sendText(_phone: string, body: string, options?: { previewUrl?: boolean }) {
+          order.push('text')
+          harness.texts.push({ body, previewUrl: options?.previewUrl })
+        },
+        async sendInteractiveButtons() {
+          order.push('buttons')
+        },
       },
     } as unknown as EnterConfirmingDependencies
 
@@ -175,11 +147,11 @@ describe('enterConfirming — pino do mapa', () => {
       checkoutContext: buildContext({ checkoutAddress: CEP_ADDRESS }),
     })
 
-    expect(harness.locations).toEqual([])
-    expect(harness.buttonMessages).toHaveLength(1)
+    expect(order).toEqual(['text', 'buttons'])
   })
 
-  it('não manda o mapa na retirada — quem vai à loja já sabe onde ela fica', async () => {
+  /** Quem vai à loja já sabe onde ela fica: mandar mapa ali é só uma bolha a mais. */
+  it('retirada na loja não ganha card nenhum', async () => {
     const harness = buildHarness()
 
     await enterConfirming({
@@ -189,10 +161,26 @@ describe('enterConfirming — pino do mapa', () => {
       checkoutContext: buildContext({
         checkoutDeliveryType: DELIVERY_TYPE_BUTTON_ID.PICKUP,
         checkoutDeliveryFeeInCents: 0,
-        checkoutAddress: WHATSAPP_LOCATION,
+        checkoutAddress: CEP_ADDRESS,
       }),
     })
 
-    expect(harness.locations).toEqual([])
+    expect(harness.texts).toEqual([])
+    expect(harness.buttonMessages).toHaveLength(1)
+  })
+
+  /** O link duplicado dentro do resumo deixaria a URL crua ao lado do card. */
+  it('o resumo não repete o link do mapa', async () => {
+    const harness = buildHarness()
+
+    await enterConfirming({
+      dependencies: harness.dependencies,
+      customerPhone: PHONE,
+      customerId: CUSTOMER_ID,
+      checkoutContext: buildContext({ checkoutAddress: CEP_ADDRESS }),
+    })
+
+    expect(harness.buttonMessages[0]?.body).not.toContain('google.com/maps')
+    expect(harness.buttonMessages[0]?.body).toContain(MESSAGES.CONFIRMING_ASK)
   })
 })

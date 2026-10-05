@@ -66,6 +66,7 @@ export const LOG_EVENTS = {
   // Engine falhou na rota sob demanda. Não é 500: o caso foi classificado e gravado na mensagem, e
   // a resposta devolve o status para a interface explicar o que aconteceu.
   TRANSCRIPTION_FAILED: 'transcription_failed',
+  DELIVERY_MAP_CARD_SKIPPED: 'delivery_map_card_skipped',
 } as const
 
 export type LogEvent = (typeof LOG_EVENTS)[keyof typeof LOG_EVENTS]
