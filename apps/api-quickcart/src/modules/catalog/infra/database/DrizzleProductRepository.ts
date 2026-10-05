@@ -20,6 +20,7 @@ import type {
   SubstituteCandidatesParams,
   UpdateProductRecordParams,
 } from '@/modules/catalog/domain/ProductRepository.interface'
+import { foldPortuguesePlural } from '@/modules/catalog/shared/foldPortuguesePlural'
 
 const SORTABLE_COLUMNS = {
   name: products.name,
@@ -134,13 +135,20 @@ export class DrizzleProductRepository implements ProductRepositoryInterface {
   }
 
   async searchByTerm(term: string, limit: number): Promise<ProductSearchResult[]> {
+    // Sem plural irregular não há variante, e a busca custa o mesmo de antes.
+    const foldedTerm = foldPortuguesePlural(term)
+    const termVariants = foldedTerm ? [term, foldedTerm] : [term]
+    const variantList = sql.join(termVariants.map((variant) => sql`${variant}`), sql`, `)
+
     const result = await db.execute<SearchRow>(sql`
       SELECT id, name, brand, unit_size, price_in_cents,
-             GREATEST(
-               similarity(lower(immutable_unaccent(name)), lower(immutable_unaccent(${term}))),
-               similarity(lower(immutable_unaccent(coalesce(brand, '') || ' ' || name)), lower(immutable_unaccent(${term}))),
-               (SELECT COALESCE(MAX(similarity(lower(immutable_unaccent(a)), lower(immutable_unaccent(${term})))), 0)
-                  FROM unnest(aliases) a)
+             (SELECT MAX(GREATEST(
+                similarity(lower(immutable_unaccent(name)), lower(immutable_unaccent(variant))),
+                similarity(lower(immutable_unaccent(coalesce(brand, '') || ' ' || name)), lower(immutable_unaccent(variant))),
+                (SELECT COALESCE(MAX(similarity(lower(immutable_unaccent(a)), lower(immutable_unaccent(variant)))), 0)
+                   FROM unnest(aliases) a)
+              ))
+                FROM unnest(ARRAY[${variantList}]::text[]) AS variant
              ) AS score
       FROM products
       WHERE is_available = true AND stock_quantity > 0
