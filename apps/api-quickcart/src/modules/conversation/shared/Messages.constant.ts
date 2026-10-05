@@ -194,6 +194,11 @@ export const BROWSE_CART_DONE_WORDS = [
 
 export const GLOBAL_TRIGGER = {
   EXIT_WORDS: ['sair', 'cancelar'],
+  /**
+   * Só vale com `CONVERSATION_RESET_ENABLED`. Desligada, "reset" é texto comum — e no passo do nome
+   * vira o nome do cliente, que é o comportamento correto para quem se chama assim.
+   */
+  RESET_WORDS: ['reset'],
 } as const
 
 /**
@@ -432,6 +437,13 @@ export const MESSAGES = {
    */
   GOODBYE_CANCELLABLE_ORDER_HINT:
     'Seu pedido {codigo} continua em andamento. Se quiser cancelá-lo, é só me dizer "cancelar pedido".',
+  /**
+   * Diz o que foi apagado, e não só que apagou. É mensagem de ambiente de teste: quem acabou de
+   * rodar um fluxo precisa saber se o reset pegou o pedido que ele tinha fechado, e "pronto!" não
+   * responde isso — manda conferir no banco, que é o trabalho que este comando existe para evitar.
+   */
+  RESET_DONE: '🧹 Reset feito. Apaguei: {resumo}.\n\nMande qualquer mensagem para começar do zero.',
+  RESET_DONE_NOTHING: '🧹 Reset feito. Não havia nada guardado para este número.',
   SESSION_EXPIRED_PREFIX: '⏰ Faz um tempo que não conversamos, então recomecei sua sessão.\n\n',
   /**
    * `{codigo}` e `{itens}` preenchidos pelo CartResumeHandler.

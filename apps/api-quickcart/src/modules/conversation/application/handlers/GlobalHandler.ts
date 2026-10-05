@@ -58,6 +58,9 @@ import {
 import { formatPriceInCents } from '@/modules/conversation/shared/formatPriceInCents'
 import { amountDueInCents } from '@/modules/order/shared/amountDue'
 import { CHANNEL } from '@/modules/shared/shared.constant'
+import { CART_STATUS } from '@/modules/cart/shared/Cart.constant'
+import { isResetWord } from '@/modules/conversation/application/isResetWord'
+import type { CustomerResetRepositoryInterface } from '@/modules/conversation/domain/CustomerResetRepository.interface'
 import { isOrderBeforePicking } from '@/modules/order/domain/orderStatusFlow'
 import type { OrderRepositoryInterface } from '@/modules/order/domain/OrderRepository.interface'
 import { OrderNoPreviousOrderError } from '@/shared/errors/OrderErrors'
@@ -112,6 +115,10 @@ export type GlobalHandlerDependencies = {
   readonly cancelOrderByCustomerUseCase: Pick<CancelOrderByCustomerUseCase, 'execute'>
   /** Só para a despedida saber se ainda cabe lembrar o cliente da palavra que cancela. */
   readonly orderRepository: Pick<OrderRepositoryInterface, 'findLastByCustomer'>
+  /** Ferramenta de teste: apaga o cliente inteiro. Ver `CONVERSATION_RESET_ENABLED`. */
+  readonly customerResetRepository: CustomerResetRepositoryInterface
+  /** Fora da produção a palavra "reset" vira comando; dentro dela, não existe. */
+  readonly isResetEnabled: boolean
 }
 
 const globalLog = logger.child('GlobalHandler')
@@ -121,6 +128,16 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
 
   async tryHandle(context: ConversationHandlerContext): Promise<boolean> {
     const { session, customer, message } = context
+
+    /*
+     * Antes da saída e de todo o resto: o reset é a única coisa que precisa funcionar mesmo com a
+     * conversa em estado inconsistente, porque é para isso que ele existe. Ser o primeiro também é
+     * o que o tira do passo do nome, onde qualquer texto vira o nome do cliente.
+     */
+    if (this.isResetRequest(message)) {
+      await this.handleReset(session.customerPhone)
+      return true
+    }
 
     if (this.isExitRequest(message)) {
       await this.handleExit({
@@ -227,6 +244,45 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
     return false
   }
 
+  /**
+   * A flag vem antes da palavra: desligada, nem a comparação acontece, e "reset" segue para o fluxo
+   * como texto qualquer. É o que mantém a produção sem o comando mesmo que a palavra vaze num
+   * roteiro de teste.
+   */
+  private isResetRequest(message: ConversationHandlerContext['message']): boolean {
+    if (!this.dependencies.isResetEnabled) return false
+    return message.kind === 'text' && isResetWord(message.body)
+  }
+
+  private async handleReset(customerPhone: string): Promise<void> {
+    const result = await this.dependencies.customerResetRepository.resetByPhone(customerPhone)
+
+    const summary = [
+      result.deletedCustomers > 0 ? `cadastro (${result.deletedCustomers})` : undefined,
+      result.deletedOrders > 0 ? `pedidos (${result.deletedOrders})` : undefined,
+      result.deletedCarts > 0 ? `carrinhos (${result.deletedCarts})` : undefined,
+      result.deletedMessages > 0 ? `mensagens (${result.deletedMessages})` : undefined,
+    ].filter((part): part is string => part !== undefined)
+
+    /*
+     * A mensagem sai DEPOIS do delete e é gravada no transcript recém-zerado — ela é a primeira
+     * linha da conversa nova, e não a última da antiga. Mandar antes deixaria o cliente com um
+     * "apaguei tudo" que o delete seguinte apagaria junto.
+     */
+    await this.dependencies.whatsAppSender.sendText(
+      customerPhone,
+      summary.length > 0 ? MESSAGES.RESET_DONE.replace('{resumo}', summary.join(', ')) : MESSAGES.RESET_DONE_NOTHING,
+    )
+
+    globalLog.info(LOG_EVENTS.CONVERSATION_RESET, {
+      deletedCustomers: result.deletedCustomers,
+      deletedOrders: result.deletedOrders,
+      deletedCarts: result.deletedCarts,
+      deletedMessages: result.deletedMessages,
+      deletedSessions: result.deletedSessions,
+    })
+  }
+
   /** Digitar "sair"/"cancelar", ou tocar a saída que o desvio de falta de estoque oferece. */
   private isExitRequest(message: ConversationHandlerContext['message']): boolean {
     if (message.kind === 'button_reply') return message.buttonId === GLOBAL_BUTTON_ID.EXIT
@@ -241,8 +297,13 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
    * estoque e disparar aviso. O que a despedida acrescenta é dizer QUAL é a palavra — e só enquanto a
    * resposta ainda for sim, porque oferecer o que a esteira já não permite é pior que calar.
    *
-   * `shouldAskCartResume` é o que faltava para "sair" resetar de verdade: sem ele, o estado voltava a
-   * `greeting` e o carrinho aberto ressurgia intacto na mensagem seguinte.
+   * O carrinho é ABANDONADO aqui, e não guardado para a pergunta da volta. Guardar era a decisão
+   * anterior — "sair" zerava a sessão e o carrinho reaparecia na mensagem seguinte, então
+   * `shouldAskCartResume` passou a oferecê-lo de novo. Quem digita "sair" está desistindo da compra,
+   * e reencontrar a mesma sacola é justamente o que ele acabou de recusar.
+   *
+   * `abandoned` e não apagado: o carrinho desistido é o que diz onde a compra morre, e apagar a
+   * linha apaga a pergunta junto.
    *
    * O log fecha o trace depois do envio: a engine não loga sucesso e a mensagem enviada é registrada no
    * banco, não no stdout, então uma reclamação de "digitei sair e nada aconteceu" não tinha como ser
@@ -253,10 +314,13 @@ export class GlobalHandler implements GlobalConversationHandlerInterface {
     readonly customerId: string
     readonly fromState: string
   }): Promise<void> {
+    const openCart = await this.dependencies.cartRepository.findOpenByCustomer(params.customerId, CHANNEL.WHATSAPP)
+    if (openCart) await this.dependencies.cartRepository.updateStatus(openCart.id, CART_STATUS.ABANDONED)
+
     await this.dependencies.conversationSessionRepository.updateStateByPhone({
       customerPhone: params.customerPhone,
       currentState: CONVERSATION_STATE.GREETING,
-      context: { shouldAskCartResume: true },
+      context: {},
     })
 
     const lastOrder = await this.dependencies.orderRepository.findLastByCustomer(params.customerId)
