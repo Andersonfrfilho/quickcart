@@ -16,6 +16,8 @@
  * cancelamento que já aconteceu, e responder cancelando de novo seria o pior entendimento possível.
  */
 
+import { normalizeMessageText } from './normalizeMessageText'
+
 /** O objeto que precisa estar dito para a intenção ser de pedido, e não de sair da conversa. */
 const CANCEL_OBJECTS = ['pedido', 'compra', 'a compra', 'o pedido', 'minha compra', 'meu pedido'] as const
 
@@ -23,18 +25,8 @@ const CANCEL_VERBS = ['cancelar', 'quero cancelar', 'queria cancelar', 'gostaria
 
 const CANCEL_ARTICLES = ['o', 'a', 'meu', 'minha'] as const
 
-function normalize(text: string): string {
-  return text
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^\p{L}\p{N}\s]/gu, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
 export function isCancelOrderRequest(text: string): boolean {
-  const normalized = normalize(text)
+  const normalized = normalizeMessageText(text)
   if (!normalized) return false
 
   for (const verb of CANCEL_VERBS) {
