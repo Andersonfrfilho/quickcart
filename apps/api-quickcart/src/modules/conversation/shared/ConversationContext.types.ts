@@ -53,6 +53,14 @@ export type ConversationContext = {
   readonly awaitingQuantityProduct?: AwaitingQuantityProduct
   readonly wasExpired?: boolean
   /**
+   * Situação do pedido que o cliente já viu no pós-compra (estado `completed`).
+   *
+   * Guardada para não repetir o mesmo cartão palavra por palavra: a primeira pergunta recebe o cartão
+   * com botões, as seguintes só a linha de status, e o cartão volta quando a situação muda de verdade.
+   * Três respostas idênticas seguidas é o que faz o cliente concluir que o bot travou.
+   */
+  readonly trackedOrderStatus?: string
+  /**
    * O cliente saiu por vontade própria e tem carrinho aberto — a volta pergunta antes de somar.
    *
    * Campo próprio, e não `wasExpired`: sair e esquecer a conversa levam à mesma pergunta, mas não à

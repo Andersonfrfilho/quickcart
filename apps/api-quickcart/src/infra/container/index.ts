@@ -111,6 +111,7 @@ import { BrowseHandler } from '@/modules/conversation/application/handlers/Brows
 import { GlobalHandler } from '@/modules/conversation/application/handlers/GlobalHandler'
 import { CartHandler } from '@/modules/conversation/application/handlers/CartHandler'
 import { CheckoutHandler } from '@/modules/conversation/application/handlers/CheckoutHandler'
+import { CompletedHandler } from '@/modules/conversation/application/handlers/CompletedHandler'
 import { CashChangeHandler } from '@/modules/conversation/application/handlers/CashChangeHandler'
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import type { CartRepositoryInterface } from '@/modules/cart/domain/CartRepository.interface'
@@ -619,6 +620,13 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     orderRepository: dependencies.orderRepository,
     updateOrderStatusUseCase: dependencies.updateOrderStatusUseCase,
   })
+  const completedHandler = new CompletedHandler({
+    conversationSessionRepository,
+    whatsAppSender,
+    orderRepository,
+    // O mesmo handler do estado `greeting`: pedido entregue e "quero outro" dão no mesmo menu.
+    greetingHandler,
+  })
   const globalHandler = new GlobalHandler({
     conversationSessionRepository,
     whatsAppSender,
@@ -669,9 +677,9 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
       [CONVERSATION_STATE.AWAITING_CHECKOUT_CHANGE_RECEIPT]: checkoutHandler,
       [CONVERSATION_STATE.AWAITING_CHECKOUT_CHANGE_EMAIL]: checkoutHandler,
       [CONVERSATION_STATE.CONFIRMING]: checkoutHandler,
-      // Nenhum caminho grava mais `completed`, mas sessão antiga pode ter esse valor no banco:
-      // recomeçar pela saudação é o certo, e sem esta linha ela cairia no fallback.
-      [CONVERSATION_STATE.COMPLETED]: greetingHandler,
+      // O pós-compra enquanto o pedido está vivo. Ele mesmo devolve a conversa ao `greetingHandler`
+      // quando o último pedido termina — inclusive para a sessão antiga que ficou com este valor.
+      [CONVERSATION_STATE.COMPLETED]: completedHandler,
     },
   })
 

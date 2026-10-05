@@ -13,6 +13,8 @@
  * educados ("quero falar com um atendente") sem abrir a porta para qualquer menção ao assunto.
  */
 
+import { normalizeMessageText } from './normalizeMessageText'
+
 import { HUMAN_HANDOFF_PHRASES } from '@/modules/conversation/shared/Messages.constant'
 
 /** Base que pode seguir um dos prefixos de pedido, com ou sem artigo. */
@@ -22,16 +24,6 @@ const HANDOFF_BASE_EXPRESSIONS = ['atendente', 'humano', 'pessoa', 'alguem'] as 
 const HANDOFF_REQUEST_PREFIXES = ['quero falar com', 'preciso falar com', 'falar com'] as const
 
 const HANDOFF_ARTICLES = ['um', 'uma', 'o', 'a'] as const
-
-function normalize(text: string): string {
-  return text
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^\p{L}\p{N}\s]/gu, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
 
 function matchesRequestPrefix(normalized: string): boolean {
   for (const prefix of HANDOFF_REQUEST_PREFIXES) {
@@ -50,10 +42,10 @@ function matchesRequestPrefix(normalized: string): boolean {
 }
 
 export function isHumanHandoffRequest(text: string): boolean {
-  const normalized = normalize(text)
+  const normalized = normalizeMessageText(text)
   if (!normalized) return false
 
-  const normalizedPhrases = HUMAN_HANDOFF_PHRASES.map(normalize)
+  const normalizedPhrases = HUMAN_HANDOFF_PHRASES.map(normalizeMessageText)
   if (normalizedPhrases.includes(normalized)) return true
 
   return matchesRequestPrefix(normalized)
