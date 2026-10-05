@@ -20,6 +20,7 @@ import {
   type InteractiveButton,
   type InteractiveListSection,
   type SendMessageResult,
+  type SendTextOptions,
   type WhatsAppProvider,
 } from '@adatechnology/meta-whatsapp-provider'
 import { environment } from '@/infra/config/environment'
@@ -95,9 +96,9 @@ export class WhatsAppSender {
 
   constructor(private readonly dependencies: WhatsAppSenderDependencies) {}
 
-  async sendText(to: string, body: string): Promise<void> {
+  async sendText(to: string, body: string, options?: SendTextOptions): Promise<void> {
     const { waMessageId, mocked } = await this.sendViaProvider('text', to, (provider) =>
-      provider.messages.sendText(to, body),
+      provider.messages.sendText(to, body, options),
     )
     if (mocked) senderLog.info(LOG_EVENTS.WHATSAPP_SEND_MOCK, { to: maskPhone(to), type: 'text', bodyLength: body.length })
     await this.persistOutbound({ to, type: 'text', body, waMessageId })

@@ -172,7 +172,8 @@ describe('CheckoutHandler.handleAwaitingDeliveryType — atalho "Isso mesmo" (ch
       },
     })
 
-    expect(texts).toEqual([QUOTED_MESSAGE, MESSAGES.CHECKOUT_CARD_ON_DELIVERY_MACHINE_NOTICE])
+    expect(texts.slice(0, 2)).toEqual([QUOTED_MESSAGE, MESSAGES.CHECKOUT_CARD_ON_DELIVERY_MACHINE_NOTICE])
+    expect(texts.at(-1)).toContain('google.com/maps')
     expect(stateUpdates).toEqual([{ currentState: CONVERSATION_STATE.CONFIRMING, context: expect.any(Object) }])
     expect(buttonMessages).toHaveLength(1)
   })
@@ -217,7 +218,8 @@ describe('CheckoutHandler.handleAwaitingDeliveryType — atalho "Isso mesmo" (ch
       },
     })
 
-    expect(texts).toEqual([QUOTED_MESSAGE])
+    expect(texts.slice(0, 1)).toEqual([QUOTED_MESSAGE])
+    expect(texts.at(-1)).toContain('google.com/maps')
     expect(stateUpdates).toEqual([{ currentState: CONVERSATION_STATE.CONFIRMING, context: expect.any(Object) }])
   })
 })
