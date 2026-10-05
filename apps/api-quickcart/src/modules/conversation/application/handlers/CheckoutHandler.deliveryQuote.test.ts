@@ -460,7 +460,8 @@ describe('CheckoutHandler — "Isso mesmo" recota a entrega lembrada', () => {
     expect(quoteCalls[0]?.location).toEqual({ kind: CUSTOMER_LOCATION_KIND.COORDINATES, latitude: LATITUDE, longitude: LONGITUDE })
     expect(stateUpdates[0]?.currentState).toBe(CONVERSATION_STATE.CONFIRMING)
     expect(stateUpdates[0]?.context).toMatchObject({ checkoutDeliveryFeeInCents: 500, checkoutAddress: locationAddress })
-    expect(texts).toEqual([QUOTED_MESSAGE])
+    expect(texts.slice(0, 1)).toEqual([QUOTED_MESSAGE])
+    expect(texts.at(-1)).toContain('google.com/maps')
   })
 
   it('recota fora do raio: descarta o atalho, avisa e volta à escolha do tipo de entrega', async () => {

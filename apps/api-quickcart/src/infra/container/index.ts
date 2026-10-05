@@ -607,16 +607,6 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     addressLookupProvider,
     storePreparationMinutes: environment.STORE_PREPARATION_MINUTES,
     quoteDeliveryFeeUseCase,
-    /*
-     * A MESMA coordenada que cotou a taxa, e por isso já em cache: o pino aproximado não paga uma
-     * segunda ida ao geocodificador nem depende de o endereço ter vindo com latitude.
-     */
-    resolveAddressCoordinates: async (address) => {
-      const cep = (address as { readonly cep?: unknown } | null)?.cep
-      if (typeof cep !== 'string' || !cep) return undefined
-
-      return await dependencies.resolveCepCoordinateUseCase.execute({ cep })
-    },
   })
   const cashChangeHandler = new CashChangeHandler({
     conversationSessionRepository,
