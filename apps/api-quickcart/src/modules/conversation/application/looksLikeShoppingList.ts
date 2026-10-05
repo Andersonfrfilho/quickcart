@@ -17,7 +17,12 @@
  * É deliberadamente um teste de FORMA, não de assunto: não sabe o que é arroz, e não deve saber. Um
  * catálogo aqui dentro faria o porteiro reprovar o que o catálogo não tem, que é justamente o item
  * que o lojista precisa descobrir que falta.
+ *
+ * A única exceção ao "só forma" é a fala social: ela tem forma de lista sem ser uma. Ver
+ * `hasOnlySocialSpeech`.
  */
+
+import { LIST_NOISE_TERMS } from '@/modules/conversation/shared/ListNoise.constant'
 
 /** Unidades que aparecem em compra de supermercado. Abreviação junto, porque é como se dita. */
 const UNIT_WORDS = [
@@ -89,6 +94,9 @@ const ITEMS_FOR_LIST_BY_COUNT = 3
 /** Abaixo disto não há forma para ler: "oi", "sim", "ok". */
 const MIN_SIGNIFICANT_LENGTH = 6
 
+/** "tudo bem?" só casa com a fala social se o ponto de interrogação sair antes. */
+const TRAILING_PUNCTUATION = /[.,;:!?]+$/
+
 function normalize(text: string): string {
   return text
     .toLowerCase()
@@ -102,21 +110,37 @@ function hasWord(text: string, words: readonly string[]): boolean {
   return words.some((word) => new RegExp(`(^|[^a-z0-9])${word}([^a-z0-9]|$)`).test(text))
 }
 
-function countItems(text: string): number {
+function splitSegments(text: string): readonly string[] {
   return text
     .split(/,|;|\n|\+|\be\b/)
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0).length
+    .map((part) => part.replace(TRAILING_PUNCTUATION, '').trim())
+    .filter((part) => part.length > 0)
+}
+
+/**
+ * "oi, bom dia, tudo bem?" tem três segmentos separados por vírgula e passava na regra de
+ * enumeração longa. O cliente cumprimentava e recebia "📝 Entendi que é uma lista!" seguido de
+ * "não consegui identificar nenhum item" — duas mensagens de robô se contradizendo, porque o
+ * anúncio sai antes de o parser descobrir que não sobrou nada.
+ *
+ * Reprova só quando NADA no texto é item. "oi, arroz, feijão" continua lista: tem ruído, mas tem
+ * compra junto, e é o parser que limpa o resto.
+ */
+function hasOnlySocialSpeech(segments: readonly string[]): boolean {
+  return segments.every((segment) => LIST_NOISE_TERMS.has(segment))
 }
 
 export function looksLikeShoppingList(rawText: string): boolean {
   const text = normalize(rawText)
   if (text.length < MIN_SIGNIFICANT_LENGTH) return false
 
+  const segments = splitSegments(text)
+  if (hasOnlySocialSpeech(segments)) return false
+
   const hasDigit = /\d/.test(text)
   const hasUnit = hasWord(text, UNIT_WORDS)
   const hasSpelledNumber = hasWord(text, SPELLED_NUMBERS)
-  const itemCount = countItems(text)
+  const itemCount = segments.length
 
   // Unidade de medida é o sinal mais forte que existe: ninguém diz "dois quilos" fora de compra.
   if (hasUnit && (hasDigit || hasSpelledNumber)) return true

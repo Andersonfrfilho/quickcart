@@ -43,6 +43,8 @@ export const LOG_EVENTS = {
   CONVERSATION_ENGINE_FAILED: 'conversation_engine_failed',
   CONVERSATION_CUSTOMER_NOT_FOUND: 'conversation_customer_not_found',
   CONVERSATION_EXITED: 'conversation_exited',
+  /** Ferramenta de teste: só existe com `CONVERSATION_RESET_ENABLED`, e apaga o cliente inteiro. */
+  CONVERSATION_RESET: 'conversation_reset',
   CONVERSATION_LIST_REFINE_NON_OK: 'conversation_list_refine_non_ok',
   CONVERSATION_LIST_REFINE_FAILED: 'conversation_list_refine_failed',
   CONVERSATION_KNOWN_BRANDS_UNAVAILABLE: 'conversation_known_brands_unavailable',

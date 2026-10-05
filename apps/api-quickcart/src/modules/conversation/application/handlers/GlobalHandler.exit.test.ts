@@ -11,7 +11,8 @@
  *
  * Arquivo separado porque a saída não tinha teste nenhum, e é exatamente por isso que passou
  * despercebido que ela zerava a sessão e deixava o carrinho de pé: quem saía por causa de um item
- * sem estoque voltava para o mesmo carrinho e para o mesmo erro.
+ * sem estoque voltava para o mesmo carrinho e para o mesmo erro. Hoje a saída ABANDONA o carrinho —
+ * quem desiste não deve reencontrar a sacola que acabou de recusar.
  */
 
 import { describe, expect, it } from 'bun:test'
@@ -21,11 +22,13 @@ import type { ParsedInboundMessage } from '@/modules/webhook/application/types/W
 import { CONVERSATION_STATE } from '@/modules/conversation/shared/ConversationState.constant'
 import { GLOBAL_BUTTON_ID, MESSAGES } from '@/modules/conversation/shared/Messages.constant'
 import { ORDER_STATUS } from '@/modules/order/shared/Order.constant'
+import { CART_STATUS } from '@/modules/cart/shared/Cart.constant'
 import { GlobalHandler, type GlobalHandlerDependencies } from './GlobalHandler'
 
 const PHONE = '5511988887777'
 const CUSTOMER: Pick<Customer, 'id'> = { id: 'customer-1' }
 const SHORT_CODE = 'A1B2C3'
+const OPEN_CART_ID = 'cart-1'
 
 function buildSession(): ConversationSession {
   return {
@@ -55,9 +58,10 @@ function exitButtonMessage(): ParsedInboundMessage {
   }
 }
 
-function buildDependencies(lastOrderStatus?: string) {
+function buildDependencies(lastOrderStatus?: string, hasOpenCart = true) {
   const texts: string[] = []
   const stateUpdates: { currentState: string; context: Record<string, unknown> }[] = []
+  const cartStatusUpdates: { cartId: string; status: string }[] = []
 
   const dependencies = {
     conversationSessionRepository: {
@@ -78,7 +82,15 @@ function buildDependencies(lastOrderStatus?: string) {
       },
     },
     cacheProvider: { async setIfNotExists() { return true } },
-    cartRepository: {},
+    cartRepository: {
+      async findOpenByCustomer() {
+        return hasOpenCart ? { id: OPEN_CART_ID } : undefined
+      },
+      async updateStatus(cartId: string, status: string) {
+        cartStatusUpdates.push({ cartId, status })
+        return undefined
+      },
+    },
     productRepository: {},
     repeatLastOrderUseCase: {},
     resolveCustomerDecisionUseCase: {},
@@ -88,12 +100,12 @@ function buildDependencies(lastOrderStatus?: string) {
     listHandler: {},
   } as unknown as GlobalHandlerDependencies
 
-  return { dependencies, texts, stateUpdates }
+  return { dependencies, texts, stateUpdates, cartStatusUpdates }
 }
 
 describe('GlobalHandler — saída', () => {
-  it('solta o carrinho para a pergunta da volta em vez de zerar o contexto', async () => {
-    const { dependencies, stateUpdates } = buildDependencies()
+  it('abandona o carrinho aberto e zera o contexto', async () => {
+    const { dependencies, stateUpdates, cartStatusUpdates } = buildDependencies()
     const handler = new GlobalHandler(dependencies)
 
     const handled = await handler.tryHandle({
@@ -103,9 +115,27 @@ describe('GlobalHandler — saída', () => {
     })
 
     expect(handled).toBe(true)
+    expect(cartStatusUpdates).toEqual([{ cartId: OPEN_CART_ID, status: CART_STATUS.ABANDONED }])
     expect(stateUpdates).toEqual([
-      { currentState: CONVERSATION_STATE.GREETING, context: { shouldAskCartResume: true } },
+      { currentState: CONVERSATION_STATE.GREETING, context: {} },
     ])
+  })
+
+  /*
+   * Sem carrinho aberto a saída não pode inventar um: `updateStatus` com id indefinido abandonaria
+   * o carrinho de outra pessoa ou estouraria, e os dois acontecem calados no meio da despedida.
+   */
+  it('não tenta abandonar carrinho quando não existe nenhum aberto', async () => {
+    const { dependencies, cartStatusUpdates } = buildDependencies(undefined, false)
+    const handler = new GlobalHandler(dependencies)
+
+    await handler.tryHandle({
+      session: buildSession(),
+      customer: CUSTOMER as Customer,
+      message: textMessage('sair'),
+    })
+
+    expect(cartStatusUpdates).toEqual([])
   })
 
   it('o botão de saída faz o mesmo que a palavra digitada', async () => {
@@ -120,7 +150,7 @@ describe('GlobalHandler — saída', () => {
 
     expect(handled).toBe(true)
     expect(stateUpdates).toEqual([
-      { currentState: CONVERSATION_STATE.GREETING, context: { shouldAskCartResume: true } },
+      { currentState: CONVERSATION_STATE.GREETING, context: {} },
     ])
     expect(texts).toEqual([MESSAGES.GOODBYE])
   })

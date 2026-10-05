@@ -30,6 +30,7 @@ import type { AudioTranscriber } from '@adatechnology/audio-transcription-provid
 import { serializeError } from '@/shared/serializeError'
 import { MESSAGES } from '@/modules/conversation/shared/Messages.constant'
 import { isExitWord } from '@/modules/conversation/application/isExitWord'
+import { isResetWord } from '@/modules/conversation/application/isResetWord'
 import { matchChoiceOption } from '@/modules/conversation/application/matchChoiceOption'
 import { shouldYieldToShoppingList } from '@/modules/conversation/application/shouldYieldToShoppingList'
 import { looksLikeShoppingList } from '@/modules/conversation/application/looksLikeShoppingList'
@@ -153,6 +154,22 @@ export class FlowDriver {
   // continua sendo o caminho de quem já está no meio de um carrinho ou checkout.
   async handleInbound(params: HandleInboundParams): Promise<HandleInboundResult> {
     const { session, message } = params
+
+    /*
+     * "reset" cai aqui pela mesma razão que "sair", e com urgência maior: ele existe para destravar
+     * uma conversa, e um nó do grafo que o engolisse como resposta mataria justamente o comando de
+     * emergência. A flag é consultada no GlobalHandler, não aqui — desligada, ele devolve
+     * `handled: false` e a palavra volta a ser texto comum, só que já sem a posição no grafo.
+     *
+     * Soltar a posição antes de saber se o reset vai acontecer é de propósito: o reset apaga a
+     * sessão inteira logo em seguida, e com a flag desligada a conversa recomeça do início, que é o
+     * que alguém digitando "reset" quer de qualquer forma.
+     */
+    if (message.kind === 'text' && isResetWord(message.body)) {
+      await this.dependencies.sessionRepository.setFlowPosition(COMPANY_ID, session.whatsappNumber, null, null)
+      flowLog.info('flow_reset_by_customer', { nodeId: session.currentNodeId })
+      return { handled: false }
+    }
 
     /*
      * "sair" não é resposta de nó: o grafo casaria contra as opções, não acharia nenhuma e repetiria

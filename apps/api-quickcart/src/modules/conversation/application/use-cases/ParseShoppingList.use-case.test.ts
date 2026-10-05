@@ -231,4 +231,36 @@ describe('ParseShoppingListUseCase', () => {
       ])
     })
   })
+
+  describe('fala social da transcrição de áudio', () => {
+    test('descarta a saudação ditada antes da lista', async () => {
+      const result = await buildUseCase().execute({
+        rawText: 'bom dia, arroz, dois quilos de feijão, sal',
+      })
+
+      expect(result.items).toEqual([
+        { term: 'arroz', quantity: 1, unit: 'un' },
+        { term: 'feijao', quantity: 2, unit: 'quilos' },
+        { term: 'sal', quantity: 1, unit: 'un' },
+      ])
+    })
+
+    test('descarta o fecho de lista e o agradecimento', async () => {
+      const result = await buildUseCase().execute({ rawText: 'arroz, sal, é só isso, obrigado' })
+
+      expect(result.items).toEqual([
+        { term: 'arroz', quantity: 1, unit: 'un' },
+        { term: 'sal', quantity: 1, unit: 'un' },
+      ])
+    })
+
+    test('não mutila o produto que contém a saudação no nome', async () => {
+      const result = await buildUseCase().execute({ rawText: 'café bom dia, 2kg de arroz' })
+
+      expect(result.items).toEqual([
+        { term: 'cafe bom dia', quantity: 1, unit: 'un' },
+        { term: 'arroz', quantity: 2, unit: 'kg' },
+      ])
+    })
+  })
 })

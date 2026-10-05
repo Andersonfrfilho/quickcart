@@ -97,6 +97,7 @@ import { GroqListRefinerProvider } from '@/modules/conversation/infra/providers/
 import { CachedKnownBrandsProvider } from '@/modules/conversation/infra/providers/CachedKnownBrandsProvider'
 import { DrizzleListImportRepository } from '@/modules/conversation/infra/database/DrizzleListImportRepository'
 import { DrizzleUnmatchedDemandRepository } from '@/modules/conversation/infra/database/DrizzleUnmatchedDemandRepository'
+import { DrizzleCustomerResetRepository } from '@/modules/conversation/infra/database/DrizzleCustomerResetRepository'
 import { ConversationCheckoutContextController } from '@/modules/conversation/infra/http/ConversationCheckoutContext.controller'
 import { GetConversationCheckoutContextUseCase } from '@/modules/conversation/application/use-cases/GetConversationCheckoutContext.use-case'
 import { UnmatchedDemandController } from '@/modules/conversation/infra/http/UnmatchedDemand.controller'
@@ -631,6 +632,8 @@ function buildConversationModule(dependencies: ConversationModuleDependencies): 
     cancelOrderByCustomerUseCase,
     // A despedida só oferece "cancelar pedido" enquanto a esteira ainda aceita.
     orderRepository,
+    customerResetRepository: new DrizzleCustomerResetRepository(),
+    isResetEnabled: environment.CONVERSATION_RESET_ENABLED,
     // O mesmo handler do estado `awaiting_list`: lista ditada fora de hora precisa dar no mesmo lugar.
     listHandler,
   })

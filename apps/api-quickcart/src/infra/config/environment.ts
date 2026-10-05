@@ -32,6 +32,10 @@ export const environmentSchema = z.object({
   // `booleanFromString` e não `z.coerce.boolean()`: coerção é `Boolean(valor)`, então a string
   // "false" ligaria a flag — desligar a mão abriria as rotas de preview em vez de fechá-las.
   PREVIEW_TRANSCRIPT_ENABLED: booleanFromString('false'),
+  // A palavra "reset" apaga TUDO de um cliente — cadastro, pedidos e histórico. Existe para o
+  // ambiente de teste não depender de SQL na mão; em produção a palavra não pode ser comando,
+  // porque um cliente que a digitasse perderia o próprio histórico sem pedir e sem desfazer.
+  CONVERSATION_RESET_ENABLED: booleanFromString('false'),
   WHATSAPP_API_VERSION: z.string().default('v21.0'),
   WHATSAPP_BASE_URL: z.string().default('https://graph.facebook.com'),
   // O meta-whatsapp-module é multiempresa por construção; o QuickCart atende uma loja só.

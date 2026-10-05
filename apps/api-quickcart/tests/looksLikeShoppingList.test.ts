@@ -68,4 +68,14 @@ describe('looksLikeShoppingList', () => {
     expect(looksLikeShoppingList('DOIS QUILOS DE AÇÚCAR')).toBe(true)
     expect(looksLikeShoppingList('três pacotes de pão')).toBe(true)
   })
+
+  it('não trata cumprimento encadeado como lista', () => {
+    expect(looksLikeShoppingList('oi, bom dia, tudo bem?')).toBe(false)
+    expect(looksLikeShoppingList('boa tarde, tudo bem, obrigado')).toBe(false)
+  })
+
+  it('continua lista quando há compra junto do cumprimento', () => {
+    expect(looksLikeShoppingList('oi, arroz, feijão, café')).toBe(true)
+    expect(looksLikeShoppingList('bom dia, dois quilos de arroz')).toBe(true)
+  })
 })
