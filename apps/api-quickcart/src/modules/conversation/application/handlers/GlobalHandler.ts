@@ -82,6 +82,12 @@ const SHOPPING_LIST_INTENT_STATES: ReadonlySet<string> = new Set([
   CONVERSATION_STATE.MAIN_MENU,
   CONVERSATION_STATE.BROWSING_CATEGORIES,
   CONVERSATION_STATE.CART_REVIEW,
+  /*
+   * `completed` está dentro porque carrinho novo não encosta no pedido fechado: quem dita uma lista
+   * enquanto espera a entrega está começando a compra seguinte, e mandá-lo tocar em "Novo pedido"
+   * primeiro seria pedir um clique para ignorar o que ele já disse.
+   */
+  CONVERSATION_STATE.COMPLETED,
 ])
 
 export type GlobalHandlerDependencies = {

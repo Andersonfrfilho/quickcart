@@ -1296,9 +1296,14 @@ export class CheckoutHandler implements ConversationHandlerInterface {
         reason: ORDER_CHANGE_REASON.CREATED,
       })
 
+      /*
+       * `completed`, não `greeting`: o pedido fechou mas não acabou, e devolver a conversa ao começo
+       * fazia qualquer mensagem seguinte — inclusive o "ok" de resposta a uma troca de item em falta —
+       * reabrir o menu de boas-vindas no meio de um pedido em separação. Ver CompletedHandler.
+       */
       await this.dependencies.conversationSessionRepository.updateStateByPhone({
         customerPhone: session.customerPhone,
-        currentState: CONVERSATION_STATE.GREETING,
+        currentState: CONVERSATION_STATE.COMPLETED,
         context: {},
       })
       const deliveryEstimateLine = await this.buildDeliveryEstimateLine(order)

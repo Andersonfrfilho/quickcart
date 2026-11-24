@@ -629,7 +629,53 @@ export const MESSAGES = {
   ORDER_CART_EMPTY_ERROR: 'Seu carrinho está vazio, não dá pra fechar o pedido ainda.',
   REPEAT_ORDER_ADDED: '🔁 Adicionei os itens do seu último pedido no carrinho!',
   REPEAT_ORDER_SKIPPED_PREFIX: '⚠️ Alguns itens não estavam mais disponíveis e foram pulados:',
+
+  /**
+   * O pós-compra, enquanto o pedido está vivo (estado `completed` da conversa).
+   *
+   * Antes deste bloco a sessão voltava para `greeting` assim que a compra fechava, e qualquer texto
+   * depois disso — inclusive o "ok" com que o cliente respondeu à troca de um item em falta — abria o
+   * menu de boas-vindas, pedindo que ele fizesse o pedido de novo no meio de um pedido em separação.
+   */
+  ORDER_TRACKING_CARD: '📦 Pedido *{codigo}* — {situacao}\n\nQuer fazer mais alguma coisa?',
+  /** Repetição: a partir da segunda pergunta sai só a linha, sem os botões. Cartão idêntico três vezes parece bot quebrado. */
+  ORDER_TRACKING_LINE: '📦 Pedido *{codigo}* — {situacao}',
+  /** Fecha o assunto sem abrir menu nenhum: é a resposta ao "ok" que gerou este estado. */
+  ORDER_TRACKING_ACKNOWLEDGED: 'Combinado! 👍 Qualquer novidade do pedido *{codigo}* eu aviso por aqui.',
+
+  /*
+   * Uma frase por status, na voz de quem está esperando — nunca o valor do enum.
+   * `separated` e `awaiting_customer_decision` são os dois que mais precisavam disso: "separado" não
+   * diz nada a quem espera, e "aguardando decisão do cliente" é uma pergunta sem a pergunta.
+   */
+  ORDER_SITUATION_PENDING_CONFIRMATION: 'estamos confirmando por aqui.',
+  ORDER_SITUATION_CONFIRMED: 'confirmado! já vamos separar seus itens.',
+  ORDER_SITUATION_PREPARING: 'estamos separando seus itens agora.',
+  ORDER_SITUATION_SEPARATED: 'tudo separado, saindo em instantes.',
+  ORDER_SITUATION_AWAITING_CUSTOMER_DECISION: 'falta você responder a pergunta sobre um item aqui em cima — a separação está parada esperando.',
+  ORDER_SITUATION_OUT_FOR_DELIVERY: 'saiu para entrega! 🛵',
+  ORDER_SITUATION_IN_TRANSIT: 'está a caminho do seu endereço. 🛵',
+  ORDER_SITUATION_ARRIVED_AT_CUSTOMER: 'o entregador chegou! 🛎️',
+  ORDER_SITUATION_READY_FOR_PICKUP: 'pronto para retirar na loja. 🏪',
+  ORDER_SITUATION_DELIVERY_FAILED: 'a entrega não deu certo e já estamos resolvendo.',
 } as const
+
+export const ORDER_TRACKING_BUTTON_ID = {
+  TRACK: 'order_tracking_track',
+  NEW_ORDER: 'order_tracking_new_order',
+} as const
+
+/**
+ * A rede embaixo do reconhecimento por palavra: quando o texto não é nem pergunta de status, nem
+ * agradecimento, nem lista de compras, o bot não chuta — oferece os três caminhos do pós-compra.
+ *
+ * Botão não depende de palavra, e é ele que torna o classificador aceitável.
+ */
+export const ORDER_TRACKING_BUTTONS = [
+  { id: ORDER_TRACKING_BUTTON_ID.TRACK, title: '📦 Acompanhar' },
+  { id: ORDER_TRACKING_BUTTON_ID.NEW_ORDER, title: '🛒 Novo pedido' },
+  { id: MENU_BUTTON_ID.TALK_TO_AGENT, title: '💬 Atendente' },
+] as const
 
 export const MENU_BUTTONS = [
   { id: MENU_BUTTON_ID.SEND_LIST, title: '📝 Enviar lista' },

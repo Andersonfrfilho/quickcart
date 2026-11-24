@@ -97,6 +97,29 @@ Diferença: lá o fluxo conversacional fica no n8n; **aqui o motor de conversa v
   "pessoa"/frases curtas equivalentes, em qualquer estado, via `GlobalHandler`, casamento por
   mensagem inteira (não substring). Não cala o bot — só marca a fila de espera.
 
+### Pós-compra: estado `completed` (`CompletedHandler.ts`)
+
+- **O pedido fecha em `completed`, não em `greeting`.** `confirmOrder` estacionava a conversa na
+  saudação, e por isso qualquer mensagem depois da compra reabria o menu de boas-vindas — inclusive o
+  "ok" com que o cliente respondia à oferta de troca de um item em falta, no meio de um pedido em
+  separação.
+- **A saída do estado é por LEITURA, não por evento**: a cada mensagem o `CompletedHandler` consulta
+  `findLastByCustomer` e, quando o pedido está `completed`/`cancelled` (ou não existe), delega ao
+  `GreetingHandler`. Não há job marcando "entregou" e não há sessão presa quando o pedido termina.
+- **Roteamento por palavra, com rede de botões**: `isAcknowledgement` (mensagem inteira — o falso
+  positivo é caro) fecha o assunto; `isOrderStatusRequest` (por trecho — o falso positivo é barato)
+  responde a situação; texto não reconhecido **nunca é chutado**, vira o cartão com
+  `ORDER_TRACKING_BUTTONS` (Acompanhar · Novo pedido · Atendente).
+- **Repetição**: o cartão sai na primeira vez e a cada mudança de situação (`trackedOrderStatus` no
+  contexto da sessão); as repetições recebem só a linha. Cartão idêntico três vezes parece bot travado.
+- **`describeOrderSituation`** (`shared/orderSituation.ts`) traduz o status para a voz de quem espera —
+  o cliente nunca lê o valor do enum. `separated` é o único degrau que depende de `deliveryType`:
+  numa retirada ele é "pronto para retirar", não "saindo em instantes".
+- **`CONVERSATION_STATE.COMPLETED` está em `SHOPPING_LIST_INTENT_STATES`**: lista ditada no pós-compra
+  monta carrinho novo, que não encosta no pedido fechado.
+- **`normalizeMessageText`** (`shared/normalizeMessageText.ts`) é a única normalização de texto do
+  módulo — `isCancelOrderRequest`, `isHumanHandoffRequest` e os reconhecedores do pós-compra a usam.
+
 ### Taxa de entrega por faixa de distância (`.specs/features/taxa-por-faixa/`)
 
 - **Tabela `delivery_fee_tiers`**: máximo de distância (km) e taxa (centavos) por faixa.
